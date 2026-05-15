@@ -35,7 +35,7 @@ function ProjectGroup(props: { title: string; items: ProjectListItem[] }) {
 
 export function ProjectsArchivePage() {
   const [archived] = createResource(fetchArchivedProjects);
-  const [projects] = createResource(fetchProjects);
+  const [projects] = createResource(() => fetchProjects());
 
   const cancelled = createMemo(() =>
     (projects() ?? []).filter((item) => getStatus(item) === "cancelled")

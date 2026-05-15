@@ -1,6 +1,11 @@
 import { z } from "zod";
-import type { LeadSessionChangedEvent } from "./lead-sessions/types.js";
+import type {
+  LeadSession,
+  LeadSessionChangedEvent,
+} from "./lead-sessions/types.js";
 import type { Hono } from "hono";
+
+export type { LeadSession, LeadSessionChangedEvent };
 
 // Think levels
 export const ThinkLevelSchema = z.enum([

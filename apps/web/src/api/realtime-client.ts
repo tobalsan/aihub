@@ -1,4 +1,4 @@
-import type { SubagentRunStatus } from "@aihub/shared/types";
+import type { LeadSessionChangedEvent, SubagentRunStatus } from "@aihub/shared/types";
 import { getWsUrl, type WsStreamEvent } from "./ws";
 
 export type RealtimeInterest =
@@ -17,6 +17,7 @@ export type RealtimeEvent =
       parent?: { type: string; id: string };
       status: SubagentRunStatus;
     }
+  | LeadSessionChangedEvent
   | WsStreamEvent;
 
 export type SubscribeToRealtimeOptions = {
@@ -58,7 +59,7 @@ function shouldDeliver(
   if (event.type === "file_changed" || event.type === "agent_changed") {
     return matchesProject(interests, event);
   }
-  if (event.type === "subagent_changed") {
+  if (event.type === "subagent_changed" || event.type === "lead_session_changed") {
     return hasInterest(interests, "subagents");
   }
   if (event.type === "error") return true;

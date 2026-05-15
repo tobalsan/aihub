@@ -6,39 +6,70 @@ import {
   createSignal,
   onCleanup,
 } from "solid-js";
-import type { SubagentRun } from "@aihub/shared/types";
+import type { JSX } from "solid-js";
+import type {
+  FileAttachment,
+  FullHistoryMessage,
+  LeadSession,
+  SubagentRun,
+} from "@aihub/shared/types";
 import {
   archiveRuntimeSubagent,
+  createLeadSession,
+  deleteLeadSession,
   deleteRuntimeSubagent,
+  fetchAgents,
+  fetchLeadSessionTranscript,
+  fetchLeadSessions,
   fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
   interruptRuntimeSubagent,
+  patchLeadSession,
   resumeRuntimeSubagent,
+  selectDefaultProjectManagerAgent,
+  sendLeadSessionMessage,
   subscribeToFileChanges,
+  subscribeToLeadSessionChanges,
   subscribeToSubagentChanges,
   uploadFiles,
 } from "../api";
-import type { SubagentLogEvent } from "../api/types";
+import type { Agent, SubagentLogEvent } from "../api/types";
 import { FILE_INPUT_ACCEPT, formatFileSize } from "../lib/attachments";
 import { BoardChatLog } from "./BoardChatRenderer";
 import type { BoardLogItem } from "./BoardChatRenderer";
+
+type Segment = "lead" | "subagents";
 
 type LogState = {
   events: SubagentLogEvent[];
   cursor: number;
 };
 
+type LeadTranscriptState = {
+  messages: FullHistoryMessage[];
+  loaded: boolean;
+};
+
 type PendingMessage = {
   id: string;
-  runId: string;
+  family: Segment;
+  targetId: string;
   content: string;
   queued: boolean;
   sending: boolean;
   error?: string;
+  files?: FileAttachment[];
 };
 
 function formatRuntimeTime(run: SubagentRun) {
-  const raw = run.lastActiveAt ?? run.finishedAt ?? run.startedAt;
+  return formatElapsed(run.lastActiveAt ?? run.finishedAt ?? run.startedAt);
+}
+
+function formatLeadTime(session: LeadSession) {
+  return formatElapsed(session.updatedAt || session.createdAt);
+}
+
+function formatElapsed(raw: string) {
   const elapsed = Date.now() - Date.parse(raw);
   if (!Number.isFinite(elapsed) || elapsed < 0) return "now";
   const minutes = Math.floor(elapsed / 60000);
@@ -51,6 +82,10 @@ function formatRuntimeTime(run: SubagentRun) {
 
 function isRunning(run: SubagentRun) {
   return run.status === "running" || run.status === "starting";
+}
+
+function isLegacyLeadSession(session: LeadSession) {
+  return session.id === `lead:${session.projectId}:legacy:${session.agentId}`;
 }
 
 function parseJsonRecord(raw: string): Record<string, unknown> | null {
@@ -87,7 +122,6 @@ function eventToBoardItem(event: SubagentLogEvent): BoardLogItem | null {
   if (event.type === "stderr" || event.type === "error") {
     return { type: "text", role: "assistant", content: text };
   }
-
   if (event.type === "tool_call" || event.type === "tool_output") {
     return {
       type: "tool",
@@ -98,11 +132,7 @@ function eventToBoardItem(event: SubagentLogEvent): BoardLogItem | null {
       status: event.type === "tool_output" ? "done" : "running",
     };
   }
-
-  if (event.type === "user") {
-    return { type: "text", role: "user", content: text };
-  }
-
+  if (event.type === "user") return { type: "text", role: "user", content: text };
   if (event.type === "assistant") {
     return { type: "text", role: "assistant", content: text };
   }
@@ -159,6 +189,27 @@ function transcriptItems(events: SubagentLogEvent[]) {
     .filter((item): item is BoardLogItem => item !== null);
 }
 
+function messageText(message: FullHistoryMessage) {
+  return message.content
+    .map((block) => {
+      if (block.type === "text") return block.text;
+      if (block.type === "file") return block.filename ?? block.fileId;
+      return "";
+    })
+    .filter(Boolean)
+    .join("\n\n");
+}
+
+function leadItems(messages: FullHistoryMessage[]) {
+  return messages
+    .map((message): BoardLogItem | null => {
+      if (message.role !== "user" && message.role !== "assistant") return null;
+      const content = messageText(message).trim();
+      return content ? { type: "text", role: message.role, content } : null;
+    })
+    .filter((item): item is BoardLogItem => item !== null);
+}
+
 function latestExcerpt(items: BoardLogItem[]) {
   const item = [...items].reverse().find((entry) => {
     if (entry.type === "text") return entry.content.trim();
@@ -166,8 +217,11 @@ function latestExcerpt(items: BoardLogItem[]) {
     return false;
   });
   if (!item) return "No visible transcript";
-  const text =
-    item.type === "text" ? item.content : item.body || `${item.toolName} call`;
+  const text = item.type === "tool"
+    ? item.body || `${item.toolName} call`
+    : item.type === "text"
+      ? item.content
+      : item.content;
   const singleLine = text.replace(/\s+/g, " ").trim();
   return singleLine.length > 96 ? `${singleLine.slice(0, 95)}…` : singleLine;
 }
@@ -176,29 +230,67 @@ function runSortValue(run: SubagentRun) {
   return Date.parse(run.lastActiveAt ?? run.finishedAt ?? run.startedAt) || 0;
 }
 
+function leadSortValue(session: LeadSession) {
+  return Date.parse(session.updatedAt || session.createdAt) || 0;
+}
+
+function singleQueryValue(value: string | string[] | undefined) {
+  return Array.isArray(value) ? value[0] : value;
+}
+
 export function AgentRunChatPanel(props: {
   projectId: string;
   sliceId?: string;
-  selectedRunId?: string;
+  selectedRunId?: string | string[];
+  selectedLeadId?: string | string[];
   onSelectedRunIdChange?: (runId: string | undefined) => void;
+  onSelectedLeadIdChange?: (leadId: string | undefined) => void;
   filter?: (run: SubagentRun) => boolean;
 }) {
+  const [agents, setAgents] = createSignal<Agent[]>([]);
+  const [leadSessions, setLeadSessions] = createSignal<LeadSession[]>([]);
   const [runs, setRuns] = createSignal<SubagentRun[]>([]);
   const [logsByRunId, setLogsByRunId] = createSignal<Record<string, LogState>>(
     {}
   );
+  const [leadTranscripts, setLeadTranscripts] = createSignal<
+    Record<string, LeadTranscriptState>
+  >({});
   const [loading, setLoading] = createSignal(true);
   const [error, setError] = createSignal<string | null>(null);
   const [archivedOpen, setArchivedOpen] = createSignal(false);
+  const [activeSegment, setActiveSegment] = createSignal<Segment>("lead");
   const [selectionCleared, setSelectionCleared] = createSignal(false);
+  const [internalRunId, setInternalRunId] = createSignal<string | undefined>();
+  const [internalLeadId, setInternalLeadId] = createSignal<string | undefined>();
   const [draft, setDraft] = createSignal("");
   const [pendingFiles, setPendingFiles] = createSignal<File[]>([]);
   const [pendingMessages, setPendingMessages] = createSignal<PendingMessage[]>(
     []
   );
+  const [draftAgentByLeadId, setDraftAgentByLeadId] = createSignal<
+    Record<string, string>
+  >({});
   let fileInputEl: HTMLInputElement | undefined;
   let chatMessagesEl: HTMLDivElement | undefined;
+  let loadSeq = 0;
 
+  const scopedLeadSessions = createMemo(() =>
+    leadSessions().filter((session) =>
+      props.sliceId
+        ? session.sliceId === props.sliceId
+        : session.sliceId === undefined
+    )
+  );
+  const sortedLeads = createMemo(() =>
+    [...scopedLeadSessions()].sort((a, b) => leadSortValue(b) - leadSortValue(a))
+  );
+  const activeLeads = createMemo(() =>
+    sortedLeads().filter((session) => !session.archivedAt)
+  );
+  const archivedLeads = createMemo(() =>
+    sortedLeads().filter((session) => session.archivedAt)
+  );
   const sortedRuns = createMemo(() =>
     [...runs()].sort((a, b) => runSortValue(b) - runSortValue(a))
   );
@@ -206,13 +298,33 @@ export function AgentRunChatPanel(props: {
   const archivedRuns = createMemo(() =>
     sortedRuns().filter((run) => run.archived)
   );
+  const selectedRunId = createMemo(
+    () => singleQueryValue(props.selectedRunId) ?? internalRunId()
+  );
+  const selectedLeadId = createMemo(
+    () => singleQueryValue(props.selectedLeadId) ?? internalLeadId()
+  );
   const selectedRun = createMemo(() =>
-    sortedRuns().find((run) => run.id === props.selectedRunId)
+    sortedRuns().find((run) => run.id === selectedRunId())
+  );
+  const selectedLead = createMemo(() =>
+    sortedLeads().find((session) => session.id === selectedLeadId())
   );
   const selectedItems = createMemo(() =>
-    selectedRun()
-      ? transcriptItems(logsByRunId()[selectedRun()!.id]?.events ?? [])
-      : []
+    activeSegment() === "lead"
+      ? selectedLead()
+        ? leadItems(leadTranscripts()[selectedLead()!.id]?.messages ?? [])
+        : []
+      : selectedRun()
+        ? transcriptItems(logsByRunId()[selectedRun()!.id]?.events ?? [])
+        : []
+  );
+  const scopeId = createMemo(() =>
+    props.sliceId ? `${props.projectId}:${props.sliceId}` : props.projectId
+  );
+  const lastViewedKey = createMemo(() => `lead-session:lastViewed:${scopeId()}`);
+  const defaultAgent = createMemo(() =>
+    selectDefaultProjectManagerAgent(agents())
   );
 
   async function loadRunLogs(runId: string) {
@@ -223,83 +335,224 @@ export function AgentRunChatPanel(props: {
     }));
   }
 
-  async function loadRuns() {
+  async function loadLeadTranscript(sessionId: string) {
+    const data = await fetchLeadSessionTranscript(sessionId);
+    setLeadTranscripts((prev) => ({
+      ...prev,
+      [sessionId]: { messages: data.messages, loaded: true },
+    }));
+  }
+
+  async function loadAll(projectId: string, sliceId: string | undefined, seq: number) {
     setLoading(true);
     try {
-      const data = await fetchRuntimeSubagents({
-        projectId: props.projectId,
-        sliceId: props.sliceId,
-        includeArchived: true,
-      });
-      const items = props.filter ? data.items.filter(props.filter) : data.items;
-      const ordered = [...items].sort((a, b) => runSortValue(b) - runSortValue(a));
-      setRuns(ordered);
-      await Promise.all(ordered.map((run) => loadRunLogs(run.id)));
+      const [agentList, activeLeadData, archivedLeadData, runData] =
+        await Promise.all([
+          fetchAgents(),
+          fetchLeadSessions(projectId, { archived: false, sliceId }),
+          fetchLeadSessions(projectId, { archived: true, sliceId }),
+          fetchRuntimeSubagents({
+            projectId,
+            sliceId,
+            includeArchived: true,
+          }),
+        ]);
+      if (seq !== loadSeq) return;
+      const allLeads = [...activeLeadData.items, ...archivedLeadData.items].filter(
+        (session) =>
+          sliceId ? session.sliceId === sliceId : session.sliceId === undefined
+      );
+      const runItems = props.filter
+        ? runData.items.filter(props.filter)
+        : runData.items;
+      const orderedRuns = [...runItems].sort(
+        (a, b) => runSortValue(b) - runSortValue(a)
+      );
+      setAgents(agentList);
+      setLeadSessions(allLeads);
+      setRuns(orderedRuns);
+      setLogsByRunId({});
+      setLeadTranscripts({});
+      await Promise.all([
+        ...orderedRuns.map((run) => loadRunLogs(run.id)),
+        ...allLeads.map((session) => loadLeadTranscript(session.id)),
+      ]);
+      if (seq !== loadSeq) return;
       setError(null);
     } catch (err) {
-      setError(err instanceof Error ? err.message : String(err));
+      if (seq === loadSeq) setError(err instanceof Error ? err.message : String(err));
     } finally {
-      setLoading(false);
+      if (seq === loadSeq) setLoading(false);
     }
   }
 
-  function selectRun(runId: string | undefined, cleared = false) {
-    setSelectionCleared(cleared);
-    props.onSelectedRunIdChange?.(runId);
-  }
-
   createEffect(() => {
-    void loadRuns();
-  });
-
-  createEffect(() => {
-    const run = selectedRun();
-    if (run?.archived) setArchivedOpen(true);
-  });
-
-  createEffect(() => {
-    if (loading() || props.selectedRunId || selectionCleared()) return;
-    const next = activeRuns().find((run) => shouldShowRun(run));
-    if (next) selectRun(next.id);
-  });
-
-  createEffect(() => {
-    const run = selectedRun();
-    if (!run || isRunning(run)) return;
-    const next = pendingMessages().find(
-      (message) => message.runId === run.id && message.queued && !message.sending
-    );
-    if (!next) return;
-    void sendPending(next);
-  });
-
-  const unsubscribeSubagents = subscribeToSubagentChanges({
-    onSubagentChanged: () => {
-      void loadRuns();
-    },
-    onError: setError,
-  });
-  const unsubscribeFiles = subscribeToFileChanges({
-    onAgentChanged: (projectId) => {
-      if (projectId === props.projectId) void loadRuns();
-    },
-  });
-  onCleanup(() => {
-    unsubscribeSubagents();
-    unsubscribeFiles();
+    const projectId = props.projectId;
+    const sliceId = props.sliceId;
+    loadSeq += 1;
+    setLeadSessions([]);
+    setRuns([]);
+    setInternalLeadId(undefined);
+    setInternalRunId(undefined);
+    setSelectionCleared(false);
+    void loadAll(projectId, sliceId, loadSeq);
   });
 
   function runItems(run: SubagentRun) {
     return transcriptItems(logsByRunId()[run.id]?.events ?? []);
   }
 
+  function leadSessionItems(session: LeadSession) {
+    return leadItems(leadTranscripts()[session.id]?.messages ?? []);
+  }
+
+  function leadHasUserMessage(session: LeadSession) {
+    return (leadTranscripts()[session.id]?.messages ?? []).some(
+      (message) => message.role === "user"
+    );
+  }
+
   function shouldShowRun(run: SubagentRun) {
     return isRunning(run) || runItems(run).length > 0;
   }
 
-  function clearSelectedAfterMutation(runId: string) {
+  function selectRun(runId: string | undefined, cleared = false) {
+    setSelectionCleared(cleared);
+    setActiveSegment("subagents");
+    setInternalRunId(runId);
+    setInternalLeadId(undefined);
+    props.onSelectedRunIdChange?.(runId);
+  }
+
+  function selectLead(leadId: string | undefined, cleared = false) {
+    setSelectionCleared(cleared);
+    setActiveSegment("lead");
+    setInternalLeadId(leadId);
+    setInternalRunId(undefined);
+    if (leadId) localStorage.setItem(lastViewedKey(), leadId);
+    props.onSelectedLeadIdChange?.(leadId);
+  }
+
+  createEffect(() => {
+    if (loading()) return;
+    const leadParam = singleQueryValue(props.selectedLeadId);
+    const runParam = singleQueryValue(props.selectedRunId);
+    if (leadParam && sortedLeads().some((session) => session.id === leadParam)) {
+      setActiveSegment("lead");
+      return;
+    }
+    if (runParam && sortedRuns().some((run) => run.id === runParam)) {
+      setActiveSegment("subagents");
+      return;
+    }
+    if (selectedLead()) {
+      setActiveSegment("lead");
+      return;
+    }
+    if (selectedRun()) {
+      setActiveSegment("subagents");
+      return;
+    }
+    if (selectionCleared()) return;
+
+    const lastViewed = localStorage.getItem(lastViewedKey());
+    const lastLead = activeLeads().find((session) => session.id === lastViewed);
+    if (lastLead) {
+      selectLead(lastLead.id);
+      return;
+    }
+    const newestVisibleLead = activeLeads().find(leadHasUserMessage);
+    if (newestVisibleLead) {
+      selectLead(newestVisibleLead.id);
+      return;
+    }
+    if (activeLeads().length > 0) {
+      setActiveSegment("lead");
+      return;
+    }
+    const nextRun = activeRuns().find((run) => shouldShowRun(run));
+    if (nextRun) {
+      selectRun(nextRun.id);
+      return;
+    }
+    setActiveSegment("lead");
+  });
+
+  createEffect(() => {
+    const lead = selectedLead();
+    const run = selectedRun();
+    if (lead?.archivedAt || run?.archived) setArchivedOpen(true);
+  });
+
+  createEffect(() => {
+    const run = selectedRun();
+    if (!run || isRunning(run)) return;
+    const next = pendingMessages().find(
+      (message) =>
+        message.family === "subagents" &&
+        message.targetId === run.id &&
+        message.queued &&
+        !message.sending
+    );
+    if (next) void sendPendingRun(next);
+  });
+
+  const unsubscribeSubagents = subscribeToSubagentChanges({
+    onSubagentChanged: () => {
+      const seq = ++loadSeq;
+      void loadAll(props.projectId, props.sliceId, seq);
+    },
+    onError: setError,
+  });
+  const unsubscribeLeadSessions = subscribeToLeadSessionChanges({
+    onLeadSessionChanged: (event) => {
+      if (event.session.projectId !== props.projectId) return;
+      const inScope = props.sliceId
+        ? event.session.sliceId === props.sliceId
+        : event.session.sliceId === undefined;
+      if (!inScope) return;
+      if (event.kind === "deleted") {
+        setLeadSessions((prev) =>
+          prev.filter((session) => session.id !== event.session.id)
+        );
+        setLeadTranscripts((prev) => {
+          const next = { ...prev };
+          delete next[event.session.id];
+          return next;
+        });
+        if (selectedLeadId() === event.session.id) selectLead(undefined, true);
+        return;
+      }
+      setLeadSessions((prev) => {
+        const without = prev.filter((session) => session.id !== event.session.id);
+        return [...without, event.session];
+      });
+      void loadLeadTranscript(event.session.id);
+    },
+    onError: setError,
+  });
+  const unsubscribeFiles = subscribeToFileChanges({
+    onAgentChanged: (projectId) => {
+      if (projectId === props.projectId) {
+        const seq = ++loadSeq;
+        void loadAll(props.projectId, props.sliceId, seq);
+      }
+    },
+  });
+  onCleanup(() => {
+    unsubscribeSubagents();
+    unsubscribeLeadSessions();
+    unsubscribeFiles();
+  });
+
+  function clearSelectedRunAfterMutation(runId: string) {
     setRuns((prev) => prev.filter((run) => run.id !== runId));
-    if (props.selectedRunId === runId) selectRun(undefined, true);
+    if (selectedRunId() === runId) selectRun(undefined, true);
+  }
+
+  function clearSelectedLeadAfterMutation(leadId: string) {
+    setLeadSessions((prev) => prev.filter((session) => session.id !== leadId));
+    if (selectedLeadId() === leadId) selectLead(undefined, true);
   }
 
   async function stopSelected() {
@@ -310,10 +563,11 @@ export function AgentRunChatPanel(props: {
       setError(result.error);
       return;
     }
-    await loadRuns();
+    const seq = ++loadSeq;
+    await loadAll(props.projectId, props.sliceId, seq);
   }
 
-  async function archiveSelected() {
+  async function archiveSelectedRun() {
     const run = selectedRun();
     if (!run) return;
     const result = await archiveRuntimeSubagent(run.id);
@@ -330,7 +584,7 @@ export function AgentRunChatPanel(props: {
     selectRun(undefined, true);
   }
 
-  async function deleteSelected() {
+  async function deleteSelectedRun() {
     const run = selectedRun();
     if (!run || !window.confirm("Delete this agent run?")) return;
     const result = await deleteRuntimeSubagent(run.id);
@@ -338,7 +592,64 @@ export function AgentRunChatPanel(props: {
       setError(result.error);
       return;
     }
-    clearSelectedAfterMutation(run.id);
+    clearSelectedRunAfterMutation(run.id);
+  }
+
+  async function archiveLead(session: LeadSession, archived: boolean) {
+    try {
+      const updated = await patchLeadSession(session.id, { archived });
+      setLeadSessions((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item))
+      );
+      if (archived && selectedLeadId() === session.id) selectLead(undefined, true);
+      if (!archived) setArchivedOpen(false);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function renameLead(session: LeadSession) {
+    const title = window.prompt("Rename lead session", session.title)?.trim();
+    if (!title || title === session.title) return;
+    try {
+      const updated = await patchLeadSession(session.id, { title });
+      setLeadSessions((prev) =>
+        prev.map((item) => (item.id === updated.id ? updated : item))
+      );
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function deleteLead(session: LeadSession) {
+    if (isLegacyLeadSession(session)) return;
+    if (!window.confirm("Delete this lead session?")) return;
+    try {
+      await deleteLeadSession(session.id);
+      clearSelectedLeadAfterMutation(session.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
+  }
+
+  async function createNewLeadSession() {
+    const agent = defaultAgent();
+    if (!agent) return;
+    try {
+      const created = await createLeadSession(props.projectId, {
+        agentId: agent.id,
+        ...(props.sliceId ? { sliceId: props.sliceId } : {}),
+      });
+      setLeadSessions((prev) => [created, ...prev]);
+      setLeadTranscripts((prev) => ({
+        ...prev,
+        [created.id]: { messages: [], loaded: true },
+      }));
+      setDraftAgentByLeadId((prev) => ({ ...prev, [created.id]: agent.id }));
+      selectLead(created.id);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   function addFiles(files: FileList | File[]) {
@@ -355,13 +666,13 @@ export function AgentRunChatPanel(props: {
     void sendMessage();
   }
 
-  async function sendPending(message: PendingMessage) {
+  async function sendPendingRun(message: PendingMessage) {
     setPendingMessages((prev) =>
       prev.map((item) =>
         item.id === message.id ? { ...item, sending: true, queued: false } : item
       )
     );
-    const result = await resumeRuntimeSubagent(message.runId, message.content);
+    const result = await resumeRuntimeSubagent(message.targetId, message.content);
     if (!result.ok) {
       setPendingMessages((prev) =>
         prev.map((item) =>
@@ -373,46 +684,186 @@ export function AgentRunChatPanel(props: {
       return;
     }
     setPendingMessages((prev) => prev.filter((item) => item.id !== message.id));
-    await loadRuns();
+    const seq = ++loadSeq;
+    await loadAll(props.projectId, props.sliceId, seq);
+  }
+
+  async function sendLead(message: PendingMessage, agentId?: string) {
+    setPendingMessages((prev) =>
+      prev.map((item) =>
+        item.id === message.id ? { ...item, sending: true, queued: false } : item
+      )
+    );
+    try {
+      const response = await sendLeadSessionMessage(message.targetId, {
+        content: message.content,
+        ...(agentId ? { agentId } : {}),
+        ...(message.files?.length ? { files: message.files } : {}),
+      });
+      setLeadSessions((prev) =>
+        prev.map((session) =>
+          session.id === response.session.id ? response.session : session
+        )
+      );
+      setPendingMessages((prev) => prev.filter((item) => item.id !== message.id));
+      await loadLeadTranscript(message.targetId);
+    } catch (err) {
+      setPendingMessages((prev) =>
+        prev.map((item) =>
+          item.id === message.id
+            ? {
+                ...item,
+                sending: false,
+                error: err instanceof Error ? err.message : String(err),
+              }
+            : item
+        )
+      );
+    }
   }
 
   async function sendMessage() {
-    const run = selectedRun();
     const text = draft().trim();
     const files = pendingFiles();
-    if (!run || (!text && files.length === 0)) return;
-    setDraft("");
-    setPendingFiles([]);
+    if (!text && files.length === 0) return;
     const attachments = files.length ? await uploadFiles(files) : [];
     const attachmentText = attachments
       .map((attachment) => `Attachment: ${attachment.path}`)
       .join("\n");
     const content = [text, attachmentText].filter(Boolean).join("\n\n");
+    setDraft("");
+    setPendingFiles([]);
+
+    if (activeSegment() === "lead") {
+      const lead = selectedLead();
+      if (!lead) return;
+      const agentId = leadAgentLocked(lead)
+        ? undefined
+        : draftAgentByLeadId()[lead.id] || lead.agentId;
+      const message: PendingMessage = {
+        id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
+        family: "lead",
+        targetId: lead.id,
+        content,
+        queued: false,
+        sending: false,
+        files: attachments,
+      };
+      setPendingMessages((prev) => [...prev, message]);
+      await sendLead(message, agentId);
+      return;
+    }
+
+    const run = selectedRun();
+    if (!run) return;
     const message: PendingMessage = {
       id: `${Date.now()}-${Math.random().toString(16).slice(2)}`,
-      runId: run.id,
+      family: "subagents",
+      targetId: run.id,
       content,
       queued: isRunning(run),
       sending: false,
     };
     setPendingMessages((prev) => [...prev, message]);
-    if (!isRunning(run)) await sendPending(message);
+    if (!isRunning(run)) await sendPendingRun(message);
   }
 
-  const pendingForSelected = createMemo(() =>
-    pendingMessages().filter((message) => message.runId === props.selectedRunId)
-  );
+  function leadAgentLocked(session: LeadSession) {
+    const transcript = leadTranscripts()[session.id];
+    if (!transcript?.loaded) return true;
+    return transcript.messages.some((message) => message.role === "user");
+  }
+
+  function leadAgent(session: LeadSession) {
+    return agents().find((agent) => agent.id === session.agentId);
+  }
+
+  function pendingForSelected() {
+    const family = activeSegment();
+    const id = family === "lead" ? selectedLeadId() : selectedRunId();
+    return pendingMessages().filter(
+      (message) => message.family === family && message.targetId === id
+    );
+  }
 
   createEffect(() => {
-    const runId = props.selectedRunId;
+    const id = activeSegment() === "lead" ? selectedLeadId() : selectedRunId();
     const itemCount = selectedItems().length;
     const pendingCount = pendingForSelected().length;
-    if (!runId || (!itemCount && !pendingCount)) return;
+    if (!id || (!itemCount && !pendingCount)) return;
     requestAnimationFrame(() => {
       if (!chatMessagesEl) return;
       chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
     });
   });
+
+  function AgentBadge(props: { agent?: Agent; agentId: string }) {
+    const label = () => props.agent?.name ?? props.agentId;
+    const avatar = () => props.agent?.avatar?.trim();
+    return (
+      <span class="lead-agent-badge">
+        <Show
+          when={avatar()}
+          fallback={<span class="lead-agent-avatar">{label().slice(0, 1)}</span>}
+        >
+          {(src) => (
+            <img
+              class="lead-agent-avatar"
+              src={src()}
+              alt=""
+              aria-hidden="true"
+            />
+          )}
+        </Show>
+        <span>{label()}</span>
+      </span>
+    );
+  }
+
+  function LeadRow(rowProps: { session: LeadSession }) {
+    const items = createMemo(() => leadSessionItems(rowProps.session));
+    const archived = () => !!rowProps.session.archivedAt;
+    return (
+      <div
+        class={`agent-run-row lead-session-row ${
+          selectedLeadId() === rowProps.session.id ? "selected" : ""
+        }`}
+        onDblClick={() => void renameLead(rowProps.session)}
+      >
+        <button
+          type="button"
+          class="agent-run-row-main"
+          onClick={() => selectLead(rowProps.session.id)}
+        >
+          <div class="agent-run-row-title">{rowProps.session.title}</div>
+          <div class="agent-run-row-excerpt">{latestExcerpt(items())}</div>
+          <div class="agent-run-row-meta">
+            <AgentBadge
+              agent={leadAgent(rowProps.session)}
+              agentId={rowProps.session.agentId}
+            />
+            <span>{formatLeadTime(rowProps.session)}</span>
+          </div>
+        </button>
+        <div class="agent-run-row-actions">
+          <button type="button" onClick={() => void renameLead(rowProps.session)}>
+            Rename
+          </button>
+          <button
+            type="button"
+            onClick={() => void archiveLead(rowProps.session, !archived())}
+          >
+            {archived() ? "Unarchive" : "Archive"}
+          </button>
+          <Show when={!isLegacyLeadSession(rowProps.session)}>
+            <button type="button" onClick={() => void deleteLead(rowProps.session)}>
+              Delete
+            </button>
+          </Show>
+        </div>
+      </div>
+    );
+  }
 
   function RunRow(rowProps: { run: SubagentRun }) {
     const items = createMemo(() => runItems(rowProps.run));
@@ -420,7 +871,7 @@ export function AgentRunChatPanel(props: {
       <button
         type="button"
         class={`agent-run-row ${
-          props.selectedRunId === rowProps.run.id ? "selected" : ""
+          selectedRunId() === rowProps.run.id ? "selected" : ""
         }`}
         onClick={() => selectRun(rowProps.run.id)}
       >
@@ -435,6 +886,106 @@ export function AgentRunChatPanel(props: {
     );
   }
 
+  const leadCount = createMemo(() => activeLeads().length);
+  const subagentCount = createMemo(
+    () => activeRuns().filter((run) => shouldShowRun(run)).length
+  );
+  const archivedLeadCount = createMemo(() => archivedLeads().length);
+  const archivedRunCount = createMemo(
+    () => archivedRuns().filter((run) => shouldShowRun(run)).length
+  );
+
+  function renderSidebarList() {
+    if (activeSegment() === "lead") {
+      return (
+        <>
+          <div class="agent-run-list" style={{ overflow: "auto" }}>
+            <For each={activeLeads()}>
+              {(session) => <LeadRow session={session} />}
+            </For>
+          </div>
+          <Show when={archivedLeadCount() > 0}>
+            <ArchivedSection>
+              <For each={archivedLeads()}>
+                {(session) => <LeadRow session={session} />}
+              </For>
+            </ArchivedSection>
+          </Show>
+        </>
+      );
+    }
+    return (
+      <>
+        <div class="agent-run-list" style={{ overflow: "auto" }}>
+          <For each={activeRuns().filter((run) => shouldShowRun(run))}>
+            {(run) => <RunRow run={run} />}
+          </For>
+        </div>
+        <Show when={archivedRunCount() > 0}>
+          <ArchivedSection>
+            <For each={archivedRuns().filter((run) => shouldShowRun(run))}>
+              {(run) => <RunRow run={run} />}
+            </For>
+          </ArchivedSection>
+        </Show>
+      </>
+    );
+  }
+
+  function ArchivedSection(props: { children: JSX.Element }) {
+    return (
+      <div class="agent-run-archived">
+        <button
+          type="button"
+          class="agent-run-archived-toggle"
+          onClick={() => setArchivedOpen(!archivedOpen())}
+        >
+          Archived
+        </button>
+        <Show when={archivedOpen()}>
+          <div class="agent-run-archived-list">{props.children}</div>
+        </Show>
+      </div>
+    );
+  }
+
+  function LeadComposerAgentPicker(props: { session: LeadSession }) {
+    const locked = () => leadAgentLocked(props.session);
+    const currentAgentId = () =>
+      draftAgentByLeadId()[props.session.id] || props.session.agentId;
+    const currentAgent = () =>
+      agents().find((agent) => agent.id === currentAgentId());
+    return (
+      <div class="lead-agent-picker">
+        <Show
+          when={!locked()}
+          fallback={
+            <AgentBadge agent={leadAgent(props.session)} agentId={props.session.agentId} />
+          }
+        >
+          <select
+            aria-label="Lead agent"
+            value={currentAgentId()}
+            onChange={(event) => {
+              const agentId = event.currentTarget.value;
+              setDraftAgentByLeadId((prev) => ({
+                ...prev,
+                [props.session.id]: agentId,
+              }));
+            }}
+          >
+            <For each={agents()}>
+              {(agent) => <option value={agent.id}>{agent.name}</option>}
+            </For>
+          </select>
+          <Show when={currentAgent()}>
+            {(agent) => <AgentBadge agent={agent()} agentId={agent().id} />}
+          </Show>
+        </Show>
+      </div>
+    );
+  }
+
   return (
     <div
       class="agent-run-chat-panel"
@@ -444,204 +995,140 @@ export function AgentRunChatPanel(props: {
       <Show when={error()}>
         {(message) => <div class="agent-run-error">{message()}</div>}
       </Show>
-      <Show
-        when={
-          activeRuns().some((run) => shouldShowRun(run)) ||
-          archivedRuns().some((run) => shouldShowRun(run))
-        }
-        fallback={
-          <div class="agent-run-empty">
-            {loading() ? "Loading agent runs…" : "No agent runs yet."}
+      <aside class="agent-run-sidebar">
+        <div class="agent-run-sidebar-header">
+          <div class="agent-run-segments" role="tablist" aria-label="Agent sessions">
+            <button
+              type="button"
+              class={activeSegment() === "lead" ? "active" : ""}
+              onClick={() => setActiveSegment("lead")}
+            >
+              Lead ({leadCount()})
+            </button>
+            <button
+              type="button"
+              class={activeSegment() === "subagents" ? "active" : ""}
+              onClick={() => setActiveSegment("subagents")}
+            >
+              Subagents ({subagentCount()})
+            </button>
           </div>
-        }
-      >
-        <aside class="agent-run-sidebar">
-          <div class="agent-run-list" style={{ overflow: "auto" }}>
-            <For each={activeRuns().filter((run) => shouldShowRun(run))}>
-              {(run) => <RunRow run={run} />}
-            </For>
-          </div>
-          <Show when={archivedRuns().some((run) => shouldShowRun(run))}>
-            <div class="agent-run-archived">
-              <button
-                type="button"
-                class="agent-run-archived-toggle"
-                onClick={() => setArchivedOpen(!archivedOpen())}
-              >
-                Archived
-              </button>
-              <Show when={archivedOpen()}>
-                <div class="agent-run-archived-list">
-                  <For
-                    each={archivedRuns().filter((run) => shouldShowRun(run))}
-                  >
-                    {(run) => <RunRow run={run} />}
-                  </For>
-                </div>
-              </Show>
-            </div>
+          <Show when={activeSegment() === "lead"}>
+            <button
+              type="button"
+              class="agent-run-new-session"
+              onClick={() => void createNewLeadSession()}
+              disabled={!defaultAgent()}
+            >
+              + New session
+            </button>
           </Show>
-        </aside>
-        <section class="agent-run-chat">
+        </div>
+        <Show
+          when={
+            activeSegment() === "lead"
+              ? leadCount() + archivedLeadCount() > 0
+              : subagentCount() + archivedRunCount() > 0
+          }
+          fallback={
+            <div class="agent-run-empty">
+              {loading()
+                ? "Loading agent sessions…"
+                : activeSegment() === "lead"
+                  ? "No lead sessions yet."
+                  : "No agent runs yet."}
+            </div>
+          }
+        >
+          {renderSidebarList()}
+        </Show>
+      </aside>
+      <section class="agent-run-chat">
+        <Show
+          when={activeSegment() === "lead"}
+          fallback={
+            <Show
+              when={selectedRun()}
+              fallback={
+                <div class="agent-run-placeholder">No agent run selected.</div>
+              }
+            >
+              {(run) => (
+                <>
+                  <header class="agent-run-chat-header">
+                    <div>
+                      <div class="agent-run-chat-title">{run().label}</div>
+                      <div class="agent-run-chat-meta">
+                        {run().status} · {run().cli}
+                        <Show when={run().model}> · {run().model}</Show> ·{" "}
+                        {formatRuntimeTime(run())}
+                      </div>
+                    </div>
+                    <div class="agent-run-actions">
+                      <button
+                        type="button"
+                        onClick={stopSelected}
+                        disabled={!isRunning(run())}
+                      >
+                        Stop
+                      </button>
+                      <button type="button" onClick={archiveSelectedRun}>
+                        Archive
+                      </button>
+                      <button type="button" onClick={deleteSelectedRun}>
+                        Delete
+                      </button>
+                    </div>
+                  </header>
+                  <ChatBody agentName={run().label} />
+                </>
+              )}
+            </Show>
+          }
+        >
           <Show
-            when={selectedRun()}
+            when={selectedLead()}
             fallback={
-              <div class="agent-run-placeholder">No agent run selected.</div>
+              <div class="agent-run-placeholder">No lead session selected.</div>
             }
           >
-            {(run) => (
+            {(session) => (
               <>
                 <header class="agent-run-chat-header">
                   <div>
-                    <div class="agent-run-chat-title">{run().label}</div>
+                    <div class="agent-run-chat-title">{session().title}</div>
                     <div class="agent-run-chat-meta">
-                      {run().status} · {run().cli}
-                      <Show when={run().model}> · {run().model}</Show> ·{" "}
-                      {formatRuntimeTime(run())}
+                      <AgentBadge
+                        agent={leadAgent(session())}
+                        agentId={session().agentId}
+                      />
+                      <span>{formatLeadTime(session())}</span>
                     </div>
                   </div>
                   <div class="agent-run-actions">
+                    <button type="button" onClick={() => void renameLead(session())}>
+                      Rename
+                    </button>
                     <button
                       type="button"
-                      onClick={stopSelected}
-                      disabled={!isRunning(run())}
+                      onClick={() => void archiveLead(session(), !session().archivedAt)}
                     >
-                      Stop
+                      {session().archivedAt ? "Unarchive" : "Archive"}
                     </button>
-                    <button type="button" onClick={archiveSelected}>
-                      Archive
-                    </button>
-                    <button type="button" onClick={deleteSelected}>
-                      Delete
-                    </button>
+                    <Show when={!isLegacyLeadSession(session())}>
+                      <button type="button" onClick={() => void deleteLead(session())}>
+                        Delete
+                      </button>
+                    </Show>
                   </div>
                 </header>
-                <div
-                  ref={chatMessagesEl}
-                  class="board-chat-messages agent-run-chat-messages"
-                  style={{ overflow: "auto" }}
-                >
-                  <BoardChatLog items={selectedItems()} agentName={run().label} />
-                  <For each={pendingForSelected()}>
-                    {(message) => (
-                      <div class="board-msg board-msg-user">
-                        <div class="board-msg-role">
-                          <span>
-                            {message.queued
-                              ? "You (queued)"
-                              : message.sending
-                                ? "You (sending)"
-                                : "You"}
-                          </span>
-                        </div>
-                        <div class="board-msg-content">{message.content}</div>
-                        <Show when={message.error}>
-                          <div class="agent-run-error">{message.error}</div>
-                        </Show>
-                      </div>
-                    )}
-                  </For>
-                </div>
-                <form
-                  class="board-chat-input-area"
-                  onSubmit={(event) => {
-                    event.preventDefault();
-                    void sendMessage();
-                  }}
-                >
-                  <Show when={pendingFiles().length}>
-                    <div class="board-attachments">
-                      <For each={pendingFiles()}>
-                        {(file, index) => (
-                          <div class="board-attachment-pill">
-                            <span class="board-attachment-name" title={file.name}>
-                              {file.name}
-                            </span>
-                            <Show when={formatFileSize(file.size)}>
-                              {(size) => (
-                                <span class="board-attachment-size">
-                                  {size()}
-                                </span>
-                              )}
-                            </Show>
-                            <button
-                              type="button"
-                              class="board-attachment-remove"
-                              aria-label={`Remove ${file.name}`}
-                              onClick={() => removePendingFile(index())}
-                            >
-                              x
-                            </button>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  <div class="board-chat-input-wrapper">
-                    <input
-                      ref={fileInputEl}
-                      class="board-file-input"
-                      type="file"
-                      multiple
-                      accept={FILE_INPUT_ACCEPT}
-                      onChange={(event) => {
-                        if (event.currentTarget.files) {
-                          addFiles(event.currentTarget.files);
-                          event.currentTarget.value = "";
-                        }
-                      }}
-                    />
-                    <button
-                      type="button"
-                      class="board-chat-attach"
-                      aria-label="Attach files"
-                      onClick={() => fileInputEl?.click()}
-                    >
-                      <svg viewBox="0 0 24 24" aria-hidden="true">
-                        <path
-                          fill="currentColor"
-                          d="M16.5 6.5v9.1a4.5 4.5 0 0 1-9 0V6.3a3.3 3.3 0 0 1 6.6 0v8.8a2.1 2.1 0 1 1-4.2 0V7.2h1.6v7.9a.5.5 0 1 0 1 0V6.3a1.7 1.7 0 0 0-3.4 0v9.3a2.9 2.9 0 0 0 5.8 0V6.5h1.6z"
-                        />
-                      </svg>
-                    </button>
-                    <textarea
-                      class="board-chat-input"
-                      rows={1}
-                      value={draft()}
-                      placeholder="Ask anything..."
-                      onInput={(event) => setDraft(event.currentTarget.value)}
-                      onKeyDown={handleDraftKeyDown}
-                    />
-                    <button
-                      type="submit"
-                      class="board-chat-send"
-                      disabled={!draft().trim() && pendingFiles().length === 0}
-                      aria-label="Send message"
-                    >
-                      <svg
-                        width="18"
-                        height="18"
-                        viewBox="0 0 24 24"
-                        fill="none"
-                        stroke="currentColor"
-                        stroke-width="2"
-                        stroke-linecap="round"
-                        stroke-linejoin="round"
-                      >
-                        <line x1="22" y1="2" x2="11" y2="13" />
-                        <polygon points="22 2 15 22 11 13 2 9 22 2" />
-                      </svg>
-                    </button>
-                  </div>
-                  <p class="board-chat-input-hint">
-                    Enter to send, Shift+Enter for new line
-                  </p>
-                </form>
+                <LeadComposerAgentPicker session={session()} />
+                <ChatBody agentName={leadAgent(session())?.name ?? session().agentId} />
               </>
             )}
           </Show>
-        </section>
-      </Show>
+        </Show>
+      </section>
       <style>{`
         .agent-run-chat-panel {
           display: grid;
@@ -661,6 +1148,44 @@ export function AgentRunChatPanel(props: {
           background: color-mix(in srgb, var(--text-primary, #111827) 3%, transparent);
         }
 
+        .agent-run-sidebar-header {
+          display: grid;
+          gap: 8px;
+          padding: 8px;
+          border-bottom: 1px solid var(--border-default);
+        }
+
+        .agent-run-segments {
+          display: grid;
+          grid-template-columns: 1fr 1fr;
+          border: 1px solid var(--border-default);
+          border-radius: 6px;
+          overflow: hidden;
+        }
+
+        .agent-run-segments button,
+        .agent-run-new-session {
+          border: 0;
+          background: transparent;
+          color: var(--text-secondary);
+          min-height: 30px;
+          cursor: pointer;
+        }
+
+        .agent-run-segments button.active {
+          background: var(--surface-default, #fff);
+          color: var(--text-primary);
+          font-weight: 700;
+        }
+
+        .agent-run-new-session {
+          border: 1px solid var(--border-default);
+          border-radius: 6px;
+          color: var(--text-primary);
+          text-align: left;
+          padding: 0 10px;
+        }
+
         .agent-run-list {
           flex: 1;
           min-height: 0;
@@ -677,6 +1202,20 @@ export function AgentRunChatPanel(props: {
           background: transparent;
           text-align: left;
           color: var(--text-primary);
+          cursor: pointer;
+        }
+
+        .lead-session-row {
+          cursor: default;
+        }
+
+        .agent-run-row-main {
+          width: 100%;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          text-align: left;
+          color: inherit;
           cursor: pointer;
         }
 
@@ -706,9 +1245,47 @@ export function AgentRunChatPanel(props: {
         .agent-run-chat-meta {
           display: flex;
           gap: 8px;
+          align-items: center;
           margin-top: 6px;
           color: var(--text-tertiary, var(--text-secondary));
           font-size: 11px;
+        }
+
+        .agent-run-row-actions {
+          display: flex;
+          flex-wrap: wrap;
+          gap: 6px;
+          margin-top: 8px;
+        }
+
+        .agent-run-row-actions button {
+          border: 1px solid var(--border-default);
+          border-radius: 5px;
+          background: transparent;
+          color: var(--text-secondary);
+          font-size: 11px;
+          cursor: pointer;
+        }
+
+        .lead-agent-badge {
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          min-width: 0;
+        }
+
+        .lead-agent-avatar {
+          display: grid;
+          place-items: center;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: color-mix(in srgb, var(--text-primary) 12%, transparent);
+          color: var(--text-primary);
+          font-size: 10px;
+          font-weight: 700;
+          object-fit: cover;
+          text-transform: uppercase;
         }
 
         .agent-run-archived {
@@ -765,6 +1342,24 @@ export function AgentRunChatPanel(props: {
         .agent-run-actions button:disabled {
           cursor: default;
           opacity: 0.5;
+        }
+
+        .lead-agent-picker {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          min-height: 42px;
+          padding: 8px 20px 0;
+          color: var(--text-secondary);
+          font-size: 12px;
+        }
+
+        .lead-agent-picker select {
+          border: 1px solid var(--border-default);
+          border-radius: 6px;
+          background: var(--surface-default, #fff);
+          color: var(--text-primary);
+          padding: 5px 8px;
         }
 
         .agent-run-chat-messages {
@@ -968,4 +1563,130 @@ export function AgentRunChatPanel(props: {
       `}</style>
     </div>
   );
+
+  function ChatBody(props: { agentName: string }) {
+    return (
+      <>
+        <div
+          ref={chatMessagesEl}
+          class="board-chat-messages agent-run-chat-messages"
+          style={{ overflow: "auto" }}
+        >
+          <BoardChatLog items={selectedItems()} agentName={props.agentName} />
+          <For each={pendingForSelected()}>
+            {(message) => (
+              <div class="board-msg board-msg-user">
+                <div class="board-msg-role">
+                  <span>
+                    {message.queued
+                      ? "You (queued)"
+                      : message.sending
+                        ? "You (sending)"
+                        : "You"}
+                  </span>
+                </div>
+                <div class="board-msg-content">{message.content}</div>
+                <Show when={message.error}>
+                  <div class="agent-run-error">{message.error}</div>
+                </Show>
+              </div>
+            )}
+          </For>
+        </div>
+        <form
+          class="board-chat-input-area"
+          onSubmit={(event) => {
+            event.preventDefault();
+            void sendMessage();
+          }}
+        >
+          <Show when={pendingFiles().length}>
+            <div class="board-attachments">
+              <For each={pendingFiles()}>
+                {(file, index) => (
+                  <div class="board-attachment-pill">
+                    <span class="board-attachment-name" title={file.name}>
+                      {file.name}
+                    </span>
+                    <Show when={formatFileSize(file.size)}>
+                      {(size) => (
+                        <span class="board-attachment-size">{size()}</span>
+                      )}
+                    </Show>
+                    <button
+                      type="button"
+                      class="board-attachment-remove"
+                      aria-label={`Remove ${file.name}`}
+                      onClick={() => removePendingFile(index())}
+                    >
+                      x
+                    </button>
+                  </div>
+                )}
+              </For>
+            </div>
+          </Show>
+          <div class="board-chat-input-wrapper">
+            <input
+              ref={fileInputEl}
+              class="board-file-input"
+              type="file"
+              multiple
+              accept={FILE_INPUT_ACCEPT}
+              onChange={(event) => {
+                if (event.currentTarget.files) {
+                  addFiles(event.currentTarget.files);
+                  event.currentTarget.value = "";
+                }
+              }}
+            />
+            <button
+              type="button"
+              class="board-chat-attach"
+              aria-label="Attach files"
+              onClick={() => fileInputEl?.click()}
+            >
+              <svg viewBox="0 0 24 24" aria-hidden="true">
+                <path
+                  fill="currentColor"
+                  d="M16.5 6.5v9.1a4.5 4.5 0 0 1-9 0V6.3a3.3 3.3 0 0 1 6.6 0v8.8a2.1 2.1 0 1 1-4.2 0V7.2h1.6v7.9a.5.5 0 1 0 1 0V6.3a1.7 1.7 0 0 0-3.4 0v9.3a2.9 2.9 0 0 0 5.8 0V6.5h1.6z"
+                />
+              </svg>
+            </button>
+            <textarea
+              class="board-chat-input"
+              rows={1}
+              value={draft()}
+              placeholder="Ask anything..."
+              onInput={(event) => setDraft(event.currentTarget.value)}
+              onKeyDown={handleDraftKeyDown}
+            />
+            <button
+              type="submit"
+              class="board-chat-send"
+              disabled={!draft().trim() && pendingFiles().length === 0}
+              aria-label="Send message"
+            >
+              <svg
+                width="18"
+                height="18"
+                viewBox="0 0 24 24"
+                fill="none"
+                stroke="currentColor"
+                stroke-width="2"
+                stroke-linecap="round"
+                stroke-linejoin="round"
+              >
+                <line x1="22" y1="2" x2="11" y2="13" />
+                <polygon points="22 2 15 22 11 13 2 9 22 2" />
+              </svg>
+            </button>
+          </div>
+          <p class="board-chat-input-hint">
+            Enter to send, Shift+Enter for new line
+          </p>
+        </form>
+      </>
+    );
+  }
 }
