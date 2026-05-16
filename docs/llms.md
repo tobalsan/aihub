@@ -228,6 +228,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
 - Repo-local dev helper: `pnpm init-dev-config` writes `./.aihub/aihub.json` from `scripts/config-template.json` using the first free UI port in `3001-3100` and the first free gateway port in `4001-4100`
+- pnpm v11 build-script approvals live in `pnpm-workspace.yaml` `allowBuilds`; native/dev dependencies (`better-sqlite3`, `esbuild`, `koffi`, `protobufjs`) must be explicit booleans so `pnpm install` and script runs do not fail with `ERR_PNPM_IGNORED_BUILDS`
 
 ## Config Schema
 
