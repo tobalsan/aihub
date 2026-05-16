@@ -1270,7 +1270,16 @@ export function registerProjectRoutes(app: Hono): void {
 
   app.get("/subagents", async (c) => {
     const config = getProjectsConfig();
-    const items = await listAllSubagents(config);
+    const includeArchived = ["1", "true"].includes(
+      c.req.query("includeArchived") ?? ""
+    );
+    const items = await listAllSubagents(config, {
+      projectId: c.req.query("projectId"),
+      sliceId: c.req.query("sliceId"),
+      status: c.req.query("status"),
+      cwd: c.req.query("cwd"),
+      includeArchived,
+    });
     return c.json({ items });
   });
 
@@ -1842,6 +1851,7 @@ export {
   archiveSubagent,
   getSubagentLogs,
   listAllSubagents,
+  listSubagents,
 } from "./subagents/index.js";
 export { interruptSubagent, killSubagent } from "./subagents/runner.js";
 export {

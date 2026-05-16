@@ -301,6 +301,11 @@ const indexWatchers = new Map<
   string,
   { watcher?: FSWatcher; worktreeKey: string; mtimeMs: number }
 >();
+const lifecycleMetadataCache = new Map<
+  string,
+  { version: number; expiresAt: number; value: ProjectLifecycleScan }
+>();
+const inFlightLifecycleScans = new Map<string, Promise<ProjectLifecycleScan>>();
 let projectCacheVersion = 0;
 
 function readPositiveIntEnv(name: string, fallback: number): number {
@@ -372,13 +377,17 @@ export function invalidateProjectCache(projectsRoot?: string): void {
   projectCacheVersion++;
   if (!projectsRoot) {
     projectResultCache.clear();
+    lifecycleMetadataCache.clear();
     inFlightScans.clear();
+    inFlightLifecycleScans.clear();
     return;
   }
   const prefix = `${projectsRoot}\0`;
   for (const key of projectResultCache.keys()) {
     if (key.startsWith(prefix)) projectResultCache.delete(key);
   }
+  lifecycleMetadataCache.delete(projectsRoot);
+  inFlightLifecycleScans.delete(projectsRoot);
   for (const key of inFlightScans.keys()) {
     if (key.startsWith(prefix)) inFlightScans.delete(key);
   }
@@ -387,7 +396,9 @@ export function invalidateProjectCache(projectsRoot?: string): void {
 export function resetProjectCaches(): void {
   projectCacheVersion++;
   projectResultCache.clear();
+  lifecycleMetadataCache.clear();
   inFlightScans.clear();
+  inFlightLifecycleScans.clear();
   repoWorktreeCache.clear();
   branchCache.clear();
   dirtyAheadCache.clear();
@@ -549,7 +560,7 @@ async function readProjectEntryLocations(
   return locations;
 }
 
-export async function scanProjectLifecycleMetadata(
+async function readProjectLifecycleMetadata(
   projectsRoot: string
 ): Promise<ProjectLifecycleScan> {
   const counts: ProjectLifecycleCounts = {
@@ -578,6 +589,39 @@ export async function scanProjectLifecycleMetadata(
     }
   }
   return { counts, statuses };
+}
+
+export async function scanProjectLifecycleMetadata(
+  projectsRoot: string,
+  options?: { cacheTtlMs?: number }
+): Promise<ProjectLifecycleScan> {
+  const now = Date.now();
+  const cached = lifecycleMetadataCache.get(projectsRoot);
+  if (
+    cached &&
+    cached.version === projectCacheVersion &&
+    cached.expiresAt > now
+  ) {
+    return cached.value;
+  }
+
+  const inFlight = inFlightLifecycleScans.get(projectsRoot);
+  if (inFlight) return inFlight;
+
+  const promise = readProjectLifecycleMetadata(projectsRoot).then((value) => {
+    lifecycleMetadataCache.set(projectsRoot, {
+      version: projectCacheVersion,
+      expiresAt: Date.now() + projectCacheTtlMs(options),
+      value,
+    });
+    return value;
+  });
+  inFlightLifecycleScans.set(projectsRoot, promise);
+  try {
+    return await promise;
+  } finally {
+    inFlightLifecycleScans.delete(projectsRoot);
+  }
 }
 
 export async function scanProjectLifecycleCounts(

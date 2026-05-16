@@ -788,13 +788,70 @@ async function updateSubagentArchive(
   return { ok: true, data: { slug, archived } };
 }
 
+export type ListAllSubagentsOptions = {
+  projectId?: string;
+  sliceId?: string;
+  status?: string;
+  includeArchived?: boolean;
+  cwd?: string;
+};
+
+function toGlobalSubagentItem(
+  run: SubagentListItem,
+  projectId: string
+): SubagentGlobalListItem {
+  return {
+    projectId: run.projectId ?? projectId,
+    sliceId: run.sliceId,
+    slug: run.slug,
+    type: run.type,
+    cli: run.cli,
+    name: run.name,
+    model: run.model,
+    reasoningEffort: run.reasoningEffort,
+    thinking: run.thinking,
+    runMode: run.runMode,
+    baseBranch: run.baseBranch,
+    worktreePath: run.worktreePath,
+    source: run.source,
+    status: run.status,
+    lastActive: run.lastActive,
+    runStartedAt: run.startedAt,
+    finishedAt: run.finishedAt,
+  };
+}
+
+function matchesSubagentFilters(
+  item: SubagentGlobalListItem,
+  options: ListAllSubagentsOptions
+): boolean {
+  if (options.projectId && item.projectId !== options.projectId) return false;
+  if (options.sliceId && item.sliceId !== options.sliceId) return false;
+  if (options.status && item.status !== options.status) return false;
+  if (options.cwd && item.worktreePath !== options.cwd) return false;
+  return true;
+}
+
 export async function listAllSubagents(
-  config: GatewayConfig
+  config: GatewayConfig,
+  options: ListAllSubagentsOptions = {}
 ): Promise<SubagentGlobalListItem[]> {
   const root = getProjectsRoot(config);
   if (!(await dirExists(root))) return [];
 
   const items: SubagentGlobalListItem[] = [];
+
+  if (options.projectId) {
+    const result = await listSubagents(
+      config,
+      options.projectId,
+      options.includeArchived
+    );
+    if (!result.ok) return [];
+    return result.data.items
+      .map((run) => toGlobalSubagentItem(run, options.projectId!))
+      .filter((item) => matchesSubagentFilters(item, options));
+  }
 
   const roots = [root, path.join(root, ".done")];
   for (const scanRoot of roots) {
@@ -806,27 +863,12 @@ export async function listAllSubagents(
       const projectId = entry.name.split("_")[0];
       const projectDir = path.join(scanRoot, entry.name);
       await subagentRunStore.migrateProject(root, projectId, projectDir);
-      const runs = await subagentRunStore.list(projectDir);
+      const runs = await subagentRunStore.list(projectDir, {
+        includeArchived: options.includeArchived,
+      });
       for (const run of runs) {
-        items.push({
-          projectId: run.projectId ?? projectId,
-          sliceId: run.sliceId,
-          slug: run.slug,
-          type: run.type,
-          cli: run.cli,
-          name: run.name,
-          model: run.model,
-          reasoningEffort: run.reasoningEffort,
-          thinking: run.thinking,
-          runMode: run.runMode,
-          baseBranch: run.baseBranch,
-          worktreePath: run.worktreePath,
-          source: run.source,
-          status: run.status,
-          lastActive: run.lastActive,
-          runStartedAt: run.startedAt,
-          finishedAt: run.finishedAt,
-        });
+        const item = toGlobalSubagentItem(run, projectId);
+        if (matchesSubagentFilters(item, options)) items.push(item);
       }
     }
   }

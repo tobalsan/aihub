@@ -556,6 +556,59 @@ describe("subagents API", () => {
     expect(match?.sliceId).toBeUndefined();
   });
 
+  it("filters /subagents by projectId and sliceId", async () => {
+    const firstRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Scoped Subagents A" }),
+      })
+    );
+    const secondRes = await Promise.resolve(
+      api.request("/projects", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ title: "Scoped Subagents B" }),
+      })
+    );
+    const first = await firstRes.json();
+    const second = await secondRes.json();
+    const now = new Date().toISOString();
+
+    async function writeRun(projectPath: string, slug: string, sliceId?: string) {
+      const sessionDir = path.join(projectsRoot, projectPath, "sessions", slug);
+      await fs.mkdir(sessionDir, { recursive: true });
+      await fs.writeFile(
+        path.join(sessionDir, "config.json"),
+        JSON.stringify({ cli: "codex", created: now, sliceId }, null, 2)
+      );
+      await fs.writeFile(
+        path.join(sessionDir, "state.json"),
+        JSON.stringify({ supervisor_pid: 0, cli: "codex", slice_id: sliceId }, null, 2)
+      );
+      await fs.writeFile(
+        path.join(sessionDir, "progress.json"),
+        JSON.stringify({ last_active: now }, null, 2)
+      );
+    }
+
+    await writeRun(first.path, "first", "PRO-1-S01");
+    await writeRun(first.path, "other-slice", "PRO-1-S02");
+    await writeRun(second.path, "second", "PRO-2-S01");
+
+    const listRes = await Promise.resolve(
+      api.request(`/subagents?projectId=${first.id}&sliceId=PRO-1-S01&includeArchived=1`)
+    );
+    expect(listRes.status).toBe(200);
+    const list = await listRes.json();
+    expect(list.items).toHaveLength(1);
+    expect(list.items[0]).toMatchObject({
+      projectId: first.id,
+      sliceId: "PRO-1-S01",
+      slug: "first",
+    });
+  });
+
   it("propagates sliceId on /projects/:id/subagents spawn and list surfaces", async () => {
     const createRes = await Promise.resolve(
       api.request("/projects", {

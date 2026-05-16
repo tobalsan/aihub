@@ -59,11 +59,7 @@ const LazyAgentsView = lazy(() =>
     default: mod.AgentsView,
   }))
 );
-const LazyProjectsBoard = lazy(() =>
-  import("./components/ProjectsBoard").then((mod) => ({
-    default: mod.ProjectsBoard,
-  }))
-);
+
 const LazyProjectsDetailRouteAdapter = lazy(() =>
   import("./components/project/ProjectsDetailRouteAdapter").then((mod) => ({
     default: mod.ProjectsDetailRouteAdapter,
@@ -340,11 +336,16 @@ function ProjectsRouteShell() {
   if (!isExtensionEnabled("projects")) {
     return <ExtensionUnavailable extension="projects" />;
   }
+  const navigate = useNavigate();
 
   return (
     <LeftNavShell>
       <Suspense>
-        <LazyProjectsBoard withSidebar={false} />
+        <LazyBoardLifecycleListPage
+          onProjectClick={(project) =>
+            navigate(`/projects/${encodeURIComponent(project.id)}`)
+          }
+        />
       </Suspense>
     </LeftNavShell>
   );

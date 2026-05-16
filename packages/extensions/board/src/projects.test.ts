@@ -9,6 +9,7 @@ import {
   invalidateProjectCache,
   resetProjectCaches,
   scanProjectLifecycleCounts,
+  scanProjectLifecycleMetadata,
   scanProjects,
   statusToGroup,
 } from "./projects.js";
@@ -327,6 +328,28 @@ describe("scanProjects", () => {
       cancelled: 1,
       archived: 0,
     });
+  });
+
+  it("caches lifecycle metadata until project cache invalidates", async () => {
+    await makeProject(tmp, "PRO-001", {
+      title: "A",
+      status: "active",
+      created: "2026-01-01",
+    });
+
+    const first = await scanProjectLifecycleMetadata(tmp, { cacheTtlMs: 60_000 });
+    await makeProject(tmp, "PRO-001", {
+      title: "A",
+      status: "cancelled",
+      created: "2026-01-01",
+    });
+    const cached = await scanProjectLifecycleMetadata(tmp, { cacheTtlMs: 60_000 });
+    expect(cached.counts).toEqual(first.counts);
+
+    invalidateProjectCache(tmp);
+    await expect(
+      scanProjectLifecycleCounts(tmp)
+    ).resolves.toMatchObject({ active: 0, cancelled: 1 });
   });
 
   it("counts done projects stored under .done", async () => {

@@ -429,13 +429,193 @@ If project-scoped endpoints become fast while global scans remain slow, the bott
 
 If even project-scoped reads of one project directory remain slow, then filesystem layout, directory size, or per-project run/log structure needs deeper profiling.
 
+## Implementation Status (2026-05-16)
+
+Shipped:
+
+1. `GET /api/subagents` filtering.
+   - `projectId` now scopes project-backed subagent lookup to one project before filtering.
+   - `sliceId`, `status`, `cwd`, and `includeArchived` are applied to scoped/global project-backed results.
+   - The runtime subagents extension passes the same filters when merging runtime and project-backed runs.
+
+2. `/projects` moved onto the cached board list path.
+   - `/projects` now renders the Board lifecycle list surface.
+   - Project clicks still navigate to `/projects/:id`.
+   - Opening/backing into `/projects` now uses `/api/board/projects`, avoiding the old uncached `/api/projects` + global subagent load.
+
+3. Board lifecycle metadata cache.
+   - `scanProjectLifecycleMetadata()` now has TTL + in-flight caching.
+   - Cache invalidates through existing board project cache invalidation/reset.
+   - Lifecycle counts/statuses share the board cache lifecycle instead of rereading all README frontmatter on every warm request.
+
+4. Tests/docs.
+   - Added `/subagents?projectId=...&sliceId=...` regression coverage.
+   - Added lifecycle metadata cache coverage.
+   - Updated `README.md`, `docs/llms.md`, and handoff notes.
+
+Validation run:
+
+```text
+pnpm exec vitest run packages/extensions/projects/src/subagents/subagents.api.test.ts packages/extensions/board/src/projects.test.ts
+pnpm exec vitest run packages/extensions/subagents/src/index.test.ts apps/web/src/api/client.test.ts
+pnpm exec tsc -b packages/extensions/projects/tsconfig.json packages/extensions/subagents/tsconfig.json packages/extensions/board/tsconfig.json apps/web/tsconfig.json --pretty false
+```
+
+Still not measured on `mac-studio` after these changes. Recommended probes remain:
+
+```text
+GET /api/board/projects?profile=true
+GET /api/subagents?projectId=<real-id>&includeArchived=1
+GET /api/subagents?projectId=<real-id>&sliceId=<real-slice>&includeArchived=1
+```
+
+## Why Lazy Agent Logs/Transcripts Were Not Shipped
+
+The medium-priority fix, “avoid loading all logs/transcripts on Agent tab mount,” was investigated but reverted. A naive lazy-load pass broke existing `AgentRunChatPanel` behavior because current selection, visibility, and action semantics depend on loaded log/transcript content, not just summaries.
+
+Current coupling points:
+
+- Run visibility depends on log content.
+  - `shouldShowRun()` hides completed setup-only runs with no visible transcript.
+  - Auto-selection finds the newest visible run by inspecting normalized log items.
+  - If logs are not loaded, the panel cannot distinguish “empty/setup-only” from “not loaded yet.”
+
+- Lead session selection depends on transcript content.
+  - Existing lead sessions with user messages are preferred.
+  - Agent picker lock state depends on whether a transcript already has user content.
+  - Without transcript data, the panel can show an unselected or editable state incorrectly.
+
+- Refresh behavior assumes selected logs/transcripts are already available.
+  - Subagent websocket events reload runs and logs together.
+  - Lead-session events update sessions and immediately refresh the selected transcript.
+  - Clearing all loaded maps during reload without reloading the selected entity creates empty or transient error states.
+
+- Sidebar and row actions are sensitive to selection.
+  - Legacy lead sessions hide delete/archive affordances.
+  - Lazy auto-selection changed which row was selected in tests, surfacing actions that should remain hidden for that scenario.
+
+- Pending/reply UI depends on previous transcript staying visible.
+  - Lead reply pending state must show prior assistant text plus thinking indicator.
+  - If selected transcript is deferred or cleared during reload, the UI briefly shows “No lead session selected” or “No visible transcript.”
+
+Observed failures during the reverted attempt:
+
+- auto-selected the wrong or empty run
+- failed to auto-select lead sessions expected by tests
+- lost selected run logs after subagent change refresh
+- changed legacy lead action visibility
+- produced transient undefined log state (`undefined.events`)
+- hid prior lead transcript while a reply was pending
+
+Conclusion: lazy loading is valid, but it needs a small state-model refactor first. Loading fewer files cannot be implemented safely by only deleting the `Promise.all([...all logs, ...all transcripts])` eager step.
+
+## Recommended Procedure for Lazy Log/Transcript Loading
+
+### Goal
+
+Make Agent tabs render fast by loading summaries first, then loading full logs/transcripts only for the selected/expanded entity, without changing existing selection semantics.
+
+### Step 1: Add summary fields or summary endpoint
+
+Do not infer visibility from full logs on mount. Add enough summary metadata to each run/session list item to decide sidebar and auto-selection cheaply.
+
+For project/runtime runs, expose one or more of:
+
+- `hasVisibleTranscript: boolean`
+- `latestVisibleText?: string`
+- `latestVisibleAt?: string`
+- `messageCount?: number`
+- `toolCount?: number`
+
+For lead sessions, expose one or more of:
+
+- `hasUserMessage: boolean`
+- `latestMessagePreview?: string`
+- `messageCount?: number`
+
+Best place:
+
+- project subagent run-store summaries for project-backed runs
+- runtime subagent list summaries for runtime runs
+- lead session list API for lead sessions
+
+This preserves existing UI decisions without full transcript fetches.
+
+### Step 2: Split loaded state into “summary” vs “body”
+
+In `AgentRunChatPanel`, model states separately:
+
+```ts
+type BodyState<T> =
+  | { status: "idle" }
+  | { status: "loading" }
+  | { status: "loaded"; value: T }
+  | { status: "error"; error: string };
+```
+
+Keep list summaries stable while body state loads. Never treat “not loaded” as “empty transcript.”
+
+### Step 3: Preserve selection before refetch
+
+On list refresh:
+
+1. fetch summaries
+2. keep current selected run/lead if still present
+3. reload only selected body if invalidated
+4. only run auto-selection when current selection is absent or user cleared it
+
+Do not clear selected body until replacement body loads, unless selected item disappeared.
+
+### Step 4: Lazy body fetch triggers
+
+Fetch full body only when:
+
+- run/session becomes selected
+- archived row is expanded and selected
+- websocket event affects the selected entity
+- user explicitly opens a row that needs body content
+
+Do not fetch full bodies for every sidebar row.
+
+### Step 5: Maintain old auto-selection rules using summaries
+
+Run auto-selection should use summary metadata:
+
+1. last viewed lead if active and in scope
+2. newest active lead with `hasUserMessage`
+3. newest active lead if only one or existing behavior says so
+4. newest active run with `status=running` or `hasVisibleTranscript`
+5. fallback lead segment
+
+Completed setup-only runs should remain hidden via `hasVisibleTranscript === false`.
+
+### Step 6: Add focused regression tests
+
+Before implementation, add tests that lock behavior:
+
+- mount with two runs: setup-only + visible; only visible auto-selects
+- mount with multiple lead sessions; expected selection/action state unchanged
+- subagent websocket event reloads selected body only
+- selected body remains visible while refresh is in flight
+- pending lead reply keeps previous transcript visible
+- non-selected run logs are not fetched on mount
+- selecting a different run fetches that run’s logs
+- archived rows do not fetch bodies until opened/selected
+
+### Step 7: Rollout sequence
+
+Recommended PR split:
+
+1. Backend summary metadata + tests.
+2. Frontend state split using summaries, but keep eager body loading temporarily.
+3. Switch non-selected bodies to lazy loading behind tests.
+4. Optional: add skeleton/loading affordance for selected body.
+5. Measure Agent tab mount before/after on `mac-studio`.
+
 ## Recommended Implementation Order
 
-1. Fix `GET /api/subagents` filtering.
-2. Add tests around filtered runtime subagent listing.
-3. Measure Agent tab again on `mac-studio`.
-4. Route `/projects` through cached board list behavior or cache `GET /api/projects`.
-5. Cache board lifecycle metadata.
-6. Lazy-load Agent tab logs/transcripts.
+1. Measure shipped scoped-load fixes on `mac-studio`.
+2. If Agent tabs are still slow, implement lazy logs/transcripts using the procedure above.
+3. Preserve list state across detail navigation if back navigation still feels slow after cached `/projects` route.
 
 This order attacks the measured multi-second scans first while preserving the filesystem-backed project model.

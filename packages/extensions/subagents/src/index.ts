@@ -137,11 +137,16 @@ function registerSubagentRoutes(app: Hono): void {
     if (parent || cwd || includeArchived) {
       if (!projectId && !sliceId) return c.json({ items: runtimeItems });
     }
-    const projectItems = (await listAllSubagents(getContext().getConfig()))
+    const projectItems = (
+      await listAllSubagents(getContext().getConfig(), {
+        projectId,
+        sliceId,
+        status: statusQuery,
+        includeArchived,
+        cwd,
+      })
+    )
       .filter((item) => source === "all" || item.source === source)
-      .filter((item) => !projectId || item.projectId === projectId)
-      .filter((item) => !sliceId || item.sliceId === sliceId)
-      .filter((item) => !statusQuery || item.status === statusQuery)
       .map((item) => ({
         ...item,
         id: projectRunId(item.projectId ?? "", item.slug),
