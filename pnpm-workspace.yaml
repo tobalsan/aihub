@@ -3,3 +3,8 @@ packages:
   - "container/*"
   - "packages/*"
   - "packages/extensions/*"
+allowBuilds:
+  better-sqlite3: true
+  esbuild: true
+  koffi: true
+  protobufjs: true

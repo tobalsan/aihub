@@ -12,8 +12,20 @@ import {
   subscribeToFileChanges,
   subscribeToSubagentChanges,
 } from "../../api";
-import type { BoardProject } from "../../api/types";
+import type { BoardProject, ProjectLifecycleCounts } from "../../api/types";
 import { ProjectListGrouped } from "./ProjectListGrouped";
+
+function emptyLifecycleCounts(): ProjectLifecycleCounts {
+  return {
+    triage: 0,
+    shaping: 0,
+    active: 0,
+    ready_to_merge: 0,
+    done: 0,
+    cancelled: 0,
+    archived: 0,
+  };
+}
 
 export type BoardLifecycleListPageProps = {
   /** Override default navigate-to-route behavior for project clicks (e.g. inline embedding). */
@@ -34,13 +46,7 @@ export function BoardLifecycleListPage(
   const projectResponse = createMemo(() => {
     const response = projects.latest as unknown;
     if (Array.isArray(response)) {
-      const counts = {
-        shaping: 0,
-        active: 0,
-        done: 0,
-        cancelled: 0,
-        archived: 0,
-      };
+      const counts = emptyLifecycleCounts();
       for (const project of response as BoardProject[]) {
         counts[project.lifecycleStatus] += 1;
       }
@@ -52,13 +58,7 @@ export function BoardLifecycleListPage(
     return response as
       | {
           projects: BoardProject[];
-          lifecycleCounts: {
-            shaping: number;
-            active: number;
-            done: number;
-            cancelled: number;
-            archived: number;
-          };
+          lifecycleCounts: ProjectLifecycleCounts;
         }
       | undefined;
   });
@@ -77,11 +77,8 @@ export function BoardLifecycleListPage(
   const lifecycleCounts = createMemo(
     () =>
       projectResponse()?.lifecycleCounts ?? {
-        shaping: 0,
-        active: 0,
+        ...emptyLifecycleCounts(),
         done: doneProjects().length,
-        cancelled: 0,
-        archived: 0,
       }
   );
 

@@ -250,7 +250,7 @@ describe("ProjectsBoard card navigation", () => {
       ) as HTMLElement | undefined;
       expect(shapingColumn).toBeTruthy();
     });
-    shapingColumn.dispatchEvent(new Event("drop", { bubbles: true }));
+    shapingColumn?.dispatchEvent(new Event("drop", { bubbles: true }));
 
     await vi.waitFor(() => {
       expect(container.textContent).toContain(

@@ -1,5 +1,11 @@
 import { z } from "zod";
+import type {
+  LeadSession,
+  LeadSessionChangedEvent,
+} from "./lead-sessions/types.js";
 import type { Hono } from "hono";
+
+export type { LeadSession, LeadSessionChangedEvent };
 
 // Think levels
 export const ThinkLevelSchema = z.enum([
@@ -558,6 +564,13 @@ export type SubagentsExtensionConfig = z.infer<
   typeof SubagentsExtensionConfigSchema
 >;
 
+export const SessionsExtensionConfigSchema = z.object({
+  autoTitleModel: z.string().optional(),
+});
+export type SessionsExtensionConfig = z.infer<
+  typeof SessionsExtensionConfigSchema
+>;
+
 export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   baseUrl: z.string().optional(),
   publicKey: z.string().optional(),
@@ -584,6 +597,7 @@ export const ExtensionsConfigSchema = z
     heartbeat: HeartbeatExtensionConfigSchema.optional(),
     projects: ProjectsExtensionConfigSchema.optional(),
     subagents: SubagentsExtensionConfigSchema.optional(),
+    sessions: SessionsExtensionConfigSchema.optional(),
     langfuse: LangfuseExtensionConfigSchema.optional(),
     multiUser: MultiUserConfigSchema.optional(),
     board: z
@@ -635,6 +649,7 @@ export type GlobalSandboxConfig = z.infer<typeof GlobalSandboxConfigSchema>;
 export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
+  defaultProjectManager: z.string().optional(),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
   extensions: ExtensionsConfigSchema,
@@ -1258,6 +1273,7 @@ export type WsServerMessage =
   | WsFileChangedEvent
   | WsAgentChangedEvent
   | WsSubagentChangedEvent
+  | LeadSessionChangedEvent
   | WsActiveTurnSnapshot;
 
 // History types

@@ -9,7 +9,11 @@ import {
   Suspense,
 } from "solid-js";
 import { useLocation } from "@solidjs/router";
-import { fetchAgents, getSessionKey } from "../api";
+import {
+  fetchAgents,
+  getSessionKey,
+  selectDefaultProjectManagerAgent,
+} from "../api";
 import type {
   Agent,
   FileBlock,
@@ -308,13 +312,11 @@ export function BoardView() {
     try {
       const list = await fetchAgents();
       setAgents(list);
-      const selected = selectedAgentId();
-      if (
-        list.length > 0 &&
-        (!selected || !list.some((agent) => agent.id === selected))
-      ) {
-        setSelectedAgentId(list[0].id);
-      }
+      const defaultAgent = selectDefaultProjectManagerAgent(
+        list,
+        selectedAgentId()
+      );
+      setSelectedAgentId(defaultAgent?.id ?? null);
     } catch (err) {
       console.error("[BoardView] failed to load agents:", err);
     }

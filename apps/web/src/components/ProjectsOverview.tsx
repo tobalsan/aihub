@@ -42,8 +42,10 @@ function emptyBoardProjectsResponse() {
   return {
     projects: [],
     lifecycleCounts: {
+      triage: 0,
       shaping: 0,
       active: 0,
+      ready_to_merge: 0,
       done: 0,
       cancelled: 0,
       archived: 0,

@@ -4,6 +4,11 @@ const getAgent = vi.fn();
 const getActiveAgents = vi.fn();
 const isAgentActive = vi.fn();
 const resolveWorkspaceDir = vi.fn((workspace: string) => workspace);
+let loadConfigValue: Record<string, unknown> = {
+  branding: undefined,
+  agentFab: false,
+  agents: [],
+};
 
 const runAgent = vi.fn();
 const getAllSessionsForAgent = vi.fn();
@@ -29,7 +34,7 @@ vi.mock("../config/index.js", () => ({
   getActiveAgents,
   isAgentActive,
   resolveWorkspaceDir,
-  loadConfig: () => ({ branding: undefined, agentFab: false }),
+  loadConfig: () => loadConfigValue,
 }));
 
 vi.mock("../extensions/registry.js", () => ({
@@ -90,6 +95,11 @@ describe("api core session resolution", () => {
         : null
     );
     getActiveAgents.mockReturnValue([]);
+    loadConfigValue = {
+      branding: undefined,
+      agentFab: false,
+      agents: [],
+    };
     isAgentActive.mockReturnValue(true);
     isAbortTrigger.mockReturnValue(false);
     multiUserState.loaded = false;
@@ -104,6 +114,52 @@ describe("api core session resolution", () => {
       isNew: true,
       createdAt: 1,
     });
+  });
+
+  it("returns an empty agent list without default resolution errors", async () => {
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/agents"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([]);
+  });
+
+  it("marks the configured default project manager on visible agents", async () => {
+    const agents = [
+      {
+        id: "alpha",
+        name: "Alpha",
+        model: { provider: "anthropic", model: "claude" },
+      },
+      {
+        id: "beta",
+        name: "Beta",
+        model: { provider: "anthropic", model: "claude" },
+      },
+    ];
+    getActiveAgents.mockReturnValue(agents);
+    loadConfigValue = {
+      branding: undefined,
+      agentFab: false,
+      agents,
+      defaultProjectManager: "beta",
+    };
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/agents"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      expect.objectContaining({
+        id: "alpha",
+        isDefaultProjectManager: false,
+      }),
+      expect.objectContaining({
+        id: "beta",
+        isDefaultProjectManager: true,
+      }),
+    ]);
   });
 
   it("passes a resolved session through to runAgent", async () => {

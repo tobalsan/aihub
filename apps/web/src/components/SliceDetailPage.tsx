@@ -274,7 +274,9 @@ function SliceAgentRunsSection(props: {
   projectId: string;
   sliceId: string;
   selectedRunId?: string;
+  selectedLeadId?: string;
   onSelectedRunIdChange?: (runId: string | undefined) => void;
+  onSelectedLeadIdChange?: (leadId: string | undefined) => void;
 }) {
   return (
     <div class="slice-detail-section slice-detail-agent-section">
@@ -282,7 +284,9 @@ function SliceAgentRunsSection(props: {
         projectId={props.projectId}
         sliceId={props.sliceId}
         selectedRunId={props.selectedRunId}
+        selectedLeadId={props.selectedLeadId}
         onSelectedRunIdChange={props.onSelectedRunIdChange}
+        onSelectedLeadIdChange={props.onSelectedLeadIdChange}
       />
     </div>
   );
@@ -407,6 +411,14 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
     return runId ? `${base}&run=${encodeURIComponent(runId)}` : base;
   };
 
+  const agentLeadUrl = (leadId: string | undefined) => {
+    const base = tabUrl("agent");
+    return leadId ? `${base}&lead=${encodeURIComponent(leadId)}` : base;
+  };
+
+  const queryStringValue = (value: string | string[] | undefined) =>
+    Array.isArray(value) ? value[0] : value;
+
   const openTab = (tab: SectionTab) => {
     const to = tabUrl(tab);
     if (props.onNavigate) {
@@ -424,13 +436,16 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
     if (!current) return;
 
     setSaveError("");
-    const fileByDocKey: Record<EditableSliceDocKey, string> = {
+    const fileByDocKey: Partial<Record<EditableSliceDocKey, string>> = {
       specs: "SPECS.md",
       tasks: "TASKS.md",
       validation: "VALIDATION.md",
     };
     const suppressUntil = Date.now() + 2000;
-    locallySavedFiles.set(`slices/${sliceId()}/${fileByDocKey[docKey]}`, suppressUntil);
+    const fileName = fileByDocKey[docKey];
+    if (fileName) {
+      locallySavedFiles.set(`slices/${sliceId()}/${fileName}`, suppressUntil);
+    }
     locallySavedFiles.set(`slices/${sliceId()}/README.md`, suppressUntil);
     locallySavedFiles.set("SCOPE_MAP.md", suppressUntil);
     mutate({ ...current, docs: { ...current.docs, [docKey]: content } });
@@ -789,13 +804,21 @@ export function SliceDetailPage(props: SliceDetailPageProps = {}) {
                     <SliceAgentRunsSection
                       projectId={projectId()}
                       sliceId={sliceId()}
-                      selectedRunId={searchParams.run}
+                      selectedRunId={queryStringValue(searchParams.run)}
+                      selectedLeadId={queryStringValue(searchParams.lead)}
                       onSelectedRunIdChange={(runId) =>
                         props.onNavigate
                           ? props.onNavigate(agentRunUrl(runId), {
                               replace: true,
                             })
                           : navigate(agentRunUrl(runId), { replace: true })
+                      }
+                      onSelectedLeadIdChange={(leadId) =>
+                        props.onNavigate
+                          ? props.onNavigate(agentLeadUrl(leadId), {
+                              replace: true,
+                            })
+                          : navigate(agentLeadUrl(leadId), { replace: true })
                       }
                     />
                   </Show>

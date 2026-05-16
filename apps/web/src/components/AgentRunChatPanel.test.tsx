@@ -7,27 +7,52 @@ import { AgentRunChatPanel } from "./AgentRunChatPanel";
 import {
   archiveRuntimeSubagent,
   deleteRuntimeSubagent,
+  fetchAgents,
+  fetchLeadSessionTranscript,
+  fetchLeadSessions,
   fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
+  interruptRuntimeSubagent,
   resumeRuntimeSubagent,
   subscribeToSubagentChanges,
 } from "../api";
 
 vi.mock("../api", () => ({
+  fetchAgents: vi.fn(async () => [
+    {
+      id: "pom",
+      name: "Pom",
+      model: { provider: "anthropic", model: "claude" },
+      isDefaultProjectManager: true,
+    },
+  ]),
+  selectDefaultProjectManagerAgent: vi.fn((agents) => agents[0]),
+  fetchLeadSessions: vi.fn(async () => ({ items: [] })),
+  createLeadSession: vi.fn(),
+  patchLeadSession: vi.fn(),
+  deleteLeadSession: vi.fn(),
+  fetchLeadSessionTranscript: vi.fn(async () => ({ messages: [] })),
+  sendLeadSessionMessage: vi.fn(),
   fetchRuntimeSubagents: vi.fn(),
   fetchRuntimeSubagentLogs: vi.fn(),
   resumeRuntimeSubagent: vi.fn(),
   interruptRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
+  postAbort: vi.fn(async () => {}),
   archiveRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
   deleteRuntimeSubagent: vi.fn(async () => ({ ok: true })),
   subscribeToFileChanges: vi.fn(() => () => {}),
   subscribeToSubagentChanges: vi.fn(() => () => {}),
+  subscribeToLeadSessionChanges: vi.fn(() => () => {}),
   uploadFiles: vi.fn(async () => []),
 }));
 
+const fetchAgentsMock = vi.mocked(fetchAgents);
+const fetchLeadSessionsMock = vi.mocked(fetchLeadSessions);
+const fetchLeadTranscriptMock = vi.mocked(fetchLeadSessionTranscript);
 const fetchRunsMock = vi.mocked(fetchRuntimeSubagents);
 const fetchLogsMock = vi.mocked(fetchRuntimeSubagentLogs);
 const resumeMock = vi.mocked(resumeRuntimeSubagent);
+const interruptMock = vi.mocked(interruptRuntimeSubagent);
 const archiveMock = vi.mocked(archiveRuntimeSubagent);
 const deleteMock = vi.mocked(deleteRuntimeSubagent);
 const subscribeToSubagentChangesMock = vi.mocked(subscribeToSubagentChanges);
@@ -58,6 +83,16 @@ beforeEach(() => {
     new Date("2026-05-13T10:05:00Z").getTime()
   );
   vi.spyOn(window, "confirm").mockReturnValue(true);
+  fetchAgentsMock.mockResolvedValue([
+    {
+      id: "pom",
+      name: "Pom",
+      model: { provider: "anthropic", model: "claude" },
+      isDefaultProjectManager: true,
+    },
+  ]);
+  fetchLeadSessionsMock.mockResolvedValue({ items: [] });
+  fetchLeadTranscriptMock.mockResolvedValue({ messages: [] });
   container = document.createElement("div");
   document.body.appendChild(container);
 });
@@ -116,6 +151,10 @@ describe("AgentRunChatPanel", () => {
     expect(selectedCalls).toContain("visible-run");
     expect(container.textContent).toContain("RepoSetter");
     expect(container.textContent).toContain("Latest useful transcript line");
+    expect(container.querySelector("[role='tablist']")).toBeNull();
+    expect(getComputedStyle(
+      container.querySelector(".agent-run-sidebar-scroll") as HTMLElement
+    ).overflow).toBe("auto");
     expect(container.textContent).not.toContain("Refresh");
     expect(container.textContent).not.toContain("Raw logs");
   });
@@ -150,6 +189,7 @@ describe("AgentRunChatPanel", () => {
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Worker");
       expect(container.textContent).toContain("No visible transcript");
+      expect(container.textContent).toContain("Thinking");
     });
 
     expect(container.textContent).not.toContain("No agent runs yet.");
@@ -158,6 +198,14 @@ describe("AgentRunChatPanel", () => {
     ) as HTMLButtonElement | undefined;
     expect(stopButton).toBeDefined();
     expect(stopButton?.disabled).toBe(false);
+    const composerStop = container.querySelector<HTMLButtonElement>(
+      ".board-chat-stop"
+    );
+    expect(composerStop).not.toBeNull();
+    composerStop?.click();
+    await vi.waitFor(() =>
+      expect(interruptMock).toHaveBeenCalledWith("starting-run")
+    );
   });
 
   it("expands archived deep links and clears selection after archive/delete", async () => {
@@ -310,14 +358,16 @@ describe("AgentRunChatPanel", () => {
     const panel = container.querySelector(
       ".agent-run-chat-panel"
     ) as HTMLElement;
-    const list = container.querySelector(".agent-run-list") as HTMLElement;
+    const list = container.querySelector(
+      ".agent-run-sidebar-scroll"
+    ) as HTMLElement;
     const transcript = container.querySelector(
       ".agent-run-chat-messages"
     ) as HTMLElement;
 
     expect(panel.style.height).toBe("100%");
     expect(panel.style.overflow).toBe("hidden");
-    expect(list.style.overflow).toBe("auto");
+    expect(getComputedStyle(list).overflow).toBe("auto");
     expect(transcript.style.overflow).toBe("auto");
   });
 

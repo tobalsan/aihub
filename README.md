@@ -763,6 +763,8 @@ Project API details: `docs/projects_api.md`
 }
 ```
 
+Project lead-session titles can be generated with `extensions.sessions.autoTitleModel`; when omitted, AIHub uses the cheapest available Anthropic Haiku model and refuses Opus/thinking models for title generation.
+
 ### Agent Options
 
 | Field              | Description                                                                          |
