@@ -25,6 +25,7 @@ import {
   fetchRuntimeSubagents,
   interruptRuntimeSubagent,
   patchLeadSession,
+  postAbort,
   resumeRuntimeSubagent,
   selectDefaultProjectManagerAgent,
   sendLeadSessionMessage,
@@ -238,6 +239,13 @@ function singleQueryValue(value: string | string[] | undefined) {
   return Array.isArray(value) ? value[0] : value;
 }
 
+function upsertLeadSession(
+  sessions: LeadSession[],
+  session: LeadSession
+): LeadSession[] {
+  return [session, ...sessions.filter((item) => item.id !== session.id)];
+}
+
 export function AgentRunChatPanel(props: {
   projectId: string;
   sliceId?: string;
@@ -268,6 +276,7 @@ export function AgentRunChatPanel(props: {
   const [pendingMessages, setPendingMessages] = createSignal<PendingMessage[]>(
     []
   );
+  const [creatingLeadSession, setCreatingLeadSession] = createSignal(false);
   const [draftAgentByLeadId, setDraftAgentByLeadId] = createSignal<
     Record<string, string>
   >({});
@@ -319,6 +328,22 @@ export function AgentRunChatPanel(props: {
         ? transcriptItems(logsByRunId()[selectedRun()!.id]?.events ?? [])
         : []
   );
+  const waitingForSelectedAssistant = createMemo(() => {
+    if (activeSegment() === "lead") {
+      return pendingForSelected().some(
+        (message) => message.sending && !message.error
+      );
+    }
+    const hasAssistantText = selectedItems().some(
+      (item) =>
+        item.type === "text" &&
+        item.role === "assistant" &&
+        item.content.trim().length > 0
+    );
+    if (hasAssistantText) return false;
+    const run = selectedRun();
+    return Boolean(run && isRunning(run));
+  });
   const scopeId = createMemo(() =>
     props.sliceId ? `${props.projectId}:${props.sliceId}` : props.projectId
   );
@@ -523,10 +548,7 @@ export function AgentRunChatPanel(props: {
         if (selectedLeadId() === event.session.id) selectLead(undefined, true);
         return;
       }
-      setLeadSessions((prev) => {
-        const without = prev.filter((session) => session.id !== event.session.id);
-        return [...without, event.session];
-      });
+      setLeadSessions((prev) => upsertLeadSession(prev, event.session));
       void loadLeadTranscript(event.session.id);
     },
     onError: setError,
@@ -565,6 +587,20 @@ export function AgentRunChatPanel(props: {
     }
     const seq = ++loadSeq;
     await loadAll(props.projectId, props.sliceId, seq);
+  }
+
+  async function stopSelectedChat() {
+    if (activeSegment() === "subagents") {
+      await stopSelected();
+      return;
+    }
+    const lead = selectedLead();
+    if (!lead) return;
+    try {
+      await postAbort(lead.agentId, lead.transcriptRef);
+    } catch (err) {
+      setError(err instanceof Error ? err.message : String(err));
+    }
   }
 
   async function archiveSelectedRun() {
@@ -633,14 +669,16 @@ export function AgentRunChatPanel(props: {
   }
 
   async function createNewLeadSession() {
+    if (creatingLeadSession()) return;
     const agent = defaultAgent();
     if (!agent) return;
+    setCreatingLeadSession(true);
     try {
       const created = await createLeadSession(props.projectId, {
         agentId: agent.id,
         ...(props.sliceId ? { sliceId: props.sliceId } : {}),
       });
-      setLeadSessions((prev) => [created, ...prev]);
+      setLeadSessions((prev) => upsertLeadSession(prev, created));
       setLeadTranscripts((prev) => ({
         ...prev,
         [created.id]: { messages: [], loaded: true },
@@ -649,6 +687,8 @@ export function AgentRunChatPanel(props: {
       selectLead(created.id);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
+    } finally {
+      setCreatingLeadSession(false);
     }
   }
 
@@ -786,11 +826,23 @@ export function AgentRunChatPanel(props: {
     );
   }
 
+  function selectedChatIsRunning() {
+    if (activeSegment() === "lead") {
+      return pendingForSelected().some(
+        (message) => message.sending && !message.error
+      );
+    }
+    if (draft().trim() || pendingFiles().length > 0) return false;
+    const run = selectedRun();
+    return Boolean(run && isRunning(run));
+  }
+
   createEffect(() => {
     const id = activeSegment() === "lead" ? selectedLeadId() : selectedRunId();
     const itemCount = selectedItems().length;
     const pendingCount = pendingForSelected().length;
-    if (!id || (!itemCount && !pendingCount)) return;
+    const isWaiting = waitingForSelectedAssistant();
+    if (!id || (!itemCount && !pendingCount && !isWaiting)) return;
     requestAnimationFrame(() => {
       if (!chatMessagesEl) return;
       chatMessagesEl.scrollTop = chatMessagesEl.scrollHeight;
@@ -799,24 +851,49 @@ export function AgentRunChatPanel(props: {
 
   function AgentBadge(props: { agent?: Agent; agentId: string }) {
     const label = () => props.agent?.name ?? props.agentId;
-    const avatar = () => props.agent?.avatar?.trim();
     return (
       <span class="lead-agent-badge">
-        <Show
-          when={avatar()}
-          fallback={<span class="lead-agent-avatar">{label().slice(0, 1)}</span>}
-        >
-          {(src) => (
-            <img
-              class="lead-agent-avatar"
-              src={src()}
-              alt=""
-              aria-hidden="true"
-            />
-          )}
-        </Show>
         <span>{label()}</span>
       </span>
+    );
+  }
+
+  function RowActionIcon(props: { type: "rename" | "archive" | "unarchive" | "delete" }) {
+    return (
+      <svg
+        width="14"
+        height="14"
+        viewBox="0 0 24 24"
+        fill="none"
+        stroke="currentColor"
+        stroke-width="2"
+        stroke-linecap="round"
+        stroke-linejoin="round"
+        aria-hidden="true"
+      >
+        <Show when={props.type === "rename"}>
+          <path d="M12 20h9" />
+          <path d="M16.5 3.5a2.1 2.1 0 0 1 3 3L7 19l-4 1 1-4Z" />
+        </Show>
+        <Show when={props.type === "archive"}>
+          <path d="M21 8v13H3V8" />
+          <path d="M1 3h22v5H1Z" />
+          <path d="M10 12h4" />
+        </Show>
+        <Show when={props.type === "unarchive"}>
+          <path d="M21 8v13H3V8" />
+          <path d="M1 3h22v5H1Z" />
+          <path d="m9 15 3-3 3 3" />
+          <path d="M12 12v6" />
+        </Show>
+        <Show when={props.type === "delete"}>
+          <path d="M3 6h18" />
+          <path d="M8 6V4h8v2" />
+          <path d="M19 6l-1 14H6L5 6" />
+          <path d="M10 11v6" />
+          <path d="M14 11v6" />
+        </Show>
+      </svg>
     );
   }
 
@@ -846,18 +923,32 @@ export function AgentRunChatPanel(props: {
           </div>
         </button>
         <div class="agent-run-row-actions">
-          <button type="button" onClick={() => void renameLead(rowProps.session)}>
-            Rename
+          <button
+            type="button"
+            aria-label="Rename lead session"
+            title="Rename"
+            onClick={() => void renameLead(rowProps.session)}
+          >
+            <RowActionIcon type="rename" />
           </button>
           <button
             type="button"
+            aria-label={
+              archived() ? "Unarchive lead session" : "Archive lead session"
+            }
+            title={archived() ? "Unarchive" : "Archive"}
             onClick={() => void archiveLead(rowProps.session, !archived())}
           >
-            {archived() ? "Unarchive" : "Archive"}
+            <RowActionIcon type={archived() ? "unarchive" : "archive"} />
           </button>
           <Show when={!isLegacyLeadSession(rowProps.session)}>
-            <button type="button" onClick={() => void deleteLead(rowProps.session)}>
-              Delete
+            <button
+              type="button"
+              aria-label="Delete lead session"
+              title="Delete"
+              onClick={() => void deleteLead(rowProps.session)}
+            >
+              <RowActionIcon type="delete" />
             </button>
           </Show>
         </div>
@@ -953,16 +1044,9 @@ export function AgentRunChatPanel(props: {
     const locked = () => leadAgentLocked(props.session);
     const currentAgentId = () =>
       draftAgentByLeadId()[props.session.id] || props.session.agentId;
-    const currentAgent = () =>
-      agents().find((agent) => agent.id === currentAgentId());
     return (
-      <div class="lead-agent-picker">
-        <Show
-          when={!locked()}
-          fallback={
-            <AgentBadge agent={leadAgent(props.session)} agentId={props.session.agentId} />
-          }
-        >
+      <Show when={!locked()}>
+        <div class="lead-agent-picker">
           <select
             aria-label="Lead agent"
             value={currentAgentId()}
@@ -978,11 +1062,8 @@ export function AgentRunChatPanel(props: {
               {(agent) => <option value={agent.id}>{agent.name}</option>}
             </For>
           </select>
-          <Show when={currentAgent()}>
-            {(agent) => <AgentBadge agent={agent()} agentId={agent().id} />}
-          </Show>
-        </Show>
-      </div>
+        </div>
+      </Show>
     );
   }
 
@@ -1018,7 +1099,7 @@ export function AgentRunChatPanel(props: {
               type="button"
               class="agent-run-new-session"
               onClick={() => void createNewLeadSession()}
-              disabled={!defaultAgent()}
+              disabled={!defaultAgent() || creatingLeadSession()}
             >
               + New session
             </button>
@@ -1194,6 +1275,7 @@ export function AgentRunChatPanel(props: {
         }
 
         .agent-run-row {
+          position: relative;
           width: 100%;
           min-height: 78px;
           padding: 10px;
@@ -1252,40 +1334,44 @@ export function AgentRunChatPanel(props: {
         }
 
         .agent-run-row-actions {
+          position: absolute;
+          top: 6px;
+          right: 6px;
           display: flex;
-          flex-wrap: wrap;
-          gap: 6px;
-          margin-top: 8px;
+          gap: 4px;
+          opacity: 0;
+          pointer-events: none;
+          transition: opacity 120ms ease;
         }
 
         .agent-run-row-actions button {
           border: 1px solid var(--border-default);
-          border-radius: 5px;
-          background: transparent;
+          border-radius: 4px;
+          background: var(--surface-default, #fff);
           color: var(--text-secondary);
-          font-size: 11px;
+          display: inline-grid;
+          place-items: center;
+          width: 22px;
+          height: 22px;
+          padding: 0;
           cursor: pointer;
+        }
+
+        .agent-run-row:hover .agent-run-row-actions,
+        .agent-run-row:focus-within .agent-run-row-actions {
+          opacity: 1;
+          pointer-events: auto;
+        }
+
+        .agent-run-row-actions button:hover {
+          color: var(--text-primary);
+          border-color: var(--text-secondary);
         }
 
         .lead-agent-badge {
           display: inline-flex;
           align-items: center;
-          gap: 6px;
           min-width: 0;
-        }
-
-        .lead-agent-avatar {
-          display: grid;
-          place-items: center;
-          width: 18px;
-          height: 18px;
-          border-radius: 50%;
-          background: color-mix(in srgb, var(--text-primary) 12%, transparent);
-          color: var(--text-primary);
-          font-size: 10px;
-          font-weight: 700;
-          object-fit: cover;
-          text-transform: uppercase;
         }
 
         .agent-run-archived {
@@ -1367,6 +1453,9 @@ export function AgentRunChatPanel(props: {
           min-height: 0;
           overflow: auto;
           padding: 20px 24px;
+          display: flex;
+          flex-direction: column;
+          gap: 24px;
         }
 
         .agent-run-placeholder,
@@ -1379,6 +1468,25 @@ export function AgentRunChatPanel(props: {
           color: #b91c1c;
           font-size: 12px;
           padding: 8px 12px;
+        }
+
+        .board-msg-thinking {
+          font-size: 14px;
+          font-style: italic;
+          color: var(--text-secondary);
+          animation: thinking-pulse 1.8s ease-in-out infinite;
+        }
+
+        @keyframes thinking-pulse {
+          0%, 100% { opacity: 0.4; }
+          50% { opacity: 1; }
+        }
+
+        @media (prefers-reduced-motion: reduce) {
+          .board-msg-thinking {
+            animation: none;
+            opacity: 0.6;
+          }
         }
 
         .board-chat-input-area {
@@ -1466,6 +1574,11 @@ export function AgentRunChatPanel(props: {
           cursor: pointer;
           transition: opacity 0.15s, transform 0.15s;
           flex-shrink: 0;
+        }
+
+        .board-chat-send.board-chat-stop {
+          background: #ef4444;
+          color: #ffffff;
         }
 
         .board-chat-send:hover:not(:disabled) {
@@ -1577,6 +1690,19 @@ export function AgentRunChatPanel(props: {
             {(message) => (
               <div class="board-msg board-msg-user">
                 <div class="board-msg-role">
+                  <svg
+                    width="14"
+                    height="14"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <path d="M20 21v-2a4 4 0 0 0-4-4H8a4 4 0 0 0-4 4v2" />
+                    <circle cx="12" cy="7" r="4" />
+                  </svg>
                   <span>
                     {message.queued
                       ? "You (queued)"
@@ -1592,6 +1718,28 @@ export function AgentRunChatPanel(props: {
               </div>
             )}
           </For>
+          <Show when={waitingForSelectedAssistant()}>
+            <div class="board-msg board-msg-assistant">
+              <div class="board-msg-role">
+                <svg
+                  width="14"
+                  height="14"
+                  viewBox="0 0 24 24"
+                  fill="none"
+                  stroke="currentColor"
+                  stroke-width="2"
+                  stroke-linecap="round"
+                  stroke-linejoin="round"
+                >
+                  <path d="M12 2L2 7l10 5 10-5-10-5z" />
+                  <path d="M2 17l10 5 10-5" />
+                  <path d="M2 12l10 5 10-5" />
+                </svg>
+                <span>{props.agentName}</span>
+              </div>
+              <div class="board-msg-thinking">Thinking…</div>
+            </div>
+          </Show>
         </div>
         <form
           class="board-chat-input-area"
@@ -1661,26 +1809,47 @@ export function AgentRunChatPanel(props: {
               onInput={(event) => setDraft(event.currentTarget.value)}
               onKeyDown={handleDraftKeyDown}
             />
-            <button
-              type="submit"
-              class="board-chat-send"
-              disabled={!draft().trim() && pendingFiles().length === 0}
-              aria-label="Send message"
+            <Show
+              when={selectedChatIsRunning()}
+              fallback={
+                <button
+                  type="submit"
+                  class="board-chat-send"
+                  disabled={!draft().trim() && pendingFiles().length === 0}
+                  aria-label="Send message"
+                >
+                  <svg
+                    width="18"
+                    height="18"
+                    viewBox="0 0 24 24"
+                    fill="none"
+                    stroke="currentColor"
+                    stroke-width="2"
+                    stroke-linecap="round"
+                    stroke-linejoin="round"
+                  >
+                    <line x1="22" y1="2" x2="11" y2="13" />
+                    <polygon points="22 2 15 22 11 13 2 9 22 2" />
+                  </svg>
+                </button>
+              }
             >
-              <svg
-                width="18"
-                height="18"
-                viewBox="0 0 24 24"
-                fill="none"
-                stroke="currentColor"
-                stroke-width="2"
-                stroke-linecap="round"
-                stroke-linejoin="round"
+              <button
+                type="button"
+                class="board-chat-send board-chat-stop"
+                aria-label="Stop response"
+                onClick={() => void stopSelectedChat()}
               >
-                <line x1="22" y1="2" x2="11" y2="13" />
-                <polygon points="22 2 15 22 11 13 2 9 22 2" />
-              </svg>
-            </button>
+                <svg
+                  width="18"
+                  height="18"
+                  viewBox="0 0 24 24"
+                  fill="currentColor"
+                >
+                  <rect x="6" y="6" width="12" height="12" rx="2" />
+                </svg>
+              </button>
+            </Show>
           </div>
           <p class="board-chat-input-hint">
             Enter to send, Shift+Enter for new line

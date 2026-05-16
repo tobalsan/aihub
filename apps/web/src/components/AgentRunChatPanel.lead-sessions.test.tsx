@@ -11,6 +11,7 @@ import {
   fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
   patchLeadSession,
+  postAbort,
   sendLeadSessionMessage,
   subscribeToLeadSessionChanges,
   uploadFiles,
@@ -35,6 +36,7 @@ vi.mock("../api", () => ({
   fetchLeadSessions: vi.fn(),
   createLeadSession: vi.fn(),
   patchLeadSession: vi.fn(),
+  postAbort: vi.fn(async () => {}),
   deleteLeadSession: vi.fn(async () => ({ ok: true })),
   fetchLeadSessionTranscript: vi.fn(),
   sendLeadSessionMessage: vi.fn(),
@@ -54,6 +56,7 @@ const fetchLeadSessionsMock = vi.mocked(fetchLeadSessions);
 const fetchLeadTranscriptMock = vi.mocked(fetchLeadSessionTranscript);
 const createLeadSessionMock = vi.mocked(createLeadSession);
 const patchLeadSessionMock = vi.mocked(patchLeadSession);
+const postAbortMock = vi.mocked(postAbort);
 const sendLeadMock = vi.mocked(sendLeadSessionMessage);
 const fetchRunsMock = vi.mocked(fetchRuntimeSubagents);
 const fetchLogsMock = vi.mocked(fetchRuntimeSubagentLogs);
@@ -166,6 +169,7 @@ describe("AgentRunChatPanel lead sessions", () => {
     expect(container.textContent).not.toContain("Slice lead");
     expect(container.textContent).toContain("+ New session");
     expect(container.textContent).toContain("project scope");
+    expect(container.querySelector(".lead-agent-badge img")).toBeNull();
   });
 
   it("honors lead over run URL params, falls back from stale lead to valid run, and writes last viewed", async () => {
@@ -249,6 +253,32 @@ describe("AgentRunChatPanel lead sessions", () => {
     );
   });
 
+  it("does not duplicate a session row when New session returns an existing id", async () => {
+    const existing = lead({ id: "lead:PRO-1:existing", title: "Existing" });
+    fetchLeadSessionsMock.mockResolvedValue({ items: [existing] });
+    createLeadSessionMock.mockResolvedValue({
+      ...existing,
+      title: "Existing refreshed",
+      updatedAt: "2026-05-13T10:06:00Z",
+    });
+
+    render(() => <AgentRunChatPanel projectId="PRO-1" />, container);
+    await vi.waitFor(() => expect(container.textContent).toContain("Existing"));
+    (
+      [...container.querySelectorAll("button")].find((button) =>
+        button.textContent?.includes("+ New session")
+      ) as HTMLButtonElement
+    ).click();
+
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("Existing refreshed")
+    );
+    const rows = [...container.querySelectorAll(".lead-session-row")].filter((row) =>
+      row.textContent?.includes("Existing")
+    );
+    expect(rows).toHaveLength(1);
+  });
+
   it("locks the agent picker for existing transcripts and sends one message with files", async () => {
     const session = lead({ id: "lead:PRO-1:locked", agentId: "pom" });
     fetchLeadSessionsMock.mockResolvedValue({ items: [session] });
@@ -260,6 +290,7 @@ describe("AgentRunChatPanel lead sessions", () => {
     render(() => <AgentRunChatPanel projectId="PRO-1" />, container);
     await vi.waitFor(() => expect(container.textContent).toContain("started"));
     expect(container.querySelector("select[aria-label='Lead agent']")).toBeNull();
+    expect(container.querySelector(".lead-agent-picker")).toBeNull();
 
     const fileInput = container.querySelector(".board-file-input") as HTMLInputElement;
     Object.defineProperty(fileInput, "files", {
@@ -278,6 +309,67 @@ describe("AgentRunChatPanel lead sessions", () => {
       files: [
         { path: "media/a", filename: "a.txt", mimeType: "text/plain", size: 3 },
       ],
+    });
+  });
+
+  it("shows the board chat thinking state while a lead agent reply is pending", async () => {
+    const session = lead({ id: "lead:PRO-1:thinking", agentId: "pom" });
+    let resolveSend:
+      | ((value: Awaited<ReturnType<typeof sendLeadSessionMessage>>) => void)
+      | undefined;
+    fetchLeadSessionsMock.mockResolvedValue({ items: [session] });
+    fetchLeadTranscriptMock.mockResolvedValue({
+      messages: [userMessage("started"), assistantMessage("previous reply")],
+    });
+    sendLeadMock.mockImplementation(
+      async (id) =>
+        new Promise((resolve) => {
+          resolveSend = resolve;
+        }).then(() => ({
+          session: lead({ id, updatedAt: "2026-05-13T10:02:00Z" }),
+          result: {},
+        }))
+    );
+
+    render(() => <AgentRunChatPanel projectId="PRO-1" />, container);
+    await vi.waitFor(() =>
+      expect(container.textContent).toContain("previous reply")
+    );
+    const input = container.querySelector(
+      ".board-chat-input"
+    ) as HTMLTextAreaElement;
+    input.value = "think please";
+    input.dispatchEvent(new InputEvent("input", { bubbles: true }));
+    (container.querySelector(".board-chat-send") as HTMLButtonElement).click();
+
+    await vi.waitFor(() => {
+      expect(container.textContent).toContain("Pom");
+      expect(container.textContent).toContain("Thinking");
+    });
+    expect(container.querySelector(".board-msg-thinking")).not.toBeNull();
+    expect(container.textContent).toContain("thinking-pulse");
+    expect(
+      container.querySelector<HTMLButtonElement>(".board-chat-stop")
+    ).not.toBeNull();
+    container
+      .querySelector<HTMLButtonElement>(".board-chat-stop")
+      ?.dispatchEvent(new MouseEvent("click", { bubbles: true }));
+    await vi.waitFor(() =>
+      expect(postAbortMock).toHaveBeenCalledWith("pom", session.transcriptRef)
+    );
+    const pendingUserMessage = [...container.querySelectorAll(".board-msg-user")]
+      .find((item) => item.textContent?.includes("You (sending)"));
+    expect(pendingUserMessage?.querySelector("svg")).not.toBeNull();
+    const messages = container.querySelector(
+      ".agent-run-chat-messages"
+    ) as HTMLDivElement;
+    expect(getComputedStyle(messages).display).toBe("flex");
+    expect(getComputedStyle(messages).flexDirection).toBe("column");
+    expect(getComputedStyle(messages).gap).toBe("24px");
+
+    resolveSend?.({
+      session: lead({ id: session.id, updatedAt: "2026-05-13T10:02:00Z" }),
+      result: {},
     });
   });
 
@@ -300,8 +392,8 @@ describe("AgentRunChatPanel lead sessions", () => {
     render(() => <AgentRunChatPanel projectId="PRO-1" />, container);
     await vi.waitFor(() => expect(container.textContent).toContain("Original"));
     (
-      [...container.querySelectorAll("button")].find(
-        (button) => button.textContent === "Rename"
+      container.querySelector(
+        "button[aria-label='Rename lead session']"
       ) as HTMLButtonElement
     ).click();
     await vi.waitFor(() =>
@@ -314,6 +406,14 @@ describe("AgentRunChatPanel lead sessions", () => {
       (row) => row.textContent?.includes("Main")
     );
     expect(legacyRow?.textContent).not.toContain("Delete");
+    const actionButtons = container.querySelectorAll(
+      ".lead-session-row .agent-run-row-actions button"
+    );
+    expect(actionButtons[0]?.textContent).toBe("");
+    expect(actionButtons[0]?.getAttribute("aria-label")).toBe(
+      "Rename lead session"
+    );
+    expect(container.textContent).not.toContain("ArchiveDelete");
 
     const callbacks = subscribeLeadMock.mock.calls[0]?.[0];
     callbacks?.onLeadSessionChanged?.({
@@ -358,6 +458,9 @@ describe("AgentRunChatPanel lead sessions", () => {
       container
     );
     await vi.waitFor(() => expect(container.textContent).toContain("First"));
+    expect(
+      container.querySelectorAll(".lead-agent-picker .lead-agent-badge")
+    ).toHaveLength(0);
     const select = container.querySelector(
       "select[aria-label='Lead agent']"
     ) as HTMLSelectElement;

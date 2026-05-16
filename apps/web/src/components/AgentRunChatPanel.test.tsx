@@ -12,6 +12,7 @@ import {
   fetchLeadSessions,
   fetchRuntimeSubagentLogs,
   fetchRuntimeSubagents,
+  interruptRuntimeSubagent,
   resumeRuntimeSubagent,
   subscribeToSubagentChanges,
 } from "../api";
@@ -36,6 +37,7 @@ vi.mock("../api", () => ({
   fetchRuntimeSubagentLogs: vi.fn(),
   resumeRuntimeSubagent: vi.fn(),
   interruptRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
+  postAbort: vi.fn(async () => {}),
   archiveRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
   deleteRuntimeSubagent: vi.fn(async () => ({ ok: true })),
   subscribeToFileChanges: vi.fn(() => () => {}),
@@ -50,6 +52,7 @@ const fetchLeadTranscriptMock = vi.mocked(fetchLeadSessionTranscript);
 const fetchRunsMock = vi.mocked(fetchRuntimeSubagents);
 const fetchLogsMock = vi.mocked(fetchRuntimeSubagentLogs);
 const resumeMock = vi.mocked(resumeRuntimeSubagent);
+const interruptMock = vi.mocked(interruptRuntimeSubagent);
 const archiveMock = vi.mocked(archiveRuntimeSubagent);
 const deleteMock = vi.mocked(deleteRuntimeSubagent);
 const subscribeToSubagentChangesMock = vi.mocked(subscribeToSubagentChanges);
@@ -182,6 +185,7 @@ describe("AgentRunChatPanel", () => {
     await vi.waitFor(() => {
       expect(container.textContent).toContain("Worker");
       expect(container.textContent).toContain("No visible transcript");
+      expect(container.textContent).toContain("Thinking");
     });
 
     expect(container.textContent).not.toContain("No agent runs yet.");
@@ -190,6 +194,14 @@ describe("AgentRunChatPanel", () => {
     ) as HTMLButtonElement | undefined;
     expect(stopButton).toBeDefined();
     expect(stopButton?.disabled).toBe(false);
+    const composerStop = container.querySelector<HTMLButtonElement>(
+      ".board-chat-stop"
+    );
+    expect(composerStop).not.toBeNull();
+    composerStop?.click();
+    await vi.waitFor(() =>
+      expect(interruptMock).toHaveBeenCalledWith("starting-run")
+    );
   });
 
   it("expands archived deep links and clears selection after archive/delete", async () => {

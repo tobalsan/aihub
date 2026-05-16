@@ -146,6 +146,7 @@ vi.mock("../api", () => ({
   fetchRuntimeSubagentLogs: vi.fn(async () => ({ events: [], cursor: 0 })),
   fetchSlices: vi.fn(async () => []),
   getSessionKey: getSessionKeyMock,
+  selectDefaultProjectManagerAgent: vi.fn((agents) => agents[0]),
   moveBoardProject: vi.fn(),
   interruptRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
   archiveRuntimeSubagent: vi.fn(async () => ({ ok: true, data: {} })),
