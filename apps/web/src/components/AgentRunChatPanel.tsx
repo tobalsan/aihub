@@ -985,41 +985,56 @@ export function AgentRunChatPanel(props: {
   const archivedRunCount = createMemo(
     () => archivedRuns().filter((run) => shouldShowRun(run)).length
   );
+  const sidebarCount = createMemo(
+    () =>
+      leadCount() + subagentCount() + archivedLeadCount() + archivedRunCount()
+  );
 
   function renderSidebarList() {
-    if (activeSegment() === "lead") {
-      return (
-        <>
-          <div class="agent-run-list" style={{ overflow: "auto" }}>
+    return (
+      <div class="agent-run-list">
+        <Show when={leadCount() > 0}>
+          <SidebarSection title="Lead chats">
             <For each={activeLeads()}>
               {(session) => <LeadRow session={session} />}
             </For>
-          </div>
-          <Show when={archivedLeadCount() > 0}>
-            <ArchivedSection>
+          </SidebarSection>
+        </Show>
+        <Show when={subagentCount() > 0}>
+          <SidebarSection title="Subagents">
+            <For each={activeRuns().filter((run) => shouldShowRun(run))}>
+              {(run) => <RunRow run={run} />}
+            </For>
+          </SidebarSection>
+        </Show>
+        <Show when={archivedLeadCount() + archivedRunCount() > 0}>
+          <ArchivedSection>
+            <Show when={archivedLeadCount() > 0}>
+              <SidebarSection title="Lead chats">
               <For each={archivedLeads()}>
                 {(session) => <LeadRow session={session} />}
               </For>
-            </ArchivedSection>
-          </Show>
-        </>
-      );
-    }
-    return (
-      <>
-        <div class="agent-run-list" style={{ overflow: "auto" }}>
-          <For each={activeRuns().filter((run) => shouldShowRun(run))}>
-            {(run) => <RunRow run={run} />}
-          </For>
-        </div>
-        <Show when={archivedRunCount() > 0}>
-          <ArchivedSection>
-            <For each={archivedRuns().filter((run) => shouldShowRun(run))}>
-              {(run) => <RunRow run={run} />}
-            </For>
+              </SidebarSection>
+            </Show>
+            <Show when={archivedRunCount() > 0}>
+              <SidebarSection title="Subagents">
+                <For each={archivedRuns().filter((run) => shouldShowRun(run))}>
+                  {(run) => <RunRow run={run} />}
+                </For>
+              </SidebarSection>
+            </Show>
           </ArchivedSection>
         </Show>
-      </>
+      </div>
+    );
+  }
+
+  function SidebarSection(props: { title: string; children: JSX.Element }) {
+    return (
+      <section class="agent-run-list-section">
+        <div class="agent-run-list-section-title">{props.title}</div>
+        <div class="agent-run-list-section-items">{props.children}</div>
+      </section>
     );
   }
 
@@ -1078,51 +1093,27 @@ export function AgentRunChatPanel(props: {
       </Show>
       <aside class="agent-run-sidebar">
         <div class="agent-run-sidebar-header">
-          <div class="agent-run-segments" role="tablist" aria-label="Agent sessions">
-            <button
-              type="button"
-              class={activeSegment() === "lead" ? "active" : ""}
-              onClick={() => setActiveSegment("lead")}
-            >
-              Lead ({leadCount()})
-            </button>
-            <button
-              type="button"
-              class={activeSegment() === "subagents" ? "active" : ""}
-              onClick={() => setActiveSegment("subagents")}
-            >
-              Subagents ({subagentCount()})
-            </button>
-          </div>
-          <Show when={activeSegment() === "lead"}>
-            <button
-              type="button"
-              class="agent-run-new-session"
-              onClick={() => void createNewLeadSession()}
-              disabled={!defaultAgent() || creatingLeadSession()}
-            >
-              + New session
-            </button>
+          <button
+            type="button"
+            class="agent-run-new-session"
+            onClick={() => void createNewLeadSession()}
+            disabled={!defaultAgent() || creatingLeadSession()}
+          >
+            + New session
+          </button>
+        </div>
+        <div class="agent-run-sidebar-scroll">
+          <Show
+            when={sidebarCount() > 0}
+            fallback={
+              <div class="agent-run-empty">
+                {loading() ? "Loading agent sessions…" : "No agent runs yet."}
+              </div>
+            }
+          >
+            {renderSidebarList()}
           </Show>
         </div>
-        <Show
-          when={
-            activeSegment() === "lead"
-              ? leadCount() + archivedLeadCount() > 0
-              : subagentCount() + archivedRunCount() > 0
-          }
-          fallback={
-            <div class="agent-run-empty">
-              {loading()
-                ? "Loading agent sessions…"
-                : activeSegment() === "lead"
-                  ? "No lead sessions yet."
-                  : "No agent runs yet."}
-            </div>
-          }
-        >
-          {renderSidebarList()}
-        </Show>
       </aside>
       <section class="agent-run-chat">
         <Show
@@ -1225,6 +1216,7 @@ export function AgentRunChatPanel(props: {
           display: flex;
           flex-direction: column;
           min-width: 0;
+          min-height: 0;
           border-right: 1px solid var(--border-default);
           background: color-mix(in srgb, var(--text-primary, #111827) 3%, transparent);
         }
@@ -1236,42 +1228,51 @@ export function AgentRunChatPanel(props: {
           border-bottom: 1px solid var(--border-default);
         }
 
-        .agent-run-segments {
-          display: grid;
-          grid-template-columns: 1fr 1fr;
+        .agent-run-new-session {
+          background: transparent;
           border: 1px solid var(--border-default);
           border-radius: 6px;
-          overflow: hidden;
-        }
-
-        .agent-run-segments button,
-        .agent-run-new-session {
-          border: 0;
-          background: transparent;
-          color: var(--text-secondary);
+          color: var(--text-primary);
           min-height: 30px;
+          text-align: left;
+          padding: 0 10px;
           cursor: pointer;
         }
 
-        .agent-run-segments button.active {
-          background: var(--surface-default, #fff);
-          color: var(--text-primary);
-          font-weight: 700;
-        }
-
-        .agent-run-new-session {
-          border: 1px solid var(--border-default);
-          border-radius: 6px;
-          color: var(--text-primary);
-          text-align: left;
-          padding: 0 10px;
-        }
-
-        .agent-run-list {
+        .agent-run-sidebar-scroll {
           flex: 1;
           min-height: 0;
           overflow: auto;
+        }
+
+        .agent-run-list {
           padding: 8px;
+        }
+
+        .agent-run-list-section {
+          border-top: 1px solid var(--border-default);
+          padding-top: 8px;
+          margin-top: 8px;
+        }
+
+        .agent-run-list-section:first-child {
+          border-top: 0;
+          padding-top: 0;
+          margin-top: 0;
+        }
+
+        .agent-run-list-section-title {
+          color: var(--text-secondary);
+          font-size: 11px;
+          font-weight: 700;
+          letter-spacing: 0;
+          margin: 0 2px 6px;
+          text-transform: uppercase;
+        }
+
+        .agent-run-list-section-items {
+          display: grid;
+          gap: 6px;
         }
 
         .agent-run-row {

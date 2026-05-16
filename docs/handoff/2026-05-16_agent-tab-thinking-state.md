@@ -14,6 +14,7 @@
 - Editable lead-session composer pickers now show only the agent select, removing the duplicate selected-agent text beside it.
 - Lead-session sidebar row actions now use compact icon buttons that appear on row hover or keyboard focus instead of always-visible text links.
 - Locked lead-session composer pickers are now hidden entirely because the selected-session header already shows the agent name.
+- Removed the Agent tab sidebar tabs. Lead chats, subagent runs, and archived chats now share one vertically separated, scrollable sidebar list.
 
 ## Verification
 

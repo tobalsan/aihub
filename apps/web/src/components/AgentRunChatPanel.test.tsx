@@ -151,6 +151,10 @@ describe("AgentRunChatPanel", () => {
     expect(selectedCalls).toContain("visible-run");
     expect(container.textContent).toContain("RepoSetter");
     expect(container.textContent).toContain("Latest useful transcript line");
+    expect(container.querySelector("[role='tablist']")).toBeNull();
+    expect(getComputedStyle(
+      container.querySelector(".agent-run-sidebar-scroll") as HTMLElement
+    ).overflow).toBe("auto");
     expect(container.textContent).not.toContain("Refresh");
     expect(container.textContent).not.toContain("Raw logs");
   });
@@ -354,14 +358,16 @@ describe("AgentRunChatPanel", () => {
     const panel = container.querySelector(
       ".agent-run-chat-panel"
     ) as HTMLElement;
-    const list = container.querySelector(".agent-run-list") as HTMLElement;
+    const list = container.querySelector(
+      ".agent-run-sidebar-scroll"
+    ) as HTMLElement;
     const transcript = container.querySelector(
       ".agent-run-chat-messages"
     ) as HTMLElement;
 
     expect(panel.style.height).toBe("100%");
     expect(panel.style.overflow).toBe("hidden");
-    expect(list.style.overflow).toBe("auto");
+    expect(getComputedStyle(list).overflow).toBe("auto");
     expect(transcript.style.overflow).toBe("auto");
   });
 

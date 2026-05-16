@@ -163,9 +163,12 @@ describe("AgentRunChatPanel lead sessions", () => {
     render(() => <AgentRunChatPanel projectId="PRO-1" />, container);
 
     await vi.waitFor(() => {
-      expect(container.textContent).toContain("Lead (1)");
       expect(container.textContent).toContain("Project lead");
+      expect(container.textContent).toContain("Worker");
     });
+    expect(container.querySelector("[role='tablist']")).toBeNull();
+    expect(container.textContent).toContain("Lead chats");
+    expect(container.textContent).toContain("Subagents");
     expect(container.textContent).not.toContain("Slice lead");
     expect(container.textContent).toContain("+ New session");
     expect(container.textContent).toContain("project scope");
@@ -193,7 +196,9 @@ describe("AgentRunChatPanel lead sessions", () => {
       container
     );
     await vi.waitFor(() => expect(container.textContent).toContain("hello"));
-    expect(container.textContent).not.toContain("run text");
+    expect(container.querySelector(".agent-run-chat")?.textContent).not.toContain(
+      "run text"
+    );
 
     document.body.removeChild(container);
     container = document.createElement("div");
