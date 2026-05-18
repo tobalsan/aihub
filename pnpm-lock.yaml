@@ -47,9 +47,6 @@ importers:
 
   apps/gateway:
     dependencies:
-      '@aihub/extension-board':
-        specifier: workspace:*
-        version: link:../../packages/extensions/board
       '@aihub/extension-discord':
         specifier: workspace:*
         version: link:../../packages/extensions/discord
@@ -62,9 +59,6 @@ importers:
       '@aihub/extension-multi-user':
         specifier: workspace:*
         version: link:../../packages/extensions/multi-user
-      '@aihub/extension-projects':
-        specifier: workspace:*
-        version: link:../../packages/extensions/projects
       '@aihub/extension-scheduler':
         specifier: workspace:*
         version: link:../../packages/extensions/scheduler

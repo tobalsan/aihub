@@ -1,9 +1,12 @@
 import { describe, it, expect, beforeEach, afterEach, vi } from "vitest";
 import { Command } from "commander";
-import {
-  createProjectsCommand,
-  registerProjectsCommands,
-} from "@aihub/extension-projects";
+const projectsExtensionSpecifier = "@aihub/extension-projects";
+const { createProjectsCommand, registerProjectsCommands } = (await import(
+  projectsExtensionSpecifier
+)) as {
+  createProjectsCommand: () => Command;
+  registerProjectsCommands: (command: Command) => void;
+};
 
 function createTestProgram() {
   const program = createProjectsCommand();

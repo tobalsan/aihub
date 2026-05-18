@@ -1,5 +1,17 @@
 import { describe, it, expect } from "vitest";
-import { createProjectCommentHandler } from "@aihub/extension-projects";
+const projectsExtensionSpecifier = "@aihub/extension-projects";
+const { createProjectCommentHandler } = (await import(
+  projectsExtensionSpecifier
+)) as {
+  createProjectCommentHandler: (options: {
+    baseUrl: string;
+    fetchImpl: (url: string, init?: RequestInit) => Promise<Response>;
+  }) => (args: {
+    projectId: string;
+    author: string;
+    message: string;
+  }) => Promise<void>;
+};
 
 describe("projects CLI comment", () => {
   it("posts comment to project thread endpoint", async () => {

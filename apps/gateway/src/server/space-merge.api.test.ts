@@ -5,11 +5,16 @@ import os from "node:os";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
-import {
+const projectsExtensionSpecifier = "@aihub/extension-projects";
+const {
   ensureProjectSpace,
   recordWorkerDelivery,
   integrateProjectSpaceQueue,
-} from "@aihub/extension-projects";
+} = (await import(projectsExtensionSpecifier)) as {
+  ensureProjectSpace: (...args: any[]) => Promise<any>;
+  recordWorkerDelivery: (...args: any[]) => Promise<any>;
+  integrateProjectSpaceQueue: (...args: any[]) => Promise<any>;
+};
 
 const execFileAsync = promisify(execFile);
 const SPACE_API_TEST_TIMEOUT_MS = 30_000;

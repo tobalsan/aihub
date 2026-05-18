@@ -1,5 +1,4 @@
 import { Command } from "commander";
-import { runtimeProfiles } from "@aihub/extension-projects/profiles/resolver";
 import { resolveBindHost } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 
@@ -284,6 +283,40 @@ function formatProfileRows(profiles: SubagentProfileRow[]): string[] {
       .join("  ")
       .trimEnd()
   );
+}
+
+function toProfileRows(value: unknown): SubagentProfileRow[] {
+  if (!Array.isArray(value)) return [];
+  return value
+    .filter((item): item is Record<string, unknown> =>
+      typeof item === "object" && item !== null
+    )
+    .map((profile) => ({
+      name: typeof profile.name === "string" ? profile.name : undefined,
+      cli: typeof profile.cli === "string" ? profile.cli : undefined,
+      model: typeof profile.model === "string" ? profile.model : undefined,
+      type: typeof profile.type === "string" ? profile.type : undefined,
+      runMode:
+        typeof profile.runMode === "string" ? profile.runMode : undefined,
+    }));
+}
+
+function runtimeProfiles(config: ReturnType<typeof loadConfig>): SubagentProfileRow[] {
+  const record = config as Record<string, unknown>;
+  const extensions = record.extensions as Record<string, unknown> | undefined;
+  const extensionSubagents = extensions?.subagents as
+    | Record<string, unknown>
+    | undefined;
+  const topLevelSubagents = record.subagents as
+    | Record<string, unknown>
+    | unknown[]
+    | undefined;
+
+  const extensionProfiles = toProfileRows(extensionSubagents?.profiles);
+  if (extensionProfiles.length > 0) return extensionProfiles;
+
+  if (Array.isArray(topLevelSubagents)) return toProfileRows(topLevelSubagents);
+  return toProfileRows(topLevelSubagents?.profiles);
 }
 
 export function printSubagentProfiles(json: boolean): void {

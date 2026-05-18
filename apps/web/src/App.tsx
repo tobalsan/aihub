@@ -1,15 +1,8 @@
-import {
-  Router,
-  Route,
-  useParams,
-  useLocation,
-  useNavigate,
-} from "@solidjs/router";
+import { Router, Route, useLocation } from "@solidjs/router";
 import {
   Show,
   Suspense,
   createEffect,
-  on,
   lazy,
   createMemo,
   createResource,
@@ -21,60 +14,26 @@ import {
 import { fetchAgents, getSessionKey, subscribeToSession } from "./api";
 import type { Agent } from "./api/types";
 import { AgentList } from "./components/AgentList";
-import { AgentSidebar } from "./components/AgentSidebar";
 import { ChatView } from "./components/ChatView";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { QuickChatOverlay } from "./components/QuickChatOverlay";
+import { LeftNavShell } from "./components/LeftNavShell";
 import {
   capabilitiesReady,
   capabilities,
-  isExtensionEnabled,
   loadCapabilities,
 } from "./lib/capabilities";
 import {
-  sidebarCollapsed,
-  setSidebarCollapsedPersistent,
   toggleSidebarCollapsed,
   toggleZenMode,
   zenMode,
 } from "./lib/layout";
+import {
+  getDefaultExtensionHome,
+  getExtensionHome,
+  renderExtensionRoutes,
+} from "./lib/web-route-registry";
 
-const LazyAreasOverview = lazy(() =>
-  import("./components/AreasOverview").then((mod) => ({
-    default: mod.AreasOverview,
-  }))
-);
-const LazyBoardLifecycleListPage = lazy(() =>
-  import("./components/board/BoardLifecycleListPage").then((mod) => ({
-    default: mod.BoardLifecycleListPage,
-  }))
-);
-const LazyBoardView = lazy(() =>
-  import("./components/BoardView").then((mod) => ({
-    default: mod.BoardView,
-  }))
-);
-const LazyAgentsView = lazy(() =>
-  import("./components/board/AgentsView").then((mod) => ({
-    default: mod.AgentsView,
-  }))
-);
-
-const LazyProjectsDetailRouteAdapter = lazy(() =>
-  import("./components/project/ProjectsDetailRouteAdapter").then((mod) => ({
-    default: mod.ProjectsDetailRouteAdapter,
-  }))
-);
-const LazyProjectsArchivePage = lazy(() =>
-  import("./components/project/ProjectsArchivePage").then((mod) => ({
-    default: mod.ProjectsArchivePage,
-  }))
-);
-const LazySliceDetailPage = lazy(() =>
-  import("./components/SliceDetailPage").then((mod) => ({
-    default: mod.SliceDetailPage,
-  }))
-);
 const LazyAuthGuard = lazy(() => import("./auth/AuthGuard"));
 const LazyLoginPage = lazy(() => import("./pages/Login"));
 const LazyAdminUsersPage = lazy(() => import("./pages/admin/Users"));
@@ -290,38 +249,6 @@ function AppBootSplash() {
   return <div class="app" />;
 }
 
-function ExtensionUnavailable(props: { extension: string }) {
-  return (
-    <LeftNavShell>
-      <div class="component-unavailable">
-        <h1>Component not available</h1>
-        <p>
-          <code>{props.extension}</code> is disabled in this AIHub config.
-        </p>
-      </div>
-      <style>{`
-        .component-unavailable {
-          height: 100%;
-          display: grid;
-          place-items: center;
-          padding: 32px;
-          text-align: center;
-          color: var(--text-secondary);
-        }
-
-        .component-unavailable h1 {
-          margin: 0 0 8px;
-          color: var(--text-primary);
-        }
-
-        .component-unavailable p {
-          margin: 0;
-        }
-      `}</style>
-    </LeftNavShell>
-  );
-}
-
 function GuardedRoute(props: { children?: JSX.Element }) {
   return (
     <Show when={capabilities.multiUser} fallback={props.children}>
@@ -332,217 +259,18 @@ function GuardedRoute(props: { children?: JSX.Element }) {
   );
 }
 
-function ProjectsRouteShell() {
-  if (!isExtensionEnabled("projects")) {
-    return <ExtensionUnavailable extension="projects" />;
-  }
-  const navigate = useNavigate();
-
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyBoardLifecycleListPage
-          onProjectClick={(project) =>
-            navigate(`/projects/${encodeURIComponent(project.id)}`)
-          }
-        />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function ProjectsDetailRouteShell() {
-  if (!isExtensionEnabled("projects")) {
-    return <ExtensionUnavailable extension="projects" />;
-  }
-
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyProjectsDetailRouteAdapter />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function ProjectsArchiveRouteShell() {
-  if (!isExtensionEnabled("projects")) {
-    return <ExtensionUnavailable extension="projects" />;
-  }
-
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyProjectsArchivePage />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function BoardRouteShell() {
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyBoardLifecycleListPage />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function BoardHomeRouteShell() {
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyBoardView />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function BoardAgentsRouteShell() {
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyAgentsView />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-// Home route registry: maps extension IDs to lazy-loaded components.
-// Extensions register here — no gateway or App code needs to know about them.
-const HOME_REGISTRY: Record<string, () => JSX.Element> = {
-  board: () => <BoardHomeRouteShell />,
-  projects: () => <AreasOverviewRouteShell />,
-};
-
 function HomeRoute() {
   const home = capabilities.home;
-  const fallback = () => <AgentsRouteShell />;
-  if (typeof home === "string" && home in HOME_REGISTRY) {
-    return HOME_REGISTRY[home]();
+  if (typeof home === "string") {
+    const Home = getExtensionHome(home);
+    if (Home) return <Home />;
   }
-  if (isExtensionEnabled("projects")) return <AreasOverviewRouteShell />;
-  return fallback();
-}
-
-function AreasOverviewRouteShell() {
-  if (!isExtensionEnabled("projects")) {
-    return <AgentsRouteShell />;
+  const defaultHome = getDefaultExtensionHome();
+  if (defaultHome) {
+    const DefaultHome = defaultHome;
+    return <DefaultHome />;
   }
-
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyAreasOverview />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function LeftNavShell(props: { children?: JSX.Element }) {
-  const [isMobile, setIsMobile] = createSignal(false);
-
-  onMount(() => {
-    const media = window.matchMedia("(max-width: 768px)");
-    const update = (matches: boolean) => setIsMobile(matches);
-    update(media.matches);
-    const handler = (event: MediaQueryListEvent) => update(event.matches);
-    if (media.addEventListener) {
-      media.addEventListener("change", handler);
-      onCleanup(() => media.removeEventListener("change", handler));
-    } else {
-      media.addListener(handler);
-      onCleanup(() => media.removeListener(handler));
-    }
-  });
-
-  createEffect(
-    on(
-      isMobile,
-      (mobile) => {
-        if (mobile) setSidebarCollapsedPersistent(true);
-      },
-      { defer: true }
-    )
-  );
-
-  return (
-    <div class="left-nav-shell" classList={{ "zen-mode": zenMode() }}>
-      <Show when={!zenMode()}>
-        <AgentSidebar
-          collapsed={sidebarCollapsed}
-          onToggleCollapse={toggleSidebarCollapsed}
-        />
-      </Show>
-      <Show when={isMobile() && !zenMode()}>
-        <button
-          class="mobile-sidebar-toggle"
-          type="button"
-          onClick={toggleSidebarCollapsed}
-          aria-label="Toggle sidebar"
-        >
-          <svg
-            viewBox="0 0 24 24"
-            fill="none"
-            stroke="currentColor"
-            stroke-width="2"
-          >
-            <path d="M3 12h18M3 6h18M3 18h18" />
-          </svg>
-        </button>
-      </Show>
-      <div class="left-nav-main">{props.children}</div>
-      <style>{`
-        .left-nav-shell {
-          height: 100%;
-          display: flex;
-          width: 100%;
-          position: relative;
-          min-height: 0;
-          overscroll-behavior: contain;
-        }
-
-        .left-nav-main {
-          flex: 1;
-          min-width: 0;
-          min-height: 0;
-          overflow: hidden;
-        }
-
-        .left-nav-shell.zen-mode .left-nav-main {
-          width: 100%;
-        }
-
-        .left-nav-shell .mobile-sidebar-toggle {
-          position: fixed;
-          top: 14px;
-          left: 12px;
-          z-index: 900;
-          width: 40px;
-          height: 40px;
-          border-radius: 10px;
-          border: 1px solid var(--border-default);
-          background: var(--bg-surface);
-          color: var(--text-secondary);
-          display: flex;
-          align-items: center;
-          justify-content: center;
-        }
-
-        .left-nav-shell .mobile-sidebar-toggle svg {
-          width: 18px;
-          height: 18px;
-        }
-
-        @media (min-width: 769px) {
-          .left-nav-shell .mobile-sidebar-toggle {
-            display: none;
-          }
-        }
-      `}</style>
-    </div>
-  );
+  return <AgentsRouteShell />;
 }
 
 function AgentsRouteShell() {
@@ -553,43 +281,6 @@ function AgentsRouteShell() {
   );
 }
 
-function SliceDetailRouteShell() {
-  if (!isExtensionEnabled("projects")) {
-    return <ExtensionUnavailable extension="projects" />;
-  }
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazySliceDetailPage />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-/**
- * Flat /slices/:sliceId redirect — looks up the slice detail page.
- * Slice IDs encode project ID (PRO-XXX-Snn), so we parse it.
- */
-function FlatSliceRedirect() {
-  const params = useParams<{ sliceId: string }>();
-  const navigate = useNavigate();
-  const sliceId = () => params.sliceId ?? "";
-  const projectId = createMemo(() => {
-    const m = sliceId().match(/^(PRO-\d+)-S\d+$/);
-    return m ? m[1] : "";
-  });
-  createEffect(() => {
-    const pid = projectId();
-    const sid = sliceId();
-    if (pid && sid) {
-      navigate(
-        `/projects/${encodeURIComponent(pid)}/slices/${encodeURIComponent(sid)}`,
-        { replace: true }
-      );
-    }
-  });
-  return <div class="app" />;
-}
 
 function ChatRouteShell() {
   return (
@@ -656,86 +347,11 @@ export default function App() {
           </GuardedRoute>
         )}
       />
-      <Route
-        path="/board"
-        component={() => (
-          <GuardedRoute>
-            <BoardRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/board/projects/:projectId"
-        component={() => (
-          <GuardedRoute>
-            <BoardHomeRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/board/projects/:projectId/slices/:sliceId"
-        component={() => (
-          <GuardedRoute>
-            <BoardHomeRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/board/projects"
-        component={() => (
-          <GuardedRoute>
-            <BoardHomeRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/board/agents"
-        component={() => (
-          <GuardedRoute>
-            <BoardAgentsRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/projects"
-        component={() => (
-          <GuardedRoute>
-            <ProjectsRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/projects/archive"
-        component={() => (
-          <GuardedRoute>
-            <ProjectsArchiveRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/projects/:projectId"
-        component={() => (
-          <GuardedRoute>
-            <ProjectsDetailRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/projects/:projectId/slices/:sliceId"
-        component={() => (
-          <GuardedRoute>
-            <ProjectsDetailRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/slices/:sliceId"
-        component={() => (
-          <GuardedRoute>
-            <FlatSliceRedirect />
-          </GuardedRoute>
-        )}
-      />
+      {renderExtensionRoutes((Component) => (
+        <GuardedRoute>
+          <Component />
+        </GuardedRoute>
+      ))}
       <Route
         path="/admin/users"
         component={() => (

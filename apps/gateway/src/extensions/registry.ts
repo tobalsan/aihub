@@ -6,9 +6,51 @@ import { ExtensionRuntime } from "./runtime.js";
 
 type ExtensionRegistration = {
   load: () => Promise<Extension>;
+  packageName?: string;
+  exportName?: string;
   getConfig: (config: GatewayConfig) => unknown;
   routePrefixes: string[];
 };
+
+async function importExtension(
+  packageName: string,
+  exportName: string
+): Promise<Extension> {
+  try {
+    const module = (await import(packageName)) as Record<string, unknown>;
+    const extension = module[exportName];
+    if (!extension) {
+      throw new Error(
+        `Package "${packageName}" does not export "${exportName}"`
+      );
+    }
+    return extension as Extension;
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") {
+      throw new Error(
+        `Extension package "${packageName}" is required because it is enabled, but it is not installed. Install the package or disable the extension in config.`
+      );
+    }
+    throw error;
+  }
+}
+
+function builtInExtension(
+  packageName: string,
+  exportName: string,
+  options: Omit<ExtensionRegistration, "load" | "packageName" | "exportName">
+): ExtensionRegistration {
+  return {
+    ...options,
+    packageName,
+    exportName,
+    load: () => importExtension(packageName, exportName),
+  };
+}
 
 const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
   webhooks: -10,
@@ -60,11 +102,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     getConfig: (config) => config.extensions?.heartbeat,
     routePrefixes: ["/api/agents/:id/heartbeat"],
   },
-  projects: {
-    load: () =>
-      import("@aihub/extension-projects").then(
-        (module) => module.projectsExtension
-      ),
+  projects: builtInExtension("@aihub/extension-projects", "projectsExtension", {
     getConfig: (config) => config.extensions?.projects,
     routePrefixes: [
       "/api/areas",
@@ -72,7 +110,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
       "/api/activity",
       "/api/taskboard",
     ],
-  },
+  }),
   subagents: {
     load: () =>
       import("@aihub/extension-subagents").then(
@@ -110,12 +148,10 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     getConfig: (config) => config.extensions?.multiUser,
     routePrefixes: ["/api/auth", "/api/me", "/api/admin"],
   },
-  board: {
-    load: () =>
-      import("@aihub/extension-board").then((module) => module.boardExtension),
+  board: builtInExtension("@aihub/extension-board", "boardExtension", {
     getConfig: (config) => config.extensions?.board,
     routePrefixes: ["/api/board"],
-  },
+  }),
 };
 
 const extensionRuntime = new ExtensionRuntime(getKnownExtensionRouteMetadata());
