@@ -383,7 +383,8 @@ OneCLI proxy config lives in the top-level `onecli` block (see [OneCLI](#onecli)
 | `network`           | From global `sandbox.network.name` | Docker network name                                                    |
 | `memory`            | `2g`                               | Memory limit                                                           |
 | `cpus`              | `1`                                | CPU limit                                                              |
-| `timeout`           | `300`                              | Max seconds before the container is stopped and killed                 |
+| `maxRunTime`        | `1800`                             | Max seconds before the container is stopped and killed                  |
+| `timeout`           | *(legacy alias)*                   | Deprecated; equivalent to `maxRunTime` when `maxRunTime` is unset        |
 | `workspaceWritable` | `false`                            | Allow the agent to write to its workspace mount                        |
 | `env`               | `{}`                               | Extra environment variables (secret values are automatically filtered) |
 | `mounts`            | `[]`                               | Additional bind mounts (validated against the allowlist)               |

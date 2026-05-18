@@ -271,7 +271,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
       network?: string,              // Inherits top-level sandbox.network.name
       memory?: string,               // Default: 2g
       cpus?: number,                 // Default: 1
-      timeout?: number,              // Default: 300 seconds
+      maxRunTime?: number,           // Default: 1800 seconds
+      timeout?: number,              // Legacy alias; used as fallback if maxRunTime is unset
       workspaceWritable?: boolean,   // Default: false
       env?: Record<string, string>,
       mounts?: Array<{ host: string, container: string, readonly?: boolean }>
