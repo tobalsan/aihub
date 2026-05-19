@@ -221,10 +221,8 @@ function maybeRestoreSessionUpdatedAt(
 }
 
 function isSchedulerRuntimeAvailable(): boolean {
-  const extensions = getContext().getConfig().extensions;
-  if (!extensions) return true;
-  if (extensions.scheduler?.enabled === false) return false;
-  return !(extensions.heartbeat && !extensions.scheduler);
+  const scheduler = getContext().getConfig().extensions?.scheduler;
+  return Boolean(scheduler && scheduler.enabled !== false);
 }
 
 function warnSchedulerUnavailable(): void {
@@ -461,10 +459,7 @@ export function isHeartbeatEnabled(agent: AgentConfig): boolean {
 export function getHeartbeatIntervalMs(agent: AgentConfig): number | null {
   if (!isHeartbeatEnabled(agent)) return null;
 
-  const every = agent.heartbeat?.every;
-  if (!every) return null;
-
-  return parseDurationMs(every, { defaultUnit: "m" });
+  return parseDurationMs(agent.heartbeat!.every!, { defaultUnit: "m" });
 }
 
 /**

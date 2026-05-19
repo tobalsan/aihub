@@ -114,6 +114,21 @@ function numberFrom(value: unknown): number | undefined {
   return undefined;
 }
 
+function intervalMinutesToCron(everyMinutes: number, schedule: unknown): string {
+  if (!Number.isInteger(everyMinutes) || everyMinutes <= 0) {
+    throw new Error(`Unsupported legacy interval schedule: ${JSON.stringify(schedule)}`);
+  }
+  if (everyMinutes < 60) return `*/${everyMinutes} * * * *`;
+  if (everyMinutes === 60) return "0 * * * *";
+  if (everyMinutes > 60 && everyMinutes < 1440 && everyMinutes % 60 === 0) {
+    const hours = everyMinutes / 60;
+    if (24 % hours === 0) return `0 */${hours} * * *`;
+  }
+  if (everyMinutes === 1440) return "0 0 * * *";
+  if (everyMinutes === 10080) return "0 0 * * 0";
+  throw new Error(`Unsupported legacy interval schedule: ${JSON.stringify(schedule)}`);
+}
+
 function toCronSchedule(schedule: unknown, defaultTz: string): { cron: string; tz: string; startAt?: string } {
   const value = (schedule && typeof schedule === "object" ? schedule : {}) as Record<string, unknown>;
   const tz =
@@ -132,7 +147,7 @@ function toCronSchedule(schedule: unknown, defaultTz: string): { cron: string; t
     numberFrom(value.minutes) ??
     numberFrom(value.every);
   if (everyMinutes) {
-    return { cron: `*/${everyMinutes} * * * *`, tz, ...(startAt ? { startAt } : {}) };
+    return { cron: intervalMinutesToCron(everyMinutes, schedule), tz, ...(startAt ? { startAt } : {}) };
   }
 
   const daily = (value.daily && typeof value.daily === "object" ? value.daily : value) as Record<string, unknown>;

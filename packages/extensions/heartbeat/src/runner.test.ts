@@ -1020,6 +1020,7 @@ describe("heartbeat lifecycle", () => {
           { id: "agent-2", heartbeat: { every: "10m" } },
           { id: "agent-3" }, // No heartbeat config
         ],
+        extensions: { scheduler: {}, heartbeat: {} },
       });
       mockGetAgent.mockImplementation((id: string) => {
         const agents: Record<string, object> = {
@@ -1119,6 +1120,20 @@ describe("heartbeat lifecycle", () => {
       );
     });
 
+    it("warns and noops when extensions block is absent and heartbeat is configured", async () => {
+      const agent = { id: "agent-hb", heartbeat: { every: "5m" } };
+      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockGetAgent.mockReturnValue(agent);
+
+      const module = await getLifecycleModule();
+      module.startAllHeartbeats();
+
+      expect(module.getActiveHeartbeats()).toEqual([]);
+      expect(mockLoggerWarn).toHaveBeenCalledWith(
+        expect.stringContaining("Scheduler extension is disabled or unavailable")
+      );
+    });
+
     it("uses getAgents so v3 config agent globs do not break iteration", async () => {
       mockLoadConfig.mockReturnValue({
         agents: "./agents/*",
@@ -1145,7 +1160,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1173,7 +1188,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1194,6 +1209,7 @@ describe("heartbeat lifecycle", () => {
           { id: "agent-1", heartbeat: { every: "5m" } },
           { id: "agent-2", heartbeat: { every: "10m" } },
         ],
+        extensions: { scheduler: {}, heartbeat: {} },
       });
       mockGetAgent.mockImplementation((id: string) => ({
         id,
@@ -1217,7 +1233,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1241,7 +1257,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1268,7 +1284,7 @@ describe("heartbeat lifecycle", () => {
     it("startHeartbeat returns true for enabled agent", async () => {
       const agent = { id: "agent-1", heartbeat: { every: "5m" } };
       mockGetAgent.mockReturnValue(agent);
-      mockLoadConfig.mockReturnValue({ agents: [] });
+      mockLoadConfig.mockReturnValue({ agents: [], extensions: { scheduler: {}, heartbeat: {} } });
 
       const module = await getLifecycleModule();
       const result = module.startHeartbeat("agent-1");
@@ -1281,7 +1297,7 @@ describe("heartbeat lifecycle", () => {
 
     it("startHeartbeat returns false for disabled agent", async () => {
       mockGetAgent.mockReturnValue({ id: "agent-1", heartbeat: { every: "0" } });
-      mockLoadConfig.mockReturnValue({ agents: [] });
+      mockLoadConfig.mockReturnValue({ agents: [], extensions: { scheduler: {}, heartbeat: {} } });
 
       const module = await getLifecycleModule();
       const result = module.startHeartbeat("agent-1");
@@ -1306,7 +1322,7 @@ describe("heartbeat lifecycle", () => {
 
     it("startHeartbeat returns false for unknown agent", async () => {
       mockGetAgent.mockReturnValue(undefined);
-      mockLoadConfig.mockReturnValue({ agents: [] });
+      mockLoadConfig.mockReturnValue({ agents: [], extensions: { scheduler: {}, heartbeat: {} } });
 
       const module = await getLifecycleModule();
       const result = module.startHeartbeat("unknown-agent");
@@ -1320,6 +1336,7 @@ describe("heartbeat lifecycle", () => {
           { id: "agent-1", heartbeat: { every: "5m" } },
           { id: "agent-2", heartbeat: { every: "5m" } },
         ],
+        extensions: { scheduler: {}, heartbeat: {} },
       });
       mockGetAgent.mockImplementation((id: string) => ({
         id,
@@ -1349,7 +1366,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1381,7 +1398,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1428,6 +1445,7 @@ describe("heartbeat lifecycle", () => {
 
       mockLoadConfig.mockReturnValue({
         agents: [{ id: "agent-1", heartbeat: { every: "1m" } }],
+        extensions: { scheduler: {}, heartbeat: {} },
       });
       mockGetAgent.mockImplementation(() => (heartbeatEnabled ? enabledAgent : disabledAgent));
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
@@ -1461,7 +1479,7 @@ describe("heartbeat lifecycle", () => {
         discord: { broadcastToChannel: "channel-1" },
         workspace: "/test",
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1492,7 +1510,7 @@ describe("heartbeat lifecycle", () => {
         { id: "agent-1", heartbeat: { every: "1m", prompt: "ping" }, discord: { broadcastToChannel: "ch1" }, workspace: "/t1" },
         { id: "agent-2", heartbeat: { every: "1m", prompt: "ping" }, discord: { broadcastToChannel: "ch2" }, workspace: "/t2" },
       ];
-      mockLoadConfig.mockReturnValue({ agents });
+      mockLoadConfig.mockReturnValue({ agents, extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockImplementation((id: string) => agents.find((a) => a.id === id));
       mockGetSessionEntry.mockReturnValue({ sessionId: "s", updatedAt: 1000 });
 
@@ -1525,7 +1543,7 @@ describe("heartbeat lifecycle", () => {
         id: "agent-1",
         heartbeat: { every: "5m" },
       };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
 
       const module = await getLifecycleModule();
@@ -1541,7 +1559,7 @@ describe("heartbeat lifecycle", () => {
 
     it("multiple stop calls are safe (idempotent)", async () => {
       const agent = { id: "agent-1", heartbeat: { every: "5m" } };
-      mockLoadConfig.mockReturnValue({ agents: [agent] });
+      mockLoadConfig.mockReturnValue({ agents: [agent], extensions: { scheduler: {}, heartbeat: {} } });
       mockGetAgent.mockReturnValue(agent);
 
       const module = await getLifecycleModule();
@@ -1556,7 +1574,7 @@ describe("heartbeat lifecycle", () => {
     });
 
     it("stopHeartbeat on non-existent timer is safe", async () => {
-      mockLoadConfig.mockReturnValue({ agents: [] });
+      mockLoadConfig.mockReturnValue({ agents: [], extensions: { scheduler: {}, heartbeat: {} } });
 
       const module = await getLifecycleModule();
 

@@ -585,7 +585,7 @@ Periodic agent check-in with Discord alert delivery. Heartbeat depends on schedu
 
 ```typescript
 heartbeat?: {
-  every?: string,      // Duration: "30m", "1h", "0" (disabled). Default: "30m"
+  every?: string,      // Duration: "30m", "1h", "0" (disabled). Required to enable timers.
   prompt?: string,     // Custom prompt (overrides HEARTBEAT.md)
   ackMaxChars?: number // Max chars after token strip. Default: 300
 }

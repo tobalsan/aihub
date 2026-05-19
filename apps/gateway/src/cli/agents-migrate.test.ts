@@ -103,6 +103,27 @@ describe("agents migrate", () => {
             payload: { message: "Digest" },
           },
           {
+            id: "hourly",
+            name: "Hourly",
+            agentId: "alpha",
+            schedule: { type: "interval", everyMinutes: 60 },
+            payload: { message: "Hourly" },
+          },
+          {
+            id: "daily-interval",
+            name: "Daily interval",
+            agentId: "alpha",
+            schedule: { type: "interval", everyMinutes: 1440 },
+            payload: { message: "Daily interval" },
+          },
+          {
+            id: "weekly-interval",
+            name: "Weekly interval",
+            agentId: "alpha",
+            schedule: { type: "interval", everyMinutes: 10080 },
+            payload: { message: "Weekly interval" },
+          },
+          {
             id: "orphan",
             name: "Orphan",
             agentId: "missing",
@@ -118,7 +139,7 @@ describe("agents migrate", () => {
 
     expect(result.migrated).toBe(true);
     expect(result.agents.map((agent) => agent.id).sort()).toEqual(["alpha", "beta"]);
-    expect(result.scheduleCounts).toEqual({ alpha: 1, beta: 1 });
+    expect(result.scheduleCounts).toEqual({ alpha: 4, beta: 1 });
     expect(result.orphanCount).toBe(1);
     expect(await exists(path.join(tmpDir, "schedules.json"))).toBe(false);
 
@@ -143,12 +164,15 @@ describe("agents migrate", () => {
     expect(alphaYaml.system_files).not.toContain("AGENTS.md");
 
     const alphaJobs = JSON.parse(await fs.readFile(path.join(alphaDir, "cron", "jobs.json"), "utf8"));
-    expect(alphaJobs.jobs).toHaveLength(1);
+    expect(alphaJobs.jobs).toHaveLength(4);
     expect(alphaJobs.jobs[0]).toMatchObject({
       id: "half-hour",
       schedule: { cron: "*/30 * * * *", startAt: "2026-05-19T08:00:00Z" },
       payload: { message: "Ping" },
     });
+    expect(alphaJobs.jobs[1]).toMatchObject({ id: "hourly", schedule: { cron: "0 * * * *" } });
+    expect(alphaJobs.jobs[2]).toMatchObject({ id: "daily-interval", schedule: { cron: "0 0 * * *" } });
+    expect(alphaJobs.jobs[3]).toMatchObject({ id: "weekly-interval", schedule: { cron: "0 0 * * 0" } });
     expect(alphaJobs.jobs[0].agentId).toBeUndefined();
     expect(alphaJobs.jobs[0].schedule.tz).toBeTruthy();
 
@@ -199,6 +223,47 @@ describe("agents migrate", () => {
     );
 
     await expect(migrateAgentsConfig(configPath)).rejects.toThrow("Unsupported legacy schedule shape");
+
+    expect(JSON.parse(await fs.readFile(configPath, "utf8"))).toEqual(originalConfig);
+    expect(await exists(path.join(agentDir, "agent.yaml"))).toBe(false);
+    expect(await exists(path.join(agentDir, "cron", "jobs.json"))).toBe(false);
+    expect(await exists(path.join(tmpDir, "schedules.json"))).toBe(true);
+  });
+
+  it("does not partially migrate unsupported long intervals", async () => {
+    const agentDir = path.join(tmpDir, "agents", "alpha");
+    await fs.mkdir(agentDir, { recursive: true });
+    const configPath = path.join(tmpDir, "aihub.json");
+    const originalConfig = {
+      version: 2,
+      agents: [
+        {
+          id: "alpha",
+          name: "Alpha",
+          workspace: "./agents/alpha",
+          model: { provider: "test", model: "one" },
+        },
+      ],
+    };
+    await fs.writeFile(configPath, JSON.stringify(originalConfig, null, 2), "utf8");
+    await fs.writeFile(
+      path.join(tmpDir, "schedules.json"),
+      JSON.stringify({
+        version: 1,
+        jobs: [
+          {
+            id: "bad-interval",
+            name: "Bad interval",
+            agentId: "alpha",
+            schedule: { type: "interval", everyMinutes: 90 },
+            payload: { message: "Bad" },
+          },
+        ],
+      }),
+      "utf8"
+    );
+
+    await expect(migrateAgentsConfig(configPath)).rejects.toThrow("Unsupported legacy interval schedule");
 
     expect(JSON.parse(await fs.readFile(configPath, "utf8"))).toEqual(originalConfig);
     expect(await exists(path.join(agentDir, "agent.yaml"))).toBe(false);
