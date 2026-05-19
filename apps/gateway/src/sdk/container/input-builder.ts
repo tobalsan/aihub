@@ -13,7 +13,8 @@ export class ContainerInputBuilder {
   async build(
     params: SdkRunParams,
     config: GatewayConfig,
-    agentToken: string
+    agentToken: string,
+    bootstrapPrompt?: string
   ): Promise<ContainerInput> {
     const extensionSystemPrompts = await this.toolBridge.buildSystemPrompts(
       params,
@@ -29,7 +30,11 @@ export class ContainerInputBuilder {
       thinkLevel: params.thinkLevel,
       context: params.context,
       extensionSystemPrompts:
-        extensionSystemPrompts.length > 0 ? extensionSystemPrompts : undefined,
+        bootstrapPrompt || extensionSystemPrompts.length > 0
+          ? [bootstrapPrompt, ...extensionSystemPrompts].filter(
+              (prompt): prompt is string => Boolean(prompt)
+            )
+          : undefined,
       extensionTools: extensionTools.length > 0 ? extensionTools : undefined,
       workspaceDir: "/workspace",
       sessionDir: "/sessions",

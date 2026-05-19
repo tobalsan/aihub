@@ -16,9 +16,10 @@ import type {
 import { CONFIG_DIR, loadConfig } from "../../config/index.js";
 import { buildOnecliEnv } from "../../config/onecli.js";
 import {
-  ensureBootstrapFiles,
-  loadBootstrapFiles,
-  buildBootstrapContextFiles,
+  FIRST_RUN_BOOTSTRAP_PROMPT,
+  ensureWorkspaceFiles,
+  loadWorkspaceFiles,
+  buildWorkspaceContextFiles,
 } from "../../agents/workspace.js";
 import { getSessionCreatedAt } from "../../sessions/store.js";
 import { resolveSessionDataFile } from "../../sessions/files.js";
@@ -165,8 +166,8 @@ export const piAdapter: SdkAdapter = {
         params.sessionId
       );
 
-      // Ensure bootstrap files exist
-      await ensureBootstrapFiles(params.workspaceDir);
+      // Ensure core workspace files exist
+      const isFirstRun = await ensureWorkspaceFiles(params.workspaceDir);
 
       // Dynamically import pi-coding-agent
       const {
@@ -253,9 +254,9 @@ export const piAdapter: SdkAdapter = {
       }
       authStorage.setRuntimeApiKey(model.provider, apiKey);
 
-      // Load bootstrap context files
-      const bootstrapFiles = await loadBootstrapFiles(params.workspaceDir);
-      const contextFiles = buildBootstrapContextFiles(bootstrapFiles);
+      // Load workspace context files
+      const workspaceFiles = await loadWorkspaceFiles(params.workspaceDir);
+      const contextFiles = buildWorkspaceContextFiles(workspaceFiles);
 
       // Enable Pi's built-in coding tools plus extension custom tools for the run workspace.
       // Pi treats `tools` as an allowlist when provided, so custom tool names must be included.
@@ -282,6 +283,7 @@ export const piAdapter: SdkAdapter = {
         ? renderAgentContext(params.context)
         : "";
       const allAppendedPrompts = [
+        isFirstRun ? FIRST_RUN_BOOTSTRAP_PROMPT : undefined,
         ...extensionPrompts,
         renderedContext || undefined,
       ].filter((prompt): prompt is string => Boolean(prompt));

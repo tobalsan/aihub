@@ -162,7 +162,7 @@ Container OneCLI proxy wiring:
 - Container runs bind `$AIHUB_HOME/agents/<agentId>/data` to `/workspace/data` writable and session upload copies to `/workspace/uploads` read-only. The runner emits raw `ContainerFileOutputRequest` protocol events (`---AIHUB_EVENT---{"type":"file_output","path":"/workspace/data/..."}`); the gateway validates that seam, copies the file to `$AIHUB_HOME/media/outbound`, registers metadata, emits media-backed `FileOutputEvent`, and persists canonical history as `assistant_file`/`FileBlock`.
 - Extension tool calls inside the container route back to the gateway through `/internal/tools`. LLM network egress still uses the OneCLI proxy env when configured; CA trust for HTTPS CONNECT tunneling relies on `NODE_EXTRA_CA_CERTS` (set via container env).
 - Container extension tool results larger than 20KB are materialized as JSON files under `/workspace/data/tool-results/`; the model receives a compact pointer plus preview so scripts can consume large results by path instead of reserializing JSON through shell commands.
-- Gateway calls `ensureBootstrapFiles(workspaceDir)` on the host before spawning the container, so workspace template files (AGENTS.md, SOUL.md, etc.) are created for new agents even in sandbox mode.
+- Gateway calls `ensureWorkspaceFiles(workspaceDir)` on the host before spawning the container, so workspace template files (AGENTS.md, SOUL.md, etc.) are created for new agents even in sandbox mode.
 - Docker-backed agent containers use UUID-suffixed names (`aihub-agent-<agentId>-<uuid>`) so simultaneous runs for the same agent do not collide on Docker `--name`.
 - Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
 - When `onecli.sandbox.network` is configured, the adapter attaches that extra Docker network asynchronously after `docker run` starts. If Docker rejects startup first (for example a missing bind-mount source), gateway logs now surface the captured `docker run` stderr instead of masking it as a network-connect failure.
@@ -426,23 +426,20 @@ curl -H "Authorization: Bearer $T" http://127.0.0.1:4000/api/me
 
 ### Workspace Bootstrap
 
-Templates in `docs/templates/` are copied to `{workspace}/` on first agent run (using `flag: 'wx'` to avoid overwriting):
+Templates in `docs/templates/` are copied to `{workspace}/` when missing (using `flag: 'wx'` to avoid overwriting):
 
-| File           | Purpose                                                    |
-| -------------- | ---------------------------------------------------------- |
-| `AGENTS.md`    | Workspace overview, memory management, safety guidelines   |
-| `SOUL.md`      | Agent persona, core behaviors, boundaries                  |
-| `IDENTITY.md`  | Agent name, creature type, vibe, emoji                     |
-| `USER.md`      | User profile - name, timezone, context                     |
-| `TOOLS.md`     | Environment-specific tool notes (SSH hosts, TTS prefs)     |
-| `BOOTSTRAP.md` | First-run ritual - guides identity formation, then deleted |
+| File        | Purpose                                                  |
+| ----------- | -------------------------------------------------------- |
+| `AGENTS.md` | Prime workspace instructions, memory, safety guidelines  |
+| `SOUL.md`   | Agent identity/persona, core behaviors, boundaries       |
+| `USER.md`   | User profile - name, timezone, context                   |
 
 Bootstrap flow:
 
-1. `ensureBootstrapFiles(workspaceDir)` writes missing files from templates
-2. `loadBootstrapFiles(workspaceDir)` reads all files
-3. `buildBootstrapContextFiles(files)` converts to Pi SDK contextFiles format
-4. Passed to `buildSystemPrompt()` and `createAgentSession()`
+1. `ensureWorkspaceFiles(workspaceDir)` writes missing core files and returns whether no core files existed before creation
+2. First launches append a concise bootstrap instruction directly to the system prompt; no `BOOTSTRAP.md` is generated
+3. `loadWorkspaceFiles(workspaceDir)` reads only `AGENTS.md`, `SOUL.md`, and `USER.md`
+4. `buildWorkspaceContextFiles(files)` converts them to Pi SDK contextFiles format
 
 ### Queue Semantics
 

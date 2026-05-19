@@ -69,4 +69,33 @@ describe("container input builder", () => {
     });
     expect(input.sdkConfig.model.auth_token).toBeUndefined();
   });
+
+  it("prepends first-run bootstrap prompt", async () => {
+    const builder = new ContainerInputBuilder({
+      buildSystemPrompts: async () => ["extension prompt"],
+      buildTools: async () => [],
+    });
+    const params = {
+      agentId: "cloud",
+      sessionId: "session-1",
+      message: "hello",
+      agent: {
+        id: "cloud",
+        model: { provider: "anthropic", model: "claude-sonnet" },
+      },
+    } as SdkRunParams;
+    const config = { agents: [params.agent], extensions: {} } as GatewayConfig;
+
+    const input = await builder.build(
+      params,
+      config,
+      "token-1",
+      "first run bootstrap"
+    );
+
+    expect(input.extensionSystemPrompts).toEqual([
+      "first run bootstrap",
+      "extension prompt",
+    ]);
+  });
 });

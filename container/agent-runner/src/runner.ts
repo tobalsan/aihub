@@ -24,14 +24,7 @@ import {
 } from "@aihub/shared";
 import { callGatewayTool } from "./gateway-client.js";
 
-const BOOTSTRAP_FILENAMES = [
-  "AGENTS.md",
-  "SOUL.md",
-  "TOOLS.md",
-  "IDENTITY.md",
-  "USER.md",
-  "BOOTSTRAP.md",
-] as const;
+const CORE_CONTEXT_FILENAMES = ["AGENTS.md", "SOUL.md", "USER.md"] as const;
 
 const AIHUB_CONTAINER_SYSTEM_PROMPT = `You are an AI agent running inside an isolated AIHub container. Use the mounted workspace as your working directory. Coding tools run inside this container. Orchestration tools call back to the gateway.
 
@@ -225,7 +218,7 @@ async function loadBootstrapContextFiles(
   workspaceDir: string
 ): Promise<Array<{ path: string; content: string }>> {
   const files = await Promise.allSettled(
-    BOOTSTRAP_FILENAMES.map(async (name) => ({
+    CORE_CONTEXT_FILENAMES.map(async (name) => ({
       path: name,
       content: await fs.readFile(path.join(workspaceDir, name), "utf8"),
     }))

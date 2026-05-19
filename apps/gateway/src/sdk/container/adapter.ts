@@ -9,7 +9,10 @@ import {
   renderAgentContext,
 } from "@aihub/shared";
 import { loadConfig } from "../../config/index.js";
-import { ensureBootstrapFiles } from "../../agents/workspace.js";
+import {
+  FIRST_RUN_BOOTSTRAP_PROMPT,
+  ensureWorkspaceFiles,
+} from "../../agents/workspace.js";
 import { getDefaultSdkId, getSdkAdapter } from "../registry.js";
 import { registerContainerToken, removeContainerToken } from "./tokens.js";
 import {
@@ -239,7 +242,7 @@ export function getContainerAdapter(): SdkAdapter {
       const launchSpec = buildContainerLaunchSpec(params, config);
       const { args, containerName, ipcDir, hostDataDir } = launchSpec;
       prepareLaunchFilesystem(params, launchSpec);
-      await ensureBootstrapFiles(params.workspaceDir);
+      const isFirstRun = await ensureWorkspaceFiles(params.workspaceDir);
 
       const agentToken = randomUUID();
       registerContainerToken(agentToken, params.agentId, containerName);
@@ -252,7 +255,8 @@ export function getContainerAdapter(): SdkAdapter {
           message: appendAttachmentContext(params.message, attachmentContext),
         },
         config,
-        agentToken
+        agentToken,
+        isFirstRun ? FIRST_RUN_BOOTSTRAP_PROMPT : undefined
       );
       const child = childProcess.spawn("docker", args, {
         stdio: ["pipe", "pipe", "pipe"],

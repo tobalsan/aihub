@@ -35,7 +35,8 @@ vi.mock("../../extensions/tools.js", () => ({
 }));
 
 vi.mock("../../agents/workspace.js", () => ({
-  ensureBootstrapFiles: vi.fn(async () => undefined),
+  FIRST_RUN_BOOTSTRAP_PROMPT: "first run bootstrap",
+  ensureWorkspaceFiles: vi.fn(async () => undefined),
 }));
 
 vi.mock("node:child_process", () => ({
