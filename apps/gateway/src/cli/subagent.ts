@@ -339,9 +339,6 @@ export function printSubagentProfiles(json: boolean): void {
 }
 
 export function registerSubagentCommands(program: Command): void {
-  const handlers = createSubagentHandlers();
-  const runtimeHandlers = createRuntimeSubagentHandlers();
-
   const runtime = program
     .command("subagents")
     .description("Manage CLI subagent runtime runs");
@@ -366,7 +363,7 @@ export function registerSubagentCommands(program: Command): void {
     .option("--reasoning-effort <effort>", "Harness reasoning effort")
     .option("--json", "Print raw JSON")
     .action(async (opts) => {
-      const res = await runtimeHandlers.start({
+      const res = await createRuntimeSubagentHandlers().start({
         cli: opts.cli,
         profile: opts.profile,
         cwd: opts.cwd,
@@ -386,7 +383,7 @@ export function registerSubagentCommands(program: Command): void {
     .option("--include-archived", "Include archived runs")
     .option("--json", "Print raw JSON")
     .action(async (opts) => {
-      const res = await runtimeHandlers.list({
+      const res = await createRuntimeSubagentHandlers().list({
         parent: opts.parent,
         status: opts.status,
         includeArchived: Boolean(opts.includeArchived),
@@ -399,7 +396,7 @@ export function registerSubagentCommands(program: Command): void {
     .argument("<runId>", "Run ID")
     .option("--json", "Print raw JSON")
     .action(async (runId, opts) => {
-      const res = await runtimeHandlers.status({ runId });
+      const res = await createRuntimeSubagentHandlers().status({ runId });
       await printResponse(res, Boolean(opts.json));
     });
 
@@ -409,7 +406,7 @@ export function registerSubagentCommands(program: Command): void {
     .option("--since <cursor>", "Byte cursor", "0")
     .option("--json", "Print raw JSON")
     .action(async (runId, opts) => {
-      const res = await runtimeHandlers.logs({
+      const res = await createRuntimeSubagentHandlers().logs({
         runId,
         since: Number(opts.since),
       });
@@ -422,7 +419,7 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("--prompt <text>", "Prompt")
     .option("--json", "Print raw JSON")
     .action(async (runId, opts) => {
-      const res = await runtimeHandlers.resume({
+      const res = await createRuntimeSubagentHandlers().resume({
         runId,
         prompt: opts.prompt,
       });
@@ -440,7 +437,7 @@ export function registerSubagentCommands(program: Command): void {
       .argument("<runId>", "Run ID")
       .option("--json", "Print raw JSON")
       .action(async (runId, opts) => {
-        const res = await runtimeHandlers[commandName]({ runId });
+        const res = await createRuntimeSubagentHandlers()[commandName]({ runId });
         await printResponse(res, Boolean(opts.json));
       });
   }
@@ -457,7 +454,7 @@ export function registerSubagentCommands(program: Command): void {
     .option("--base <branch>", "Base branch")
     .option("--resume", "Resume existing session")
     .action(async (opts) => {
-      const res = await handlers.spawn({
+      const res = await createSubagentHandlers().spawn({
         projectId: opts.project,
         slug: opts.slug,
         cli: opts.cli,
@@ -479,7 +476,7 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-p, --project <id>", "Project ID")
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .action(async (opts) => {
-      const res = await handlers.status({
+      const res = await createSubagentHandlers().status({
         projectId: opts.project,
         slug: opts.slug,
       });
@@ -497,7 +494,7 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .option("--since <cursor>", "Byte cursor", "0")
     .action(async (opts) => {
-      const res = await handlers.logs({
+      const res = await createSubagentHandlers().logs({
         projectId: opts.project,
         slug: opts.slug,
         since: Number(opts.since),
@@ -515,7 +512,7 @@ export function registerSubagentCommands(program: Command): void {
     .requiredOption("-p, --project <id>", "Project ID")
     .requiredOption("-s, --slug <slug>", "Subagent slug")
     .action(async (opts) => {
-      const res = await handlers.interrupt({
+      const res = await createSubagentHandlers().interrupt({
         projectId: opts.project,
         slug: opts.slug,
       });
@@ -532,7 +529,7 @@ export function registerSubagentCommands(program: Command): void {
     .argument("<projectId>", "Project ID")
     .argument("<slug>", "Subagent slug")
     .action(async (projectId, slug) => {
-      const res = await handlers.kill({ projectId, slug });
+      const res = await createSubagentHandlers().kill({ projectId, slug });
       const text = await res.text();
       if (!res.ok) {
         console.error(text);
