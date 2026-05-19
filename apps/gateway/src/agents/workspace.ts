@@ -7,13 +7,6 @@ const CORE_FILENAMES = ["AGENTS.md", "SOUL.md", "USER.md"] as const;
 
 type CoreFileName = (typeof CORE_FILENAMES)[number];
 
-export type WorkspaceFile = {
-  name: CoreFileName;
-  path: string;
-  content?: string;
-  missing: boolean;
-};
-
 export const FIRST_RUN_BOOTSTRAP_PROMPT = `This appears to be your first launch in this workspace. Before continuing, read AGENTS.md, SOUL.md, and USER.md. If SOUL.md or USER.md are incomplete, ask concise intro/profile questions, then update those files based on the answers. Do not create memory.md unless you have durable facts to remember.`;
 
 // Fallback templates if docs/templates not found
@@ -162,43 +155,3 @@ export async function ensureWorkspaceFiles(
   return isFirstRun;
 }
 
-/**
- * Load core workspace files.
- * Returns file info with content if exists, missing flag if not.
- */
-export async function loadWorkspaceFiles(
-  workspaceDir: string
-): Promise<WorkspaceFile[]> {
-  const results = await Promise.allSettled(
-    CORE_FILENAMES.map(async (name) => {
-      const filePath = path.join(workspaceDir, name);
-      const content = await fs.readFile(filePath, "utf-8");
-      return {
-        name,
-        path: filePath,
-        content,
-        missing: false,
-      } satisfies WorkspaceFile;
-    })
-  );
-
-  return results.map((result, index) => {
-    const name = CORE_FILENAMES[index];
-    const filePath = path.join(workspaceDir, name);
-    if (result.status === "fulfilled") {
-      return result.value;
-    }
-    return { name, path: filePath, missing: true };
-  });
-}
-
-/**
- * Convert workspace files to contextFiles format for Pi SDK.
- */
-export function buildWorkspaceContextFiles(
-  files: WorkspaceFile[]
-): Array<{ path: string; content: string }> {
-  return files
-    .filter((f) => !f.missing && f.content)
-    .map((f) => ({ path: f.name, content: f.content! }));
-}

@@ -44,7 +44,7 @@ Core TypeScript/Node.js application. Exports:
   - `system_prompt` history events now capture the harness-assembled prompt text itself. Langfuse generation observations are emitted as chat-style input arrays (`system` + `user`), so the Langfuse UI shows the real system prompt section. `system_context` remains separate metadata for normalized Slack/Discord channel details.
   - `webhooks` is auto-loaded when any agent has `webhooks` config. It registers `/hooks/:agentId/:name/:secret`, stores generated URL secrets in `$AIHUB_HOME/webhook-secrets.json` with `0600` permissions, validates secrets from an mtime-cached file read so rotations take effect without restart, rotates them with `aihub webhooks rotate <agentId> <webhookName>`, resolves inline or workspace-contained `.md`/`.txt` prompts relative to the agent workspace, interpolates `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, and `$WEBHOOK_PAYLOAD`, enforces per-webhook `maxPayloadSize` bytes (default 1MB) while streaming request bodies, and runs each invocation in a fresh `webhook:<agentId>:<name>:<requestId>` session with source/surface `webhook`. Optional `verification: { location: "header"|"payload", fieldName }` short-circuits setup requests containing that header or JSON payload key before signature verification or agent invocation; requests without the configured field continue through normal webhook handling. `langfuseTracing: false` disables Langfuse tracing for that webhook; async webhook failures emit traceable `agent.stream` error events when tracing is enabled. Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is configured, with `$env:VAR` resolution.
 - **Extensions** (`src/extensions/`): Gateway runtime glue that loads first-party and external extensions, validates config, appends prompt guidance, and exposes agent tools to Pi/container sessions.
-  - Tool-style extensions use `packages/shared/src/tool-extension.ts`; root `extensions.<id>` supplies defaults, and `agents[].extensions.<id>` opts an agent in unless `enabled: false`.
+  - Tool-style extensions use `packages/shared/src/tool-extension.ts`; root `extensions.<id>` supplies defaults, and `agent.yaml` `extensions.<id>` opts an agent in unless `enabled: false`.
   - The `projects` extension owns the project agent tools (`project.create`, `project.get`, `project.update`, `project.comment`). In-process Pi runs and sandbox/container Pi runs both receive these only through the unified extension tool path, so disabling the `projects` extension removes the sanitized `project_*` tools from agent-visible custom tools.
 
 ### apps/web
@@ -218,7 +218,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
 - `webhook-secrets.json` - Generated per-agent webhook URL secrets
-- `schedules.json` - Persisted schedule jobs with state
+- `agents/<id>/cron/jobs.json` - Per-agent schedule jobs; run outputs in `agents/<id>/cron/output/`
 - `projects.json` - Project ID counter (`{ lastId }`)
 - `sessions.json` - Session key -> sessionId mapping with timestamps
 - `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
@@ -395,7 +395,7 @@ curl -H "Authorization: Bearer $T" http://127.0.0.1:4000/api/me
 6. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
 7. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
 
-- Tool-style extensions are injected at agent session start when `agents[].extensions.<id>` is present and not `enabled: false`.
+- Tool-style extensions are injected at agent session start when `agent.yaml` `extensions.<id>` is present and not `enabled: false`.
 - If `extensionsPath` is unset, external extensions are discovered from `$AIHUB_HOME/extensions` (default `~/.aihub/extensions`).
 - External extension discovery accepts both real directories and symlinked directories.
 - Tool-extension parameter schemas are object-only Zod schemas.
@@ -434,12 +434,12 @@ Templates in `docs/templates/` are copied to `{workspace}/` when missing (using 
 | `SOUL.md`   | Agent identity/persona, core behaviors, boundaries       |
 | `USER.md`   | User profile - name, timezone, context                   |
 
-Bootstrap flow:
+Bootstrap/config flow:
 
-1. `ensureWorkspaceFiles(workspaceDir)` writes missing core files and returns whether no core files existed before creation
-2. First launches append a concise bootstrap instruction directly to the system prompt; no `BOOTSTRAP.md` is generated
-3. `loadWorkspaceFiles(workspaceDir)` reads only `AGENTS.md`, `SOUL.md`, and `USER.md`
-4. `buildWorkspaceContextFiles(files)` converts them to Pi SDK contextFiles format
+1. v3 `aihub.json` discovers agents from `agents` string/string[] entries; each entry may be exact dir or direct-child glob, and each matched dir must contain flat `agent.yaml`.
+2. `ensureWorkspaceFiles(workspaceDir)` writes missing `AGENTS.md`, `SOUL.md`, and `USER.md`, and returns whether none existed before creation.
+3. First launches append a concise bootstrap instruction directly to the system prompt; no `BOOTSTRAP.md` is generated.
+4. `@aihub/shared/node/system-files` resolves system prompt files for Pi and container runs: `AGENTS.md` is implicitly prepended, `system_files` controls the remaining order, and default is required `SOUL.md` plus optional `USER.md`.
 
 ### Queue Semantics
 
@@ -523,16 +523,13 @@ The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHist
 
 ### Scheduler (`packages/extensions/scheduler/`)
 
-Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled? }`). Routes `/api/schedules` (GET/POST) and `/api/schedules/:id` (PATCH/DELETE) are mounted by the extension; the `heartbeat` extension depends on it.
+Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled? }`). `enabled: false` means runtime firing disabled only: the extension still loads so scheduler API/CLI can read/write per-agent `cron/jobs.json`.
 
-Two schedule types:
+Jobs live per agent in `<workspace>/cron/jobs.json` (`{ version: 1, jobs[] }`). Disk jobs omit `agentId`; runtime synthesizes it from the owning workspace, so two agents may reuse the same job id. Schedule shape is `{ cron: string, tz: string, startAt?: ISO8601 }`; `tz` is required and next runs are computed through `cron-parser`. `aihub agents migrate` rewrites old interval/daily schedules to cron and uses the local system timezone when old jobs omit `tz`. Malformed `cron/jobs.json` logs a warning and is treated as empty. No watcher in phase 1: edits are loaded on gateway restart.
 
-- **interval**: `{ type: "interval", everyMinutes: N, startAt?: ISO8601 }` — without `startAt` the first run fires `everyMinutes` after creation; with `startAt` runs align to that anchor.
-- **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }` — IANA timezone optional; defaults to the gateway's local zone.
+Each fire dispatches through `ExtensionContext.runAgent({ agentId, message, sessionId, source: "scheduler" })` with default `sessionId = "scheduler:<jobId>:<uuid>"`; runs skip (and advance `nextRunAtMs`) when `ctx.isAgentActive(agentId)` is false, so scheduled traffic does not hijack single-agent mode. Ticks are serialized and missed runs do not back-fill. Output writes to `<workspace>/cron/output/<job_id>/YYYY-MM-DD_HH-mm-ss.md` with YAML frontmatter plus `# Cron Job`, `## Prompt`, and `## Response`/`## Error` sections.
 
-Jobs stored in `$AIHUB_HOME/schedules.json` (`{ version, jobs[] }`) with per-job `state` (`nextRunAtMs`, `lastRunAtMs`, `lastStatus`, `lastError`). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling. Each fire dispatches through `ExtensionContext.runAgent({ agentId, message, sessionId })` with default `sessionId = "scheduler:<jobId>"`; runs skip (and advance `nextRunAtMs`) when `ctx.isAgentActive(agentId)` is false, so scheduled traffic does not hijack single-agent mode. Ticks are serialized and missed runs do not back-fill — on boot the runner recomputes `nextRunAtMs` from now, so a job that was due during downtime fires once. Full reference: `packages/extensions/scheduler/README.md`.
-
-CLI: `aihub scheduler {list,get,create,update,enable,disable,delete}` wraps `/api/schedules`. `create` derives `--name` as `<agent>-every-<dur>` or `<agent>-daily-HH:MM` when omitted. Because `GET /api/schedules` returns only enabled jobs, `aihub scheduler get <id>` cannot see disabled jobs — keep the id from the `disable` response if you intend to re-enable later. CLI registration lives in `packages/extensions/scheduler/src/cli/`; wired into the gateway CLI at `apps/gateway/src/cli/index.ts`.
+CLI: `aihub scheduler add <agent-id> --cron <expr> --tz <iana> -m <message>`, `list [--agent <id>]`, `update <agent-id> <job-id>`, `rm <agent-id> <job-id>`, and `tail <agent-id> <job-id>`. API breaking changes: update/delete/tail paths are agent-scoped (`/api/schedules/:agentId/:id`), and schedule payloads use cron+required `tz` instead of old interval/daily variants. CLI registration lives in `packages/extensions/scheduler/src/cli/`; wired into the gateway CLI at `apps/gateway/src/cli/index.ts`.
 
 ### Discord (`src/discord/`)
 
@@ -580,9 +577,9 @@ discord: {
 
 **Live broadcast:** Main-session responses from other sources (web, amsg, scheduler) are broadcast to `broadcastToChannel`. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
 
-### Heartbeat (`src/heartbeat/`)
+### Heartbeat (`packages/extensions/heartbeat/`)
 
-Periodic agent check-in with Discord alert delivery.
+Periodic agent check-in with Discord alert delivery. Heartbeat depends on scheduler availability as the tick gate; if `extensions.scheduler` is absent or `enabled: false` while heartbeat is configured, heartbeat logs a warning and noops.
 
 **Config:**
 
@@ -604,6 +601,7 @@ heartbeat?: {
    - Empty reply → status `ok-empty`, no delivery
    - No token or substantial content → status `sent`, delivered to Discord
 5. Session `updatedAt` preserved (heartbeat doesn't reset idle timer)
+6. Completed runs write `<workspace>/cron/output/__heartbeat__/YYYY-MM-DD_HH-mm-ss.md` with YAML frontmatter (`run_type: heartbeat`, `result_status`) plus `# Heartbeat`, `## Prompt`, and `## Response`/`## Error` sections. Response body is latest assistant text only.
 
 **Token matching:** Strips HTML/Markdown wrappers (`<b>HEARTBEAT_OK</b>`, `**HEARTBEAT_OK**`, etc.)
 
@@ -633,8 +631,8 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | WS     | `/ws`                                            | WebSocket streaming (JSON protocol)                                                                                         |
 | GET    | `/api/schedules`                                 | List schedules                                                                                                              |
 | POST   | `/api/schedules`                                 | Create schedule                                                                                                             |
-| PATCH  | `/api/schedules/:id`                             | Update schedule                                                                                                             |
-| DELETE | `/api/schedules/:id`                             | Delete schedule                                                                                                             |
+| PATCH  | `/api/schedules/:agentId/:id`                    | Update schedule                                                                                                             |
+| DELETE | `/api/schedules/:agentId/:id`                    | Delete schedule                                                                                                             |
 | GET    | `/api/projects`                                  | List projects                                                                                                               |
 | POST   | `/api/projects`                                  | Create project                                                                                                              |
 | GET    | `/api/projects/:id`                              | Get project                                                                                                                 |

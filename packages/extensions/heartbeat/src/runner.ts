@@ -1,6 +1,10 @@
 import fs from "node:fs/promises";
 import path from "node:path";
 import {
+  latestAssistantText,
+  writeCronRunOutput,
+} from "@aihub/extension-scheduler";
+import {
   DEFAULT_MAIN_KEY,
   type AgentConfig,
   type ExtensionContext,
@@ -9,7 +13,6 @@ import {
 } from "@aihub/shared";
 
 // Default heartbeat interval (30 minutes)
-const DEFAULT_HEARTBEAT_EVERY = "30m";
 // Default ackMaxChars threshold
 const DEFAULT_ACK_MAX_CHARS = 300;
 // Default heartbeat prompt
@@ -217,6 +220,61 @@ function maybeRestoreSessionUpdatedAt(
   getContext().restoreSessionUpdatedAt(agentId, sessionKey, originalUpdatedAt);
 }
 
+function isSchedulerRuntimeAvailable(): boolean {
+  const extensions = getContext().getConfig().extensions;
+  if (!extensions) return true;
+  if (extensions.scheduler?.enabled === false) return false;
+  return !(extensions.heartbeat && !extensions.scheduler);
+}
+
+function warnSchedulerUnavailable(): void {
+  getContext().logger.warn(
+    "[heartbeat] Scheduler extension is disabled or unavailable; heartbeat timers will not run."
+  );
+}
+
+function heartbeatResultStatus(
+  status: HeartbeatStatus
+): "ok" | "warn" | "error" {
+  if (status === "failed") return "error";
+  if (status === "sent") return "warn";
+  return "ok";
+}
+
+async function writeHeartbeatOutput(input: {
+  agent: AgentConfig;
+  sessionId: string;
+  prompt: string;
+  firedAt: Date;
+  finishedAt: Date;
+  status: "ok" | "error";
+  resultStatus: "ok" | "warn" | "error";
+  response?: string;
+  error?: unknown;
+}): Promise<void> {
+  const ctx = getContext();
+  try {
+    await writeCronRunOutput({
+      workspaceDir: ctx.resolveWorkspaceDir(input.agent),
+      jobId: "__heartbeat__",
+      agentId: input.agent.id,
+      sessionId: input.sessionId,
+      runType: "heartbeat",
+      name: "Heartbeat",
+      prompt: input.prompt,
+      firedAt: input.firedAt,
+      finishedAt: input.finishedAt,
+      status: input.status,
+      durationMs: input.finishedAt.getTime() - input.firedAt.getTime(),
+      response: input.response,
+      error: input.error,
+      resultStatus: input.resultStatus,
+    });
+  } catch (error) {
+    ctx.logger.warn("[heartbeat] Failed to write heartbeat output", error);
+  }
+}
+
 /**
  * Run single heartbeat for agent.
  * Returns event payload describing result.
@@ -245,6 +303,29 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
       agentId,
       status: "skipped",
       reason: "disabled",
+    };
+    emitHeartbeatEvent(payload);
+    return payload;
+  }
+
+  if (!isHeartbeatEnabled(agent)) {
+    const payload: HeartbeatEventPayload = {
+      ts: startTs,
+      agentId,
+      status: "skipped",
+      reason: "disabled",
+    };
+    emitHeartbeatEvent(payload);
+    return payload;
+  }
+
+  if (!isSchedulerRuntimeAvailable()) {
+    warnSchedulerUnavailable();
+    const payload: HeartbeatEventPayload = {
+      ts: startTs,
+      agentId,
+      status: "skipped",
+      reason: "scheduler disabled or unavailable",
     };
     emitHeartbeatEvent(payload);
     return payload;
@@ -283,12 +364,17 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
 
   const ackMaxChars = agent.heartbeat?.ackMaxChars ?? DEFAULT_ACK_MAX_CHARS;
 
+  let prompt = DEFAULT_HEARTBEAT_PROMPT;
+  let outputSessionId = `${DEFAULT_MAIN_KEY}:heartbeat`;
+  const firedAt = new Date(startTs);
+
   try {
     // Load prompt
-    const prompt = await loadHeartbeatPrompt(agent);
+    prompt = await loadHeartbeatPrompt(agent);
 
     // Reuse existing main session if present
     const resolved = await ctx.resolveSessionId(agentId, DEFAULT_MAIN_KEY);
+    outputSessionId = resolved?.sessionId ?? outputSessionId;
 
     const result = await ctx.runAgent({
       agentId,
@@ -300,10 +386,22 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
     });
 
     const durationMs = Date.now() - startTs;
-    const replyText = result.payloads.map((p) => p.text).join("\n");
+    outputSessionId = result.meta?.sessionId ?? outputSessionId;
+    const replyText = latestAssistantText(result.payloads);
 
     // Evaluate reply
     const evaluation = evaluateHeartbeatReply(replyText, ackMaxChars);
+
+    void writeHeartbeatOutput({
+      agent,
+      sessionId: outputSessionId,
+      prompt,
+      firedAt,
+      finishedAt: new Date(),
+      status: "ok",
+      resultStatus: heartbeatResultStatus(evaluation.status),
+      response: replyText,
+    });
 
     // Restore updatedAt if not delivering
     if (!evaluation.shouldDeliver) {
@@ -323,6 +421,16 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
     return payload;
   } catch (err) {
     maybeRestoreSessionUpdatedAt(agentId, DEFAULT_MAIN_KEY, originalUpdatedAt);
+    void writeHeartbeatOutput({
+      agent,
+      sessionId: outputSessionId,
+      prompt,
+      firedAt,
+      finishedAt: new Date(),
+      status: "error",
+      resultStatus: "error",
+      error: err,
+    });
     const payload: HeartbeatEventPayload = {
       ts: startTs,
       agentId,
@@ -339,18 +447,11 @@ export async function runHeartbeat(agentId: string): Promise<HeartbeatEventPaylo
  * Check if heartbeat enabled for agent.
  */
 export function isHeartbeatEnabled(agent: AgentConfig): boolean {
-  // No heartbeat block = disabled
-  if (!agent.heartbeat) return false;
+  const every = agent.heartbeat?.every;
+  if (!every) return false;
 
-  // Explicit disable via "0"
-  const every = agent.heartbeat.every;
-  if (every !== undefined) {
-    const ms = parseDurationMs(every, { defaultUnit: "m" });
-    return ms !== null && ms > 0;
-  }
-
-  // heartbeat block present but no every = use default (enabled)
-  return true;
+  const ms = parseDurationMs(every, { defaultUnit: "m" });
+  return ms !== null && ms > 0;
 }
 
 /**
@@ -361,12 +462,9 @@ export function getHeartbeatIntervalMs(agent: AgentConfig): number | null {
   if (!isHeartbeatEnabled(agent)) return null;
 
   const every = agent.heartbeat?.every;
-  if (every) {
-    return parseDurationMs(every, { defaultUnit: "m" });
-  }
+  if (!every) return null;
 
-  // Default interval
-  return parseDurationMs(DEFAULT_HEARTBEAT_EVERY, { defaultUnit: "m" });
+  return parseDurationMs(every, { defaultUnit: "m" });
 }
 
 /**
@@ -410,6 +508,13 @@ export function startHeartbeat(agentId: string): boolean {
   const agent = getContext().getAgent(agentId);
   if (!agent) return false;
 
+  if (!isHeartbeatEnabled(agent)) return false;
+
+  if (!isSchedulerRuntimeAvailable()) {
+    warnSchedulerUnavailable();
+    return false;
+  }
+
   const intervalMs = getHeartbeatIntervalMs(agent);
   if (!intervalMs) return false;
 
@@ -432,8 +537,7 @@ export function stopHeartbeat(agentId: string): void {
  * Start heartbeats for all configured agents.
  */
 export function startAllHeartbeats(): void {
-  const config = getContext().getConfig();
-  for (const agent of config.agents) {
+  for (const agent of getContext().getAgents()) {
     startHeartbeat(agent.id);
   }
 }

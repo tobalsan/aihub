@@ -15,11 +15,10 @@ import type {
 } from "../types.js";
 import { CONFIG_DIR, loadConfig } from "../../config/index.js";
 import { buildOnecliEnv } from "../../config/onecli.js";
+import { resolveSystemFiles } from "@aihub/shared/node/system-files";
 import {
   FIRST_RUN_BOOTSTRAP_PROMPT,
   ensureWorkspaceFiles,
-  loadWorkspaceFiles,
-  buildWorkspaceContextFiles,
 } from "../../agents/workspace.js";
 import { getSessionCreatedAt } from "../../sessions/store.js";
 import { resolveSessionDataFile } from "../../sessions/files.js";
@@ -254,9 +253,16 @@ export const piAdapter: SdkAdapter = {
       }
       authStorage.setRuntimeApiKey(model.provider, apiKey);
 
-      // Load workspace context files
-      const workspaceFiles = await loadWorkspaceFiles(params.workspaceDir);
-      const contextFiles = buildWorkspaceContextFiles(workspaceFiles);
+      // Load configured system files
+      const systemFiles = await resolveSystemFiles({
+        workspaceDir: params.workspaceDir,
+        systemFiles: agent.system_files,
+        warn: (message) => console.warn(message),
+      });
+      const contextFiles = systemFiles.map((file) => ({
+        path: file.path,
+        content: file.content,
+      }));
 
       // Enable Pi's built-in coding tools plus extension custom tools for the run workspace.
       // Pi treats `tools` as an allowlist when provided, so custom tool names must be included.

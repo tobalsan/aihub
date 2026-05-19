@@ -72,6 +72,7 @@ describe("ExtensionRuntime", () => {
       {
         id: "sample",
         routePrefixes: ["/api/sample", "/api/agents/:id/sample"],
+        allowWhenDisabled: true,
       },
     ]);
 
@@ -79,10 +80,11 @@ describe("ExtensionRuntime", () => {
     expect(
       matchers.find((matcher) => matcher.matches("/api/sample/item"))?.extension
     ).toBe("sample");
-    expect(
-      matchers.find((matcher) => matcher.matches("/api/agents/main/sample"))
-        ?.extension
-    ).toBe("sample");
+    const agentMatcher = matchers.find((matcher) =>
+      matcher.matches("/api/agents/main/sample")
+    );
+    expect(agentMatcher?.extension).toBe("sample");
+    expect(agentMatcher?.allowWhenDisabled).toBe(true);
     expect(
       matchers.some((matcher) => matcher.matches("/api/agents/main/other"))
     ).toBe(false);

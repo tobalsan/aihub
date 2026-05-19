@@ -2,11 +2,8 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
-import {
-  buildWorkspaceContextFiles,
-  ensureWorkspaceFiles,
-  loadWorkspaceFiles,
-} from "./workspace.js";
+import { resolveSystemFiles } from "@aihub/shared/node/system-files";
+import { ensureWorkspaceFiles } from "./workspace.js";
 
 async function makeTempDir(): Promise<string> {
   return fs.mkdtemp(path.join(os.tmpdir(), "aihub-workspace-"));
@@ -42,9 +39,7 @@ describe("agent workspace files", () => {
     await fs.writeFile(path.join(tmpDir, "TOOLS.md"), "tools");
     await fs.writeFile(path.join(tmpDir, "HEARTBEAT.md"), "heartbeat");
 
-    const contextFiles = buildWorkspaceContextFiles(
-      await loadWorkspaceFiles(tmpDir)
-    );
+    const contextFiles = await resolveSystemFiles({ workspaceDir: tmpDir });
 
     expect(contextFiles.map((file) => file.path).sort()).toEqual([
       "AGENTS.md",

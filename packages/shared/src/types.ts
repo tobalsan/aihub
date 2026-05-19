@@ -164,6 +164,15 @@ export const WebhookConfigSchema = z.object({
 });
 export type WebhookConfig = z.infer<typeof WebhookConfigSchema>;
 
+export const SystemFileEntrySchema = z.union([
+  z.string(),
+  z.object({
+    path: z.string(),
+    required: z.boolean().optional(),
+  }),
+]);
+export type SystemFileEntry = z.infer<typeof SystemFileEntrySchema>;
+
 // Agent config
 const AgentConfigBaseSchema = z.object({
   id: z.string(),
@@ -171,6 +180,8 @@ const AgentConfigBaseSchema = z.object({
   description: z.string().optional(),
   avatar: z.string().optional(), // emoji or image URL
   workspace: z.string(),
+  workspaceDir: z.string().optional(),
+  system_files: z.array(SystemFileEntrySchema).optional(),
   sdk: SdkIdSchema.optional(), // default "pi"
   model: AgentModelConfigSchema.optional(),
   openclaw: OpenClawConfigSchema.optional(),
@@ -208,38 +219,62 @@ export const AgentConfigSchema = AgentConfigBaseSchema.superRefine(
 );
 export type AgentConfig = z.infer<typeof AgentConfigSchema>;
 
+const AgentYamlConfigBaseSchema = AgentConfigBaseSchema.omit({
+  workspace: true,
+  workspaceDir: true,
+});
+export const AgentYamlConfigSchema = AgentYamlConfigBaseSchema.superRefine(
+  (value, ctx) => {
+    if (value.sdk !== "openclaw" && !value.model) {
+      ctx.addIssue({
+        code: z.ZodIssueCode.custom,
+        message: "model is required",
+        path: ["model"],
+      });
+    }
+  }
+).transform(
+  (value): Omit<typeof value, "model"> & { model: AgentModelConfig } => {
+    if (value.sdk === "openclaw" && !value.model) {
+      return { ...value, model: { provider: "openclaw", model: "unknown" } };
+    }
+    return value as Omit<typeof value, "model"> & { model: AgentModelConfig };
+  }
+);
+export type AgentYamlConfig = z.infer<typeof AgentYamlConfigSchema>;
+
 // Schedule types
-export const IntervalScheduleSchema = z.object({
-  type: z.literal("interval"),
-  everyMinutes: z.number().int().min(1),
-  startAt: z.string().optional(),
+export const ScheduleSchema = z.object({
+  cron: z.string().min(1),
+  tz: z.string().min(1),
+  startAt: z
+    .string()
+    .refine((value) => !Number.isNaN(Date.parse(value)), {
+      message: "startAt must be a valid ISO 8601 date",
+    })
+    .optional(),
 });
-export type IntervalSchedule = z.infer<typeof IntervalScheduleSchema>;
-
-export const DailyScheduleSchema = z.object({
-  type: z.literal("daily"),
-  time: z.string().regex(/^\d{2}:\d{2}$/),
-  timezone: z.string().optional(),
-});
-export type DailySchedule = z.infer<typeof DailyScheduleSchema>;
-
-export const ScheduleSchema = z.discriminatedUnion("type", [
-  IntervalScheduleSchema,
-  DailyScheduleSchema,
-]);
 export type Schedule = z.infer<typeof ScheduleSchema>;
 
-// Schedule job
-export const ScheduleJobSchema = z.object({
+export const SchedulePayloadSchema = z.object({
+  message: z.string(),
+  sessionId: z.string().optional(),
+});
+export type SchedulePayload = z.infer<typeof SchedulePayloadSchema>;
+
+export const ScheduleJobFileSchema = z.object({
   id: z.string(),
   name: z.string(),
-  agentId: z.string(),
-  enabled: z.boolean(),
+  enabled: z.boolean().optional().default(true),
   schedule: ScheduleSchema,
-  payload: z.object({
-    message: z.string(),
-    sessionId: z.string().optional(),
-  }),
+  payload: SchedulePayloadSchema,
+  createdAt: z.string().optional(),
+});
+export type ScheduleJobFile = z.infer<typeof ScheduleJobFileSchema>;
+
+// Schedule job
+export const ScheduleJobSchema = ScheduleJobFileSchema.extend({
+  agentId: z.string(),
 });
 export type ScheduleJob = z.infer<typeof ScheduleJobSchema>;
 
@@ -644,6 +679,49 @@ export const GlobalSandboxConfigSchema = z.object({
   mountAllowlist: MountAllowlistSchema.optional(),
 });
 export type GlobalSandboxConfig = z.infer<typeof GlobalSandboxConfigSchema>;
+
+export const AgentDiscoveryConfigSchema = z.union([
+  z.string(),
+  z.array(z.string()),
+]);
+
+export const GatewayRootConfigSchema = z.object({
+  version: z.literal(3).optional(),
+  agents: AgentDiscoveryConfigSchema.optional(),
+  defaultProjectManager: z.string().optional(),
+  sandbox: GlobalSandboxConfigSchema.optional(),
+  onecli: OnecliConfigSchema.optional(),
+  extensions: ExtensionsConfigSchema,
+  extensionsPath: z.string().optional(),
+  branding: z
+    .object({
+      name: z.string().optional(),
+      logo: z.string().optional(),
+    })
+    .optional(),
+  agentFab: z.boolean().optional().default(false),
+  server: z
+    .object({
+      host: z.string().optional(),
+      port: z.number().optional(),
+      baseUrl: z.string().optional(),
+    })
+    .optional(),
+  gateway: GatewayServerConfigSchema.optional(),
+  sessions: SessionsConfigSchema.optional().default({}),
+  web: z
+    .object({
+      baseUrl: z.string().optional(),
+    })
+    .optional(),
+  ui: UiConfigSchema.optional(),
+  taskboard: TaskboardConfigSchema.optional(),
+  projects: ProjectsConfigSchema.optional(),
+  subagents: z.array(SubagentConfigSchema).optional(),
+  notifications: NotificationsConfigSchema.optional(),
+  env: z.record(z.string(), z.string()).optional(),
+});
+export type GatewayRootConfig = z.infer<typeof GatewayRootConfigSchema>;
 
 // Gateway config
 export const GatewayConfigSchema = z.object({
@@ -1089,12 +1167,9 @@ export type SubagentLogEvent = {
 
 export const CreateScheduleRequestSchema = z.object({
   name: z.string(),
-  agentId: z.string(),
+  agentId: z.string().optional(),
   schedule: ScheduleSchema,
-  payload: z.object({
-    message: z.string(),
-    sessionId: z.string().optional(),
-  }),
+  payload: SchedulePayloadSchema,
 });
 export type CreateScheduleRequest = z.infer<typeof CreateScheduleRequestSchema>;
 
@@ -1102,12 +1177,7 @@ export const UpdateScheduleRequestSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional(),
   schedule: ScheduleSchema.optional(),
-  payload: z
-    .object({
-      message: z.string(),
-      sessionId: z.string().optional(),
-    })
-    .optional(),
+  payload: SchedulePayloadSchema.optional(),
 });
 export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
 
@@ -1574,6 +1644,12 @@ export type ContainerExtensionTool = z.infer<
   typeof ContainerExtensionToolSchema
 >;
 
+export const ContainerSystemFileSchema = z.object({
+  path: z.string(),
+  content: z.string(),
+});
+export type ContainerSystemFile = z.infer<typeof ContainerSystemFileSchema>;
+
 export const ContainerInputSchema = z.object({
   agentId: z.string(),
   sessionId: z.string(),
@@ -1587,6 +1663,7 @@ export const ContainerInputSchema = z.object({
   agentToken: z.string(),
   thinkLevel: ThinkLevelSchema.optional(),
   context: AgentContextSchema.optional(),
+  systemFiles: z.array(ContainerSystemFileSchema).optional(),
   extensionSystemPrompts: z.array(z.string()).optional(),
   extensionTools: z.array(ContainerExtensionToolSchema).optional(),
   onecli: z

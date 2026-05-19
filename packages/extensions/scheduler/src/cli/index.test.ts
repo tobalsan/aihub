@@ -3,41 +3,41 @@ import { buildCreateBody, buildUpdateBody } from "./index.js";
 
 describe("buildCreateBody", () => {
   it("defaults the name from agent + schedule", () => {
-    const body = buildCreateBody({
-      agent: "ops",
+    const body = buildCreateBody("ops", {
       message: "run check",
-      every: "1h",
+      cron: "0 * * * *",
+      tz: "UTC",
     });
     expect(body).toEqual({
-      name: "ops-every-1h",
+      name: "ops-0-*-*-*-*",
       agentId: "ops",
-      schedule: { type: "interval", everyMinutes: 60 },
+      schedule: { cron: "0 * * * *", tz: "UTC" },
       payload: { message: "run check" },
     });
   });
 
   it("uses provided --name", () => {
-    const body = buildCreateBody({
-      agent: "ops",
+    const body = buildCreateBody("ops", {
       message: "run check",
-      every: "1h",
+      cron: "0 * * * *",
+      tz: "UTC",
       name: "Hourly Check",
     });
     expect(body.name).toBe("Hourly Check");
   });
 
   it("passes through --session", () => {
-    const body = buildCreateBody({
-      agent: "ops",
+    const body = buildCreateBody("ops", {
       message: "run check",
-      daily: "09:00",
+      cron: "0 9 * * *",
+      tz: "UTC",
       session: "agent:ops:main",
     });
     expect(body.payload).toEqual({
       message: "run check",
       sessionId: "agent:ops:main",
     });
-    expect(body.schedule).toEqual({ type: "daily", time: "09:00" });
+    expect(body.schedule).toEqual({ cron: "0 9 * * *", tz: "UTC" });
   });
 });
 
@@ -53,16 +53,14 @@ describe("buildUpdateBody", () => {
     );
   });
 
-  it("rebuilds schedule when --every is given", () => {
-    expect(buildUpdateBody({ every: "30m" })).toEqual({
-      schedule: { type: "interval", everyMinutes: 30 },
+  it("rebuilds schedule when --cron is given", () => {
+    expect(buildUpdateBody({ cron: "*/30 * * * *", tz: "UTC" })).toEqual({
+      schedule: { cron: "*/30 * * * *", tz: "UTC" },
     });
   });
 
-  it("rejects --tz alone (no --daily) as a partial schedule update", () => {
-    expect(() => buildUpdateBody({ tz: "UTC" })).toThrow(
-      /Schedule changes require/
-    );
+  it("rejects partial schedule update", () => {
+    expect(() => buildUpdateBody({ tz: "UTC" })).toThrow(/--cron/);
   });
 
   it("rejects empty patch", () => {

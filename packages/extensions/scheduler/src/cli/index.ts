@@ -14,8 +14,7 @@ import {
   type ScheduleInputOpts,
 } from "./schedule-input.js";
 
-type CreateOpts = ScheduleInputOpts & {
-  agent: string;
+type AddOpts = ScheduleInputOpts & {
   message: string;
   name?: string;
   session?: string;
@@ -37,9 +36,8 @@ type DeleteOpts = {
   json?: boolean;
 };
 
-type ListOpts = { json?: boolean };
-
-type GetOpts = { json?: boolean };
+type ListOpts = { agent?: string; json?: boolean };
+type TailOpts = { lines?: string };
 
 function fail(err: unknown): never {
   if (err instanceof Error) console.error(err.message);
@@ -59,30 +57,25 @@ function printJobs(jobs: JobWithState[], json: boolean | undefined): void {
   console.log(renderJobsTable(jobs));
 }
 
-async function confirmDelete(id: string): Promise<boolean> {
+async function confirmDelete(agentId: string, id: string): Promise<boolean> {
   if (process.stdin.isTTY !== true) return false;
-  const rl = createInterface({
-    input: process.stdin,
-    output: process.stdout,
-  });
+  const rl = createInterface({ input: process.stdin, output: process.stdout });
   const answer = await new Promise<string>((resolve) =>
-    rl.question(`Delete schedule ${id}? [y/N] `, resolve)
+    rl.question(`Delete schedule ${agentId}/${id}? [y/N] `, resolve)
   );
   rl.close();
   return /^y(es)?$/i.test(answer.trim());
 }
 
-export function buildCreateBody(opts: CreateOpts): CreateScheduleRequest {
+export function buildCreateBody(
+  agentId: string,
+  opts: AddOpts
+): CreateScheduleRequest {
   const schedule = buildScheduleFromOpts(opts);
-  const name = opts.name?.trim() || defaultJobName(opts.agent, schedule);
+  const name = opts.name?.trim() || defaultJobName(agentId, schedule);
   const payload: CreateScheduleRequest["payload"] = { message: opts.message };
   if (opts.session) payload.sessionId = opts.session;
-  return {
-    name,
-    agentId: opts.agent,
-    schedule,
-    payload,
-  };
+  return { name, agentId, schedule, payload };
 }
 
 export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
@@ -94,16 +87,8 @@ export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
   if (opts.enable) body.enabled = true;
   if (opts.disable) body.enabled = false;
 
-  const hasScheduleOpt =
-    Boolean(opts.every) || Boolean(opts.daily) || Boolean(opts.tz) || Boolean(opts.startAt);
-  if (hasScheduleOpt) {
-    if (!opts.every && !opts.daily) {
-      throw new Error(
-        "Schedule changes require --every <dur> or --daily HH:MM (the server replaces the whole schedule)."
-      );
-    }
-    body.schedule = buildScheduleFromOpts(opts);
-  }
+  const hasScheduleOpt = Boolean(opts.cron) || Boolean(opts.tz) || Boolean(opts.startAt);
+  if (hasScheduleOpt) body.schedule = buildScheduleFromOpts(opts);
 
   if (opts.message !== undefined || opts.session !== undefined) {
     if (opts.message === undefined) {
@@ -117,7 +102,7 @@ export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
   }
 
   if (Object.keys(body).length === 0) {
-    throw new Error("Nothing to update. Pass --name/--enable/--disable/--every/--daily/-m.");
+    throw new Error("Nothing to update. Pass --name/--enable/--disable/--cron/-m.");
   }
   return body;
 }
@@ -125,11 +110,12 @@ export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
 export function registerSchedulerCommands(program: Command): Command {
   program
     .command("list")
-    .description("List enabled schedules")
+    .description("List schedules")
+    .option("--agent <id>", "Filter by agent id")
     .option("-j, --json", "JSON output")
     .action(async (opts: ListOpts) => {
       try {
-        const jobs = await getClient().listSchedules();
+        const jobs = await getClient().listSchedules(opts.agent);
         printJobs(jobs as JobWithState[], opts.json);
       } catch (err) {
         fail(err);
@@ -137,59 +123,27 @@ export function registerSchedulerCommands(program: Command): Command {
     });
 
   program
-    .command("get")
-    .description("Show a schedule by id (enabled only)")
-    .argument("<id>", "Schedule id")
-    .option("-j, --json", "JSON output")
-    .action(async (id: string, opts: GetOpts) => {
-      try {
-        const jobs = (await getClient().listSchedules()) as JobWithState[];
-        const job = jobs.find((j) => j.id === id);
-        if (!job) {
-          console.error(`Schedule not found (or disabled): ${id}`);
-          process.exit(1);
-        }
-        if (opts.json) {
-          console.log(JSON.stringify(job, null, 2));
-          return;
-        }
-        console.log(renderJobsTable([job]));
-        console.log("");
-        console.log(`message: ${job.payload.message}`);
-        if (job.payload.sessionId) {
-          console.log(`session: ${job.payload.sessionId}`);
-        }
-        if (job.state?.lastRunAtMs) {
-          console.log(`last-run: ${new Date(job.state.lastRunAtMs).toISOString()}`);
-        }
-        if (job.state?.lastError) {
-          console.log(`last-error: ${job.state.lastError}`);
-        }
-      } catch (err) {
-        fail(err);
-      }
-    });
-
-  program
-    .command("create")
+    .command("add")
+    .alias("create")
     .description("Create a schedule")
-    .requiredOption("--agent <id>", "Agent id to invoke")
+    .argument("<agent-id>", "Agent id to invoke")
     .requiredOption("-m, --message <text>", "Message to send on each fire")
-    .option("--name <name>", "Schedule name (default: <agent>-<schedule>)")
-    .option("--every <dur>", "Interval, e.g. 2m, 1h, 1d")
-    .option("--daily <HH:MM>", "Daily wall-clock time (24h)")
-    .option("--tz <iana>", "IANA timezone for --daily")
-    .option("--start-at <iso>", "ISO 8601 anchor for --every")
+    .requiredOption("--cron <expr>", "Cron expression, e.g. '0 8 * * *'")
+    .requiredOption("--tz <iana>", "IANA timezone")
+    .option("--name <name>", "Schedule name (default: <agent>-<cron>)")
+    .option("--start-at <iso>", "ISO 8601 anchor")
     .option("--session <id>", "Session id override")
-    .option("--disabled", "Create disabled (requires re-enable via API; id is returned)")
+    .option("--disabled", "Create disabled")
     .option("-j, --json", "JSON output")
-    .action(async (opts: CreateOpts) => {
+    .action(async (agentId: string, opts: AddOpts) => {
       try {
-        const body = buildCreateBody(opts);
+        const body = buildCreateBody(agentId, opts);
         const client = getClient();
         let job = (await client.createSchedule(body)) as JobWithState;
         if (opts.disabled) {
-          job = (await client.updateSchedule(job.id, { enabled: false })) as JobWithState;
+          job = (await client.updateSchedule(agentId, job.id, {
+            enabled: false,
+          })) as JobWithState;
         }
         printJobs([job], opts.json);
       } catch (err) {
@@ -200,21 +154,21 @@ export function registerSchedulerCommands(program: Command): Command {
   program
     .command("update")
     .description("Update a schedule")
-    .argument("<id>", "Schedule id")
+    .argument("<agent-id>", "Agent id")
+    .argument("<job-id>", "Schedule id")
     .option("--name <name>", "Rename")
     .option("--enable", "Enable the schedule")
     .option("--disable", "Disable the schedule")
-    .option("--every <dur>", "Switch to interval (e.g. 2m, 1h)")
-    .option("--daily <HH:MM>", "Switch to daily")
-    .option("--tz <iana>", "Timezone (with --daily)")
-    .option("--start-at <iso>", "Anchor (with --every)")
+    .option("--cron <expr>", "Cron expression")
+    .option("--tz <iana>", "IANA timezone")
+    .option("--start-at <iso>", "Anchor")
     .option("-m, --message <text>", "Replace payload message")
     .option("--session <id>", "Replace payload session id (requires -m)")
     .option("-j, --json", "JSON output")
-    .action(async (id: string, opts: UpdateOpts) => {
+    .action(async (agentId: string, id: string, opts: UpdateOpts) => {
       try {
         const body = buildUpdateBody(opts);
-        const job = (await getClient().updateSchedule(id, body)) as JobWithState;
+        const job = (await getClient().updateSchedule(agentId, id, body)) as JobWithState;
         printJobs([job], opts.json);
       } catch (err) {
         fail(err);
@@ -222,58 +176,50 @@ export function registerSchedulerCommands(program: Command): Command {
     });
 
   program
-    .command("enable")
-    .description("Enable a schedule")
-    .argument("<id>", "Schedule id")
-    .option("-j, --json", "JSON output")
-    .action(async (id: string, opts: GetOpts) => {
-      try {
-        const job = (await getClient().updateSchedule(id, {
-          enabled: true,
-        })) as JobWithState;
-        printJobs([job], opts.json);
-      } catch (err) {
-        fail(err);
-      }
-    });
-
-  program
-    .command("disable")
-    .description("Disable a schedule")
-    .argument("<id>", "Schedule id")
-    .option("-j, --json", "JSON output")
-    .action(async (id: string, opts: GetOpts) => {
-      try {
-        const job = (await getClient().updateSchedule(id, {
-          enabled: false,
-        })) as JobWithState;
-        printJobs([job], opts.json);
-      } catch (err) {
-        fail(err);
-      }
-    });
-
-  program
-    .command("delete")
+    .command("rm")
+    .alias("delete")
     .description("Delete a schedule")
-    .argument("<id>", "Schedule id")
+    .argument("<agent-id>", "Agent id")
+    .argument("<job-id>", "Schedule id")
     .option("-y, --yes", "Skip confirmation")
     .option("-j, --json", "JSON output")
-    .action(async (id: string, opts: DeleteOpts) => {
+    .action(async (agentId: string, id: string, opts: DeleteOpts) => {
       try {
         if (!opts.yes) {
-          const ok = await confirmDelete(id);
+          const ok = await confirmDelete(agentId, id);
           if (!ok) {
             console.error("Aborted.");
             process.exit(1);
           }
         }
-        const result = await getClient().deleteSchedule(id);
+        const result = await getClient().deleteSchedule(agentId, id);
         if (opts.json) {
           console.log(JSON.stringify(result, null, 2));
           return;
         }
-        console.log(`Deleted schedule ${id}`);
+        console.log(`Deleted schedule ${agentId}/${id}`);
+      } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("tail")
+    .description("Print latest schedule output")
+    .argument("<agent-id>", "Agent id")
+    .argument("<job-id>", "Schedule id")
+    .option("-n, --lines <n>", "Line count", "80")
+    .action(async (agentId: string, id: string, opts: TailOpts) => {
+      try {
+        const jobs = await getClient().listSchedules(agentId);
+        const job = jobs.find((candidate) => candidate.id === id);
+        if (!job) throw new Error(`Schedule not found: ${agentId}/${id}`);
+        const output = await getClient().request<{ content?: string }>(
+          `/schedules/${encodeURIComponent(agentId)}/${encodeURIComponent(id)}/tail`
+        );
+        const content = output.content ?? "";
+        const count = Number.parseInt(opts.lines ?? "80", 10);
+        console.log(content.split(/\r?\n/).slice(-count).join("\n"));
       } catch (err) {
         fail(err);
       }

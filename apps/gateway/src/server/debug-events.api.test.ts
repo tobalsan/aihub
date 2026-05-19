@@ -3,6 +3,7 @@ import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
 import type { AddressInfo } from "node:net";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 describe("/api/debug/events", () => {
   let tmpDir: string;
@@ -25,24 +26,18 @@ describe("/api/debug/events", () => {
     process.env.USERPROFILE = tmpDir;
     process.env.AIHUB_DEV = "1";
 
-    const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify({
-        agents: [
-          {
-            id: "test-agent",
-            name: "Test",
-            workspace: "~/test",
-            model: {
-              provider: "anthropic",
-              model: "claude-3-5-sonnet-20241022",
-            },
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
+      agents: [
+        {
+          id: "test-agent",
+          name: "Test",
+          model: {
+            provider: "anthropic",
+            model: "claude-3-5-sonnet-20241022",
           },
-        ],
-      })
-    );
+        },
+      ],
+    });
 
     vi.resetModules();
     const serverMod = await import("./index.js");
@@ -55,7 +50,9 @@ describe("/api/debug/events", () => {
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
     else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;

@@ -3,6 +3,7 @@ import fsp from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 type EnvSnapshot = {
   aihubHome?: string;
@@ -36,33 +37,22 @@ async function createTempHome(): Promise<{
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
 
-  await fsp.writeFile(
-    path.join(dir, "aihub.json"),
-    JSON.stringify({
-      version: 2,
-      agents: [
-        {
-          id: "main",
-          name: "Main",
-          workspace: "~/agents/main",
-          model: { provider: "anthropic", model: "claude" },
-        },
-      ],
-      extensions: {
-        multiUser: {
-          enabled: true,
-          oauth: {
-            google: {
-              clientId: "client-id",
-              clientSecret: "client-secret",
-            },
+  await writeTestV3Config(dir, {
+    agents: [{ id: "main", name: "Main" }],
+    extensions: {
+      multiUser: {
+        enabled: true,
+        oauth: {
+          google: {
+            clientId: "client-id",
+            clientSecret: "client-secret",
           },
-          allowedDomains: ["example.com"],
-          sessionSecret: "x".repeat(32),
         },
+        allowedDomains: ["example.com"],
+        sessionSecret: "x".repeat(32),
       },
-    })
-  );
+    },
+  });
 
   return { dir, previousEnv };
 }

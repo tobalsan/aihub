@@ -24,8 +24,6 @@ import {
 } from "@aihub/shared";
 import { callGatewayTool } from "./gateway-client.js";
 
-const CORE_CONTEXT_FILENAMES = ["AGENTS.md", "SOUL.md", "USER.md"] as const;
-
 const AIHUB_CONTAINER_SYSTEM_PROMPT = `You are an AI agent running inside an isolated AIHub container. Use the mounted workspace as your working directory. Coding tools run inside this container. Orchestration tools call back to the gateway.
 
 To share a file with the user, write it to /workspace/data/ then use the send_file tool. The file will appear as a downloadable card in the chat.
@@ -214,29 +212,10 @@ export async function runAgent(
   return { text, aborted, history };
 }
 
-async function loadBootstrapContextFiles(
-  workspaceDir: string
-): Promise<Array<{ path: string; content: string }>> {
-  const files = await Promise.allSettled(
-    CORE_CONTEXT_FILENAMES.map(async (name) => ({
-      path: name,
-      content: await fs.readFile(path.join(workspaceDir, name), "utf8"),
-    }))
-  );
-
-  const contextFiles: Array<{ path: string; content: string }> = [];
-  for (const result of files) {
-    if (result.status === "fulfilled") {
-      contextFiles.push(result.value);
-    }
-  }
-  return contextFiles;
-}
-
 async function loadContextFiles(
   input: ContainerInput
 ): Promise<Array<{ path: string; content: string }>> {
-  return loadBootstrapContextFiles(input.workspaceDir);
+  return input.systemFiles ?? [];
 }
 
 function createExtensionTools(

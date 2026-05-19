@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
@@ -73,32 +74,21 @@ describe("space merge API", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify(
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
+      agents: [
         {
-          version: 2,
-          agents: [
-            {
-              id: "test-agent",
-              name: "Test Agent",
-              workspace: "~/test",
-              model: {
-                provider: "anthropic",
-                model: "claude-3-5-sonnet-20241022",
-              },
-            },
-          ],
-          extensions: {
-            projects: { enabled: true, root: projectsRoot },
+          id: "test-agent",
+          name: "Test Agent",
+          model: {
+            provider: "anthropic",
+            model: "claude-3-5-sonnet-20241022",
           },
         },
-        null,
-        2
-      )
-    );
+      ],
+      extensions: {
+        projects: { enabled: true, root: projectsRoot },
+      },
+    });
 
     vi.resetModules();
     const { clearConfigCacheForTests, loadConfig } = await import(

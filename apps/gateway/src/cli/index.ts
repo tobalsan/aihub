@@ -17,6 +17,7 @@ import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
 import { registerUserTokenCommands } from "./user-token.js";
 import { registerNotifyCommand } from "./notify.js";
+import { registerAgentsMigrateCommands } from "./agents-migrate.js";
 import { registerGatewayServiceCommands } from "./service.js";
 import { registerSchedulerCommands } from "@aihub/extension-scheduler";
 import { registerEvalCommands } from "../evals/cli.js";
@@ -430,6 +431,7 @@ program
     }
   });
 
+registerAgentsMigrateCommands(program);
 registerSubagentCommands(program);
 registerWebhookCommands(program);
 registerUserTokenCommands(program);

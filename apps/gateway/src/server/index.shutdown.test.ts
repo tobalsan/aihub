@@ -2,6 +2,7 @@ import { afterEach, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 describe("gateway graceful shutdown", () => {
   afterEach(() => {
@@ -19,20 +20,9 @@ describe("gateway graceful shutdown", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    await fs.mkdir(path.join(tmpDir, ".aihub"), { recursive: true });
-    await fs.writeFile(
-      path.join(tmpDir, ".aihub", "aihub.json"),
-      JSON.stringify({
-        agents: [
-          {
-            id: "test-agent",
-            name: "Test Agent",
-            workspace: "~/test",
-            model: { provider: "anthropic", model: "claude" },
-          },
-        ],
-      })
-    );
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
+      agents: [{ id: "test-agent", name: "Test Agent" }],
+    });
 
     const cleanupOrphanContainers = vi.fn();
     vi.doMock("../agents/container.js", async () => {

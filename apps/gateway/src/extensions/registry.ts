@@ -10,6 +10,8 @@ type ExtensionRegistration = {
   exportName?: string;
   getConfig: (config: GatewayConfig) => unknown;
   routePrefixes: string[];
+  loadWhenDisabled?: boolean;
+  allowRoutesWhenDisabled?: boolean;
 };
 
 async function importExtension(
@@ -93,13 +95,21 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
       ),
     getConfig: (config) => config.extensions?.scheduler,
     routePrefixes: ["/api/schedules"],
+    loadWhenDisabled: true,
+    allowRoutesWhenDisabled: true,
   },
   heartbeat: {
     load: () =>
       import("@aihub/extension-heartbeat").then(
         (module) => module.heartbeatExtension
       ),
-    getConfig: (config) => config.extensions?.heartbeat,
+    getConfig: (config) => {
+      const hasPerAgent = config.agents.some((agent) => agent.heartbeat?.every);
+      if (config.extensions?.heartbeat) {
+        return { ...config.extensions.heartbeat, _perAgentFallback: hasPerAgent };
+      }
+      return hasPerAgent ? { _perAgent: true } : undefined;
+    },
     routePrefixes: ["/api/agents/:id/heartbeat"],
   },
   projects: builtInExtension("@aihub/extension-projects", "projectsExtension", {
@@ -186,10 +196,12 @@ function hasEnabledAgentExtensionConfig(
 export function getKnownExtensionRouteMetadata(): Array<{
   id: string;
   routePrefixes: string[];
+  allowWhenDisabled?: boolean;
 }> {
   return Object.entries(EXTENSION_REGISTRY).map(([id, registration]) => ({
     id,
     routePrefixes: registration.routePrefixes,
+    allowWhenDisabled: registration.allowRoutesWhenDisabled,
   }));
 }
 
@@ -246,8 +258,9 @@ export async function loadExtensions(
     const extensionConfig = toRecord(registration.getConfig(config));
     const hasConfig = registration.getConfig(config) !== undefined;
 
-    // Skip if explicitly disabled
-    if (extensionConfig?.enabled === false) continue;
+    // Most extensions are skipped when explicitly disabled. Scheduler is
+    // special: disabled means no timer firing, but API/CLI routes stay usable.
+    if (extensionConfig?.enabled === false && !registration.loadWhenDisabled) continue;
 
     // Skip extensions that have no config — must be opted in via config.extensions[id]
     if (!hasConfig) continue;

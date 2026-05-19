@@ -1,3 +1,6 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import { ContainerInputBuilder } from "./input-builder.js";
@@ -5,6 +8,10 @@ import type { SdkRunParams } from "../types.js";
 
 describe("container input builder", () => {
   it("builds container input without leaking model auth tokens", async () => {
+    const workspaceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-container-input-")
+    );
+    await fs.writeFile(path.join(workspaceDir, "SOUL.md"), "soul");
     const builder = new ContainerInputBuilder({
       buildSystemPrompts: async () => ["extra prompt"],
       buildTools: async () => [
@@ -30,6 +37,7 @@ describe("container input builder", () => {
           size: 1,
         },
       ],
+      workspaceDir,
       agent: {
         id: "cloud",
         model: {
@@ -71,6 +79,10 @@ describe("container input builder", () => {
   });
 
   it("prepends first-run bootstrap prompt", async () => {
+    const workspaceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-container-input-")
+    );
+    await fs.writeFile(path.join(workspaceDir, "SOUL.md"), "soul");
     const builder = new ContainerInputBuilder({
       buildSystemPrompts: async () => ["extension prompt"],
       buildTools: async () => [],
@@ -79,6 +91,7 @@ describe("container input builder", () => {
       agentId: "cloud",
       sessionId: "session-1",
       message: "hello",
+      workspaceDir,
       agent: {
         id: "cloud",
         model: { provider: "anthropic", model: "claude-sonnet" },
@@ -96,6 +109,44 @@ describe("container input builder", () => {
     expect(input.extensionSystemPrompts).toEqual([
       "first run bootstrap",
       "extension prompt",
+    ]);
+  });
+
+  it("resolves system files on the host before container launch", async () => {
+    const workspaceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-container-input-")
+    );
+    const sharedDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-container-shared-")
+    );
+    const sharedFile = path.join(sharedDir, "HOUSE.md");
+    await fs.writeFile(path.join(workspaceDir, "AGENTS.md"), "agents");
+    await fs.writeFile(path.join(workspaceDir, "SOUL.md"), "soul");
+    await fs.writeFile(sharedFile, "house rules");
+
+    const builder = new ContainerInputBuilder({
+      buildSystemPrompts: async () => [],
+      buildTools: async () => [],
+    });
+    const params = {
+      agentId: "cloud",
+      sessionId: "session-1",
+      message: "hello",
+      workspaceDir,
+      agent: {
+        id: "cloud",
+        model: { provider: "anthropic", model: "claude-sonnet" },
+        system_files: ["SOUL.md", sharedFile],
+      },
+    } as SdkRunParams;
+    const config = { agents: [params.agent], extensions: {} } as GatewayConfig;
+
+    const input = await builder.build(params, config, "token-1");
+
+    expect(input.systemFiles).toEqual([
+      { path: "AGENTS.md", content: "agents" },
+      { path: "SOUL.md", content: "soul" },
+      { path: sharedFile, content: "house rules" },
     ]);
   });
 });

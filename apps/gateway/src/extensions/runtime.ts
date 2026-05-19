@@ -12,10 +12,12 @@ export type LoadedExtensionAgentTool = ExtensionAgentTool & {
 export type ExtensionRouteMetadata = {
   id: string;
   routePrefixes: string[];
+  allowWhenDisabled?: boolean;
 };
 
 export type ExtensionRouteMatcher = {
   extension: string;
+  allowWhenDisabled?: boolean;
   matches: (path: string) => boolean;
 };
 
@@ -223,6 +225,7 @@ export class ExtensionRuntime {
     return routeMetadata.flatMap((extension) =>
       extension.routePrefixes.map((prefix) => ({
         extension: extension.id,
+        allowWhenDisabled: extension.allowWhenDisabled,
         matches: routePrefixToMatcher(prefix),
       }))
     );

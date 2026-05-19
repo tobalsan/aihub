@@ -1,322 +1,140 @@
 # Scheduler Extension
 
-The `scheduler` extension is AIHub's built-in cron-like runner. It triggers a
-configured agent on an interval or at a daily wall-clock time, persisting jobs
-and their next-run state across restarts.
+AIHub scheduler stores jobs per agent and fires them with cron expressions.
 
-The extension is opt-in: add an `extensions.scheduler` block to the gateway
-config to load it. The `heartbeat` extension depends on it and will not start
-without it. Jobs can be managed either via the HTTP API or via the
-`aihub scheduler` CLI (see below).
+## Enable / disable
 
-## What It Owns
+Add `extensions.scheduler` to `aihub.json` to load scheduler routes and CLI support:
 
-- Two schedule kinds: interval (`everyMinutes`, optional anchor `startAt`) and
-  daily (`HH:MM` with optional IANA `timezone`)
-- Persisted job records and their `nextRunAtMs` / `lastRunAtMs` / `lastStatus`
-- `/api/schedules` CRUD routes mounted by the gateway
-- A single internal timer that wakes when the next job is due — no fixed
-  polling cadence. When the queue is empty no timer is armed at all.
-- Per-tick dispatch through `ExtensionContext.runAgent(...)` so scheduled runs
-  flow through the same agent pipeline as web/Discord/CLI invocations
+```json
+{
+  "extensions": {
+    "scheduler": { "enabled": true }
+  }
+}
+```
 
-The scheduler does not own prompt selection, agent state, or message history.
-It hands `{ agentId, message, sessionId }` to the runtime and records whether
-the call succeeded. By default, each job fire gets a fresh scheduler session.
+`enabled: false` is a runtime kill switch only. The extension still loads, and
+HTTP API / `aihub scheduler` commands still read and write per-agent
+`cron/jobs.json` files. Timers do not start and jobs do not fire.
 
 ## Storage
 
-Jobs are stored in a single JSON file under `$AIHUB_HOME`:
+Each agent owns its jobs:
 
 ```text
-$AIHUB_HOME/schedules.json
+<workspace>/cron/jobs.json
+<workspace>/cron/output/<job_id>/YYYY-MM-DD_HH-mm-ss.md
 ```
 
-Shape:
+Disk shape omits `agentId`; it is implied by the workspace:
 
 ```json
 {
   "version": 1,
   "jobs": [
     {
-      "id": "9b1c...",
-      "name": "Daily standup",
-      "agentId": "my-agent",
+      "id": "morning-digest",
+      "name": "Morning digest",
       "enabled": true,
-      "schedule": { "type": "daily", "time": "09:00", "timezone": "America/New_York" },
-      "payload": { "message": "Generate standup summary" },
-      "state": {
-        "nextRunAtMs": 1730000000000,
-        "lastRunAtMs": 1729913600000,
-        "lastStatus": "ok"
-      }
+      "schedule": {
+        "cron": "0 8 * * *",
+        "tz": "Europe/Paris",
+        "startAt": "2026-05-19T07:00:00.000Z"
+      },
+      "payload": { "message": "Summarize overnight events." },
+      "createdAt": "2026-05-19T07:00:00.000Z"
     }
   ]
 }
 ```
 
-Job ids are UUIDs minted on create. The file is rewritten atomically on every
-add/update/remove and after each tick.
+Malformed `cron/jobs.json` logs one warning and is treated as empty for that
+agent. In phase 1, job files are loaded at gateway start; restart after manual
+edits.
 
-## Configuration
+## Schedule schema
 
-Enable the extension under `extensions.scheduler` in `$AIHUB_HOME/aihub.json`:
-
-```json
-{
-  "extensions": {
-    "scheduler": {
-      "enabled": true
-    }
-  }
-}
-```
-
-Options:
-
-- `enabled` (boolean, default `true` when the block is present): set to `false`
-  to load the extension but skip the runner loop. Useful for dev environments
-  where you do not want scheduled work to fire.
-
-Disabling at runtime: set `enabled: false` and restart the gateway. The
-extension still owns the routes (so the UI does not 404), but `start()` short
--circuits with a `[scheduler] Disabled` log line.
-
-### Heartbeat dependency
-
-The `heartbeat` extension uses the scheduler to deliver periodic prompts. If
-you enable `extensions.heartbeat`, also enable `extensions.scheduler` —
-heartbeat will refuse to start otherwise.
-
-## Schedule Types
-
-### Interval
-
-Runs every `everyMinutes` minutes. With no `startAt`, the first run fires
-`everyMinutes` after the job is created. With `startAt`, runs are aligned to
-that anchor:
+Current schedule shape:
 
 ```json
-{ "type": "interval", "everyMinutes": 15 }
+{ "cron": "0 8 * * *", "tz": "Europe/Paris", "startAt": "2026-05-19T07:00:00.000Z" }
 ```
 
-```json
-{
-  "type": "interval",
-  "everyMinutes": 60,
-  "startAt": "2026-05-11T09:00:00Z"
-}
-```
+- `cron`: cron expression parsed by `cron-parser`
+- `tz`: required IANA timezone
+- `startAt`: optional valid ISO date anchor
 
-For an `everyMinutes: 60` job anchored to `09:00:00Z`, runs land at
-`09:00`, `10:00`, `11:00`, ... in UTC regardless of when the job was created.
-
-### Daily
-
-Runs once per day at a fixed wall-clock `HH:MM`. An optional IANA `timezone`
-overrides the gateway's local timezone; DST transitions are handled by
-`Intl.DateTimeFormat`:
-
-```json
-{ "type": "daily", "time": "09:00", "timezone": "America/New_York" }
-```
-
-```json
-{ "type": "daily", "time": "23:30" }
-```
-
-The second form runs at 23:30 in the gateway's local timezone.
-
-## Execution Semantics
-
-- A job fires only when its target agent is currently active. In single-agent
-  mode the runner skips agents that aren't the active one, advances
-  `nextRunAtMs`, and records nothing. This is intentional: scheduled traffic
-  should not hijack the active agent.
-- If the target agent id is unknown, the run is recorded with
-  `lastStatus: "error"` and `lastError: "Agent not found"`. The next-run time
-  is still advanced so the job does not livelock.
-- Each fire sends `payload.message` through `runAgent({ agentId, message,
-  sessionId })`. Default `sessionId` is `scheduler:<jobId>:<runId>`, so each
-  scheduled fire writes into a fresh session. Override `payload.sessionId` to
-  merge into the agent's main session (e.g. `agent:<id>:main`) or any other key.
-- `tick` is serialized: while one tick is running, additional timer firings are
-  no-ops. Missed runs do not back-fill — only the next due time is computed.
+Breaking change for old clients: old `interval` / `daily` schedule variants are
+removed. Migration rewrites them to cron + timezone.
 
 ## HTTP API
 
 ```http
-GET    /api/schedules
+GET    /api/schedules?agent=<agent-id>
 POST   /api/schedules
-PATCH  /api/schedules/:id
-DELETE /api/schedules/:id
+PATCH  /api/schedules/:agentId/:id
+DELETE /api/schedules/:agentId/:id
+GET    /api/schedules/:agentId/:id/tail
 ```
 
-`GET /api/schedules` returns only enabled jobs.
-
-### Create
+Create still takes `agentId` in the JSON body:
 
 ```bash
 curl -X POST localhost:4000/api/schedules \
   -H "Content-Type: application/json" \
   -d '{
-    "name": "Hourly check",
-    "agentId": "my-agent",
-    "schedule": { "type": "interval", "everyMinutes": 60 },
-    "payload": { "message": "Run hourly check" }
+    "agentId": "devagent",
+    "name": "Morning digest",
+    "schedule": { "cron": "0 8 * * *", "tz": "Europe/Paris" },
+    "payload": { "message": "Summarize overnight events." }
   }'
 ```
 
-Response is the persisted `ScheduleJob` including its assigned `id`.
-
-### Update
-
-`PATCH` accepts any subset of `name`, `enabled`, `schedule`, `payload`. When
-`schedule` changes, `nextRunAtMs` is recomputed from now:
-
-```bash
-curl -X PATCH localhost:4000/api/schedules/<id> \
-  -H "Content-Type: application/json" \
-  -d '{ "enabled": false }'
-```
-
-```bash
-curl -X PATCH localhost:4000/api/schedules/<id> \
-  -H "Content-Type: application/json" \
-  -d '{ "schedule": { "type": "daily", "time": "08:00", "timezone": "Europe/London" } }'
-```
-
-### Delete
-
-```bash
-curl -X DELETE localhost:4000/api/schedules/<id>
-```
-
-Returns `404` if the id does not exist.
-
-## Examples
-
-### Hourly health check on an interval
-
-```bash
-curl -X POST localhost:4000/api/schedules \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Hourly check",
-    "agentId": "ops",
-    "schedule": { "type": "interval", "everyMinutes": 60 },
-    "payload": { "message": "Run the standard health check and summarize." }
-  }'
-```
-
-### Daily 9am standup in New York time
-
-```bash
-curl -X POST localhost:4000/api/schedules \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Daily standup",
-    "agentId": "lead",
-    "schedule": { "type": "daily", "time": "09:00", "timezone": "America/New_York" },
-    "payload": { "message": "Generate the daily standup digest." }
-  }'
-```
-
-### Aligned interval anchored to a start time
-
-```bash
-curl -X POST localhost:4000/api/schedules \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Top of the hour",
-    "agentId": "ops",
-    "schedule": {
-      "type": "interval",
-      "everyMinutes": 60,
-      "startAt": "2026-05-11T00:00:00Z"
-    },
-    "payload": { "message": "Hourly sweep." }
-  }'
-```
-
-### Route runs into the agent's main session
-
-By default each job fire uses a fresh `sessionId:
-"scheduler:<jobId>:<runId>"`. Override it to merge scheduled output into the
-agent's main thread so users see it in the chat panel:
-
-```bash
-curl -X POST localhost:4000/api/schedules \
-  -H "Content-Type: application/json" \
-  -d '{
-    "name": "Morning briefing",
-    "agentId": "lead",
-    "schedule": { "type": "daily", "time": "08:00" },
-    "payload": {
-      "message": "Briefing time. Summarize overnight changes.",
-      "sessionId": "agent:lead:main"
-    }
-  }'
-```
-
-### Pause a job without deleting it
-
-```bash
-curl -X PATCH localhost:4000/api/schedules/<id> \
-  -H "Content-Type: application/json" \
-  -d '{ "enabled": false }'
-```
-
-Re-enable with `{ "enabled": true }`; `nextRunAtMs` is recomputed from the time
-of the patch.
+Breaking change for old clients: update/delete/tail are agent-scoped paths.
+Old non-agent-id paths (`PATCH /api/schedules/:id`, `DELETE /api/schedules/:id`)
+are gone.
 
 ## CLI
 
-`aihub scheduler` is a thin wrapper over the HTTP API. It honors
-`AIHUB_API_URL` / `AIHUB_URL` and `$AIHUB_HOME/aihub.json`, and reuses the
-same `AIHUB_TOKEN` bearer auth as the projects CLI.
-
-```text
-aihub scheduler list
-aihub scheduler get <id>
-aihub scheduler create --agent <id> -m <msg> (--every 2m | --daily 09:00 [--tz TZ]) [--start-at <iso>] [--name <n>] [--session <id>] [--disabled]
-aihub scheduler update <id> [--name <n>] [--enable|--disable] [--every <dur>|--daily HH:MM [--tz TZ]] [--start-at <iso>] [-m <msg> [--session <id>]]
-aihub scheduler enable <id>
-aihub scheduler disable <id>
-aihub scheduler delete <id> [-y]
-```
-
-All commands accept `-j` / `--json` for machine output and otherwise render a
-markdown table with columns `id | name | agent | schedule | next-run | last-status`.
-
-`--name` is optional on `create`: when omitted, it is derived as
-`<agent>-every-1h` or `<agent>-daily-09:00`.
-
-`get` and `list` mirror `GET /api/schedules`, which returns only enabled jobs.
-A disabled job cannot be looked up by CLI; pause via `disable` and keep the id
-if you intend to re-enable later (the `disable` response contains it).
-
-`delete` prompts interactively unless `-y` is passed; non-TTY runs without
-`-y` abort.
-
-Examples:
-
 ```bash
-aihub scheduler create --agent ops --every 1h -m "Run the hourly sweep."
-aihub scheduler create --agent lead --daily 09:00 --tz America/New_York \
-  -m "Daily standup" --session agent:lead:main
-aihub scheduler update 9b1c... --every 30m
-aihub scheduler disable 9b1c...
-aihub scheduler delete 9b1c... -y
+aihub scheduler add <agent-id> --cron "0 8 * * *" --tz Europe/Paris -m "..."
+aihub scheduler list [--agent <agent-id>]
+aihub scheduler update <agent-id> <job-id> --cron "*/30 * * * *" --tz UTC
+aihub scheduler rm <agent-id> <job-id>
+aihub scheduler tail <agent-id> <job-id>
 ```
 
-## Operational Notes
+CLI can edit files while scheduler runtime is disabled.
 
-- Schedules persist across gateway restarts; on boot the runner recomputes
-  `nextRunAtMs` from now for every enabled job, so a job that was due during
-  downtime fires once, soon after startup — not once per missed interval.
-- `GET /api/schedules` hides disabled jobs. They remain in `schedules.json`
-  and can be re-enabled via `PATCH`.
-- The runner logs `[scheduler] Running job: <name> -> <agent>` per fire and
-  `[scheduler] Job failed: <name>` with the underlying error on failure.
-- `pnpm dev` disables the scheduler by default to keep the dev loop quiet.
+## Output files
+
+Each run writes hybrid frontmatter + readable markdown:
+
+```md
+---
+job_id: "morning-digest"
+agent_id: "devagent"
+session_id: "scheduler:morning-digest:..."
+run_type: cron
+fired_at: 2026-05-19T07:00:00.000Z
+finished_at: 2026-05-19T07:00:14.000Z
+status: ok
+duration_ms: 14000
+schedule: "0 8 * * * Europe/Paris"
+---
+
+# Cron Job: Morning digest
+
+**Job ID:** morning-digest
+**Run Time:** 2026-05-19 07:00:00
+**Schedule:** 0 8 * * * Europe/Paris
+
+## Prompt
+
+...
+
+## Response
+
+...
+```

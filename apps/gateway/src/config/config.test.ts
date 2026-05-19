@@ -1,81 +1,102 @@
-import { describe, it, expect } from "vitest";
-import { GatewayConfigSchema } from "@aihub/shared";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, describe, it, expect, vi } from "vitest";
+import { AgentYamlConfigSchema, GatewayRootConfigSchema } from "@aihub/shared";
+
+async function writeAgent(dir: string, id: string) {
+  await fs.mkdir(dir, { recursive: true });
+  await fs.writeFile(
+    path.join(dir, "agent.yaml"),
+    `id: ${id}\nname: ${id}\nmodel:\n  provider: test\n  model: test\n`
+  );
+}
 
 describe("config validation", () => {
-  it("validates a minimal config", () => {
-    const config = {
-      agents: [
-        {
-          id: "test-agent",
-          name: "Test Agent",
-          workspace: "~/test",
-          model: {
-            provider: "anthropic",
-            model: "claude-3-5-sonnet-20241022",
-          },
-        },
-      ],
-    };
+  let tmpDir: string | undefined;
 
-    const result = GatewayConfigSchema.safeParse(config);
+  afterEach(async () => {
+    vi.unstubAllEnvs();
+    vi.resetModules();
+    if (tmpDir) await fs.rm(tmpDir, { recursive: true, force: true });
+    tmpDir = undefined;
+  });
+  it("validates a minimal v3 root config with agent globs", () => {
+    const result = GatewayRootConfigSchema.safeParse({
+      version: 3,
+      agents: "./agents/*",
+    });
     expect(result.success).toBe(true);
   });
 
-  it("validates config with all fields", () => {
-    const config = {
-      agents: [
-        {
-          id: "test-agent",
-          name: "Test Agent",
-          workspace: "~/test",
-          model: {
-            provider: "anthropic",
-            model: "claude-3-5-sonnet-20241022",
-          },
-          thinkLevel: "medium",
-          queueMode: "queue",
-          discord: {
-            token: "test-token",
-            guildId: "123",
-            channelId: "456",
-          },
-        },
-      ],
-      server: {
-        host: "0.0.0.0",
-        port: 4000,
-      },
-      extensions: {
-        scheduler: {
-          enabled: true,
-        },
-      },
-    };
-
-    const result = GatewayConfigSchema.safeParse(config);
+  it("allows omitted agents for empty installs", () => {
+    const result = GatewayRootConfigSchema.safeParse({ version: 3 });
     expect(result.success).toBe(true);
   });
 
-  it("rejects config without agents", () => {
-    const config = {};
-    const result = GatewayConfigSchema.safeParse(config);
+  it("keeps legacy records out of v3 discovery shape", () => {
+    const result = GatewayRootConfigSchema.safeParse({
+      version: 3,
+      agents: "./agents/*",
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("validates agent.yaml fields without workspace", () => {
+    const result = AgentYamlConfigSchema.safeParse({
+      id: "test-agent",
+      name: "Test Agent",
+      model: { provider: "anthropic", model: "claude" },
+      system_files: ["SOUL.md", { path: "USER.md", required: false }],
+    });
+    expect(result.success).toBe(true);
+  });
+
+  it("rejects invalid thinkLevel in agent.yaml", () => {
+    const result = AgentYamlConfigSchema.safeParse({
+      id: "test",
+      name: "Test",
+      model: { provider: "anthropic", model: "test" },
+      thinkLevel: "invalid",
+    });
     expect(result.success).toBe(false);
   });
 
-  it("rejects invalid thinkLevel", () => {
-    const config = {
-      agents: [
-        {
-          id: "test",
-          name: "Test",
-          workspace: "~/test",
-          model: { provider: "anthropic", model: "test" },
-          thinkLevel: "invalid",
-        },
-      ],
-    };
+  it("discovers agents from nested glob patterns", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
+    const home = path.join(tmpDir, "home");
+    await fs.mkdir(home, { recursive: true });
+    await writeAgent(path.join(home, "teams", "alpha", "bot-a"), "bot-a");
+    await writeAgent(path.join(home, "teams", "beta", "bot-b"), "bot-b");
+    await fs.writeFile(
+      path.join(home, "aihub.json"),
+      JSON.stringify({ version: 3, agents: "teams/**/bot-?" })
+    );
+    vi.stubEnv("AIHUB_HOME", home);
+    const { loadConfig } = await import("./index.js");
+    expect(loadConfig().agents.map((agent) => agent.id)).toEqual([
+      "bot-a",
+      "bot-b",
+    ]);
+  });
 
-    const result = GatewayConfigSchema.safeParse(config);
-    expect(result.success).toBe(false);
+  it("discovers agents from exact directories and brace globs", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
+    const home = path.join(tmpDir, "home");
+    await fs.mkdir(home, { recursive: true });
+    await writeAgent(path.join(home, "exact"), "exact");
+    await writeAgent(path.join(home, "pool", "red"), "red");
+    await writeAgent(path.join(home, "pool", "blue"), "blue");
+    await fs.writeFile(
+      path.join(home, "aihub.json"),
+      JSON.stringify({ version: 3, agents: ["exact", "pool/{red,blue}"] })
+    );
+    vi.stubEnv("AIHUB_HOME", home);
+    const { loadConfig } = await import("./index.js");
+    expect(loadConfig().agents.map((agent) => agent.id)).toEqual([
+      "blue",
+      "exact",
+      "red",
+    ]);
   });
 });
