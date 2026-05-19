@@ -1,4 +1,5 @@
 import type { ContainerInput, GatewayConfig } from "@aihub/shared";
+import { resolveSystemFiles } from "@aihub/shared/node/system-files";
 import { getDefaultSdkId } from "../registry.js";
 import type { SdkRunParams } from "../types.js";
 import { getMountedOnecliCaPath } from "../../agents/container.js";
@@ -13,13 +14,19 @@ export class ContainerInputBuilder {
   async build(
     params: SdkRunParams,
     config: GatewayConfig,
-    agentToken: string
+    agentToken: string,
+    bootstrapPrompt?: string
   ): Promise<ContainerInput> {
     const extensionSystemPrompts = await this.toolBridge.buildSystemPrompts(
       params,
       config
     );
     const extensionTools = await this.toolBridge.buildTools(params, config);
+    const systemFiles = await resolveSystemFiles({
+      workspaceDir: params.workspaceDir,
+      systemFiles: params.agent.system_files,
+      warn: (message) => console.warn(message),
+    });
     return {
       agentId: params.agentId,
       sessionId: params.sessionId,
@@ -28,8 +35,16 @@ export class ContainerInputBuilder {
       attachments: remapAttachmentsToContainer(params.attachments),
       thinkLevel: params.thinkLevel,
       context: params.context,
+      systemFiles: systemFiles.map((file) => ({
+        path: file.path,
+        content: file.content,
+      })),
       extensionSystemPrompts:
-        extensionSystemPrompts.length > 0 ? extensionSystemPrompts : undefined,
+        bootstrapPrompt || extensionSystemPrompts.length > 0
+          ? [bootstrapPrompt, ...extensionSystemPrompts].filter(
+              (prompt): prompt is string => Boolean(prompt)
+            )
+          : undefined,
       extensionTools: extensionTools.length > 0 ? extensionTools : undefined,
       workspaceDir: "/workspace",
       sessionDir: "/sessions",

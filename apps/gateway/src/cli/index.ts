@@ -17,11 +17,8 @@ import { registerSubagentCommands } from "./subagent.js";
 import { registerWebhookCommands } from "./webhooks.js";
 import { registerUserTokenCommands } from "./user-token.js";
 import { registerNotifyCommand } from "./notify.js";
+import { registerAgentsMigrateCommands } from "./agents-migrate.js";
 import { registerGatewayServiceCommands } from "./service.js";
-import {
-  registerProjectsCommands,
-  registerSlicesCommands,
-} from "@aihub/extension-projects";
 import { registerSchedulerCommands } from "@aihub/extension-scheduler";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type Extension, type UiConfig } from "@aihub/shared";
@@ -43,6 +40,57 @@ let tailscaleServeEnabled = false;
 let tailscaleServeResetOnExit = false;
 let tailscaleServeRefreshTimer: ReturnType<typeof setInterval> | null = null;
 const TAILSCALE_SERVE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
+
+async function registerOptionalProjectsCli(program: Command): Promise<void> {
+  try {
+    const specifier = "@aihub/extension-projects";
+    const module = (await import(specifier)) as Record<string, unknown>;
+    const registerProjectsCommands = module.registerProjectsCommands;
+    const registerSlicesCommands = module.registerSlicesCommands;
+    if (
+      typeof registerProjectsCommands !== "function" ||
+      typeof registerSlicesCommands !== "function"
+    ) {
+      throw new Error(
+        "Package \"@aihub/extension-projects\" does not export project CLI commands"
+      );
+    }
+    registerProjectsCommands(
+      program
+        .command("projects")
+        .description("Manage AIHub projects")
+        .version("0.1.0")
+    );
+    registerSlicesCommands(
+      program
+        .command("slices")
+        .description("Manage AIHub slices")
+        .version("0.1.0")
+    );
+  } catch (error) {
+    const code =
+      error && typeof error === "object" && "code" in error
+        ? (error as { code?: unknown }).code
+        : undefined;
+    if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") {
+      throw error;
+    }
+    const message =
+      "Project CLI commands require optional package \"@aihub/extension-projects\". Install it or do not use `aihub projects`/`aihub slices`.";
+    program
+      .command("projects")
+      .description("Manage AIHub projects")
+      .action(() => {
+        throw new Error(message);
+      });
+    program
+      .command("slices")
+      .description("Manage AIHub slices")
+      .action(() => {
+        throw new Error(message);
+      });
+  }
+}
 
 const TAILSCALE_CANDIDATES = [
   "tailscale",
@@ -383,19 +431,12 @@ program
     }
   });
 
+registerAgentsMigrateCommands(program);
 registerSubagentCommands(program);
 registerWebhookCommands(program);
 registerUserTokenCommands(program);
 registerNotifyCommand(program);
-registerProjectsCommands(
-  program
-    .command("projects")
-    .description("Manage AIHub projects")
-    .version("0.1.0")
-);
-registerSlicesCommands(
-  program.command("slices").description("Manage AIHub slices").version("0.1.0")
-);
+await registerOptionalProjectsCli(program);
 registerSchedulerCommands(
   program
     .command("scheduler")

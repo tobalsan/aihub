@@ -12,12 +12,10 @@
     "start": "node dist/cli/index.js gateway"
   },
   "dependencies": {
-    "@aihub/extension-board": "workspace:*",
     "@aihub/extension-discord": "workspace:*",
     "@aihub/extension-heartbeat": "workspace:*",
     "@aihub/extension-langfuse": "workspace:*",
     "@aihub/extension-multi-user": "workspace:*",
-    "@aihub/extension-projects": "workspace:*",
     "@aihub/extension-scheduler": "workspace:*",
     "@aihub/extension-slack": "workspace:*",
     "@aihub/extension-subagents": "workspace:*",
@@ -27,12 +25,13 @@
     "@mariozechner/pi-agent-core": "^0.73.0",
     "@mariozechner/pi-ai": "^0.73.0",
     "@mariozechner/pi-coding-agent": "^0.73.0",
-    "chokidar": "^4.0.3",
     "commander": "^12.1.0",
+    "fast-glob": "^3.3.3",
     "hono": "^4.11.4",
     "js-yaml": "^4.1.1",
     "mammoth": "^1.12.0",
     "pdf-parse": "^2.4.5",
+    "proper-lockfile": "^4.1.2",
     "undici": "^7.20.0",
     "ws": "^8.19.0",
     "xlsx": "^0.18.5",
@@ -41,6 +40,7 @@
   },
   "devDependencies": {
     "@types/js-yaml": "^4.0.9",
+    "@types/proper-lockfile": "^4.1.4",
     "@types/ws": "^8.18.1",
     "tsx": "^4.21.0"
   }

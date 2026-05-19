@@ -634,7 +634,7 @@ const boardExtension: Extension = {
   displayName: "Board",
   description:
     "Two-pane workspace: agent chat + reactive canvas. Simplified project tracking for solo operators.",
-  dependencies: [],
+  dependencies: ["projects", "subagents"],
   configSchema: BoardExtensionConfigSchema,
   routePrefixes: ["/api/board"],
   validateConfig(raw) {

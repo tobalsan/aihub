@@ -4,6 +4,7 @@ import * as path from "node:path";
 import os from "node:os";
 import type { AddressInfo } from "node:net";
 import { WebSocket } from "ws";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 describe("gateway status websocket", () => {
   let tmpDir: string;
@@ -29,22 +30,15 @@ describe("gateway status websocket", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
-    const config = {
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
       agents: [
         {
           id: "status-agent",
           name: "Status Agent",
-          workspace: "~/test",
           model: { provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
         },
       ],
-    };
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify(config, null, 2)
-    );
+    });
 
     vi.resetModules();
     const serverMod = await import("./index.js");
@@ -62,7 +56,9 @@ describe("gateway status websocket", () => {
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
 
     if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
     else process.env.AIHUB_HOME = prevAihubHome;
@@ -266,28 +262,20 @@ describe("gateway status websocket in multi-user mode", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
-    const config = {
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
       agents: [
         {
           id: "allowed-agent",
           name: "Allowed Agent",
-          workspace: "~/test",
           model: { provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
         },
         {
           id: "blocked-agent",
           name: "Blocked Agent",
-          workspace: "~/test",
           model: { provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
         },
       ],
-    };
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify(config, null, 2)
-    );
+    });
 
     vi.resetModules();
     vi.doMock("../extensions/registry.js", async () => {
@@ -355,7 +343,9 @@ describe("gateway status websocket in multi-user mode", () => {
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
 
     if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
     else process.env.AIHUB_HOME = prevAihubHome;

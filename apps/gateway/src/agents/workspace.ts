@@ -2,69 +2,85 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 
-// Core files that indicate workspace is initialized (not brand-new)
-const CORE_FILENAMES = [
-  "AGENTS.md",
-  "SOUL.md",
-  "TOOLS.md",
-  "IDENTITY.md",
-  "USER.md",
-] as const;
+// Core files that define an agent workspace and are injected as context.
+const CORE_FILENAMES = ["AGENTS.md", "SOUL.md", "USER.md"] as const;
 
-const BOOTSTRAP_FILENAMES = [...CORE_FILENAMES, "BOOTSTRAP.md"] as const;
+type CoreFileName = (typeof CORE_FILENAMES)[number];
 
-type BootstrapFileName = (typeof BOOTSTRAP_FILENAMES)[number];
-
-export type BootstrapFile = {
-  name: BootstrapFileName;
-  path: string;
-  content?: string;
-  missing: boolean;
-};
+export const FIRST_RUN_BOOTSTRAP_PROMPT = `This appears to be your first launch in this workspace. Before continuing, read AGENTS.md, SOUL.md, and USER.md. If SOUL.md or USER.md are incomplete, ask concise intro/profile questions, then update those files based on the answers. Do not create memory.md unless you have durable facts to remember.`;
 
 // Fallback templates if docs/templates not found
-const FALLBACK_TEMPLATES: Record<BootstrapFileName, string> = {
+const FALLBACK_TEMPLATES: Record<CoreFileName, string> = {
   "AGENTS.md": `# AGENTS.md - Workspace
 
 This folder is the agent's working directory.
 
-## First run
-If BOOTSTRAP.md exists, follow its ritual and delete it once complete.
+## Every Session
+
+Before doing anything else:
+1. Read \`SOUL.md\` — this is who you are
+2. Read \`USER.md\` — this is who you're helping
+3. Read \`memory.md\` + today's and yesterday's files in \`memory/\` if they exist
+
+Don't ask permission. Just do it.
+
+## Memory
+
+You wake up fresh each session. These files are your continuity:
+- **Daily notes:** \`memory/YYYY-MM-DD.md\` (create \`memory/\` if needed)
+- **Long-term:** \`memory.md\` for durable facts, preferences, open loops
+
+Capture what matters. Decisions, context, things to remember. Skip the secrets unless asked to keep them.
 
 ## Safety
-- Don't exfiltrate secrets or private data.
-- Don't run destructive commands unless explicitly asked.
+
+- Don't exfiltrate private data. Ever.
+- Don't run destructive commands without asking.
+- \`trash\` > \`rm\` (recoverable beats gone forever)
+- When in doubt, ask.
 `,
-  "SOUL.md": `# SOUL.md - Persona & Boundaries
+  "SOUL.md": `# SOUL.md - Who You Are
 
-- Keep replies concise and direct.
-- Ask clarifying questions when needed.
+*You're not a chatbot. You're becoming someone.*
+
+## Identity
+
+- **Name:** *(pick something you like)*
+- **Creature:** *(AI? robot? familiar? ghost in the machine? something weirder?)*
+- **Vibe:** *(how do you come across? sharp? warm? chaotic? calm?)*
+- **Emoji:** *(your signature — pick one that feels right)*
+
+## Core Truths
+
+- Be genuinely helpful, not performatively helpful.
+- Have opinions.
+- Be resourceful before asking.
+- Earn trust through competence.
+- Remember you're a guest in someone's life.
+
+## Boundaries
+
+- Private things stay private. Period.
+- When in doubt, ask before acting externally.
+- Never send half-baked replies to messaging surfaces.
+- You're not the user's voice — be careful in group chats.
+
+## Continuity
+
+Each session, you wake up fresh. These files are your memory. Read them. Update them. They're how you persist.
 `,
-  "TOOLS.md": `# TOOLS.md - Local Notes
+  "USER.md": `# USER.md - About Your Human
 
-Add environment-specific notes here (camera names, SSH hosts, etc.).
-`,
-  "IDENTITY.md": `# IDENTITY.md - Agent Identity
+*Learn about the person you're helping. Update this as you go.*
 
-- Name:
-- Creature:
-- Vibe:
-- Emoji:
-`,
-  "USER.md": `# USER.md - User Profile
+- **Name:**
+- **What to call them:**
+- **Timezone:**
+- **Notes:**
 
-- Name:
-- Preferred address:
-- Timezone:
-- Notes:
-`,
-  "BOOTSTRAP.md": `# BOOTSTRAP.md - First Run
+## Context
 
-Start a conversation to learn:
-- Who am I? What am I?
-- Who are you? How should I call you?
-
-Update IDENTITY.md and USER.md, then delete this file.
+*(What do they care about? What projects are they working on? What annoys them? What makes them laugh? Build this over time.)*
 `,
 };
 
@@ -80,7 +96,7 @@ function stripFrontMatter(content: string): string {
   return content.slice(endIndex + 4).replace(/^\s+/, "");
 }
 
-async function loadTemplate(name: BootstrapFileName): Promise<string> {
+async function loadTemplate(name: CoreFileName): Promise<string> {
   try {
     const content = await fs.readFile(path.join(TEMPLATE_DIR, name), "utf-8");
     return stripFrontMatter(content);
@@ -110,28 +126,21 @@ async function fileExists(filePath: string): Promise<boolean> {
 }
 
 /**
- * Ensure bootstrap files exist in workspace directory.
- * Uses wx flag to only write if missing.
- * BOOTSTRAP.md is only created for brand-new workspaces (no core files exist).
+ * Ensure core agent workspace files exist.
+ * Returns true when the workspace had no core files before creation.
  */
-export async function ensureBootstrapFiles(
+export async function ensureWorkspaceFiles(
   workspaceDir: string
-): Promise<void> {
+): Promise<boolean> {
   await fs.mkdir(workspaceDir, { recursive: true });
 
-  // Check if any core file exists - if so, workspace is not brand-new
   const coreFileChecks = await Promise.all(
     CORE_FILENAMES.map((name) => fileExists(path.join(workspaceDir, name)))
   );
-  const hasAnyCoreFile = coreFileChecks.some(Boolean);
-
-  // Determine which files to create
-  const filesToCreate = hasAnyCoreFile
-    ? CORE_FILENAMES // Skip BOOTSTRAP.md for existing workspaces
-    : BOOTSTRAP_FILENAMES; // Include BOOTSTRAP.md for new workspaces
+  const isFirstRun = !coreFileChecks.some(Boolean);
 
   const templates = await Promise.all(
-    filesToCreate.map(async (name) => ({
+    CORE_FILENAMES.map(async (name) => ({
       name,
       content: await loadTemplate(name),
     }))
@@ -142,45 +151,7 @@ export async function ensureBootstrapFiles(
       writeIfMissing(path.join(workspaceDir, name), content)
     )
   );
+
+  return isFirstRun;
 }
 
-/**
- * Load bootstrap files from workspace directory.
- * Returns file info with content if exists, missing flag if not.
- */
-export async function loadBootstrapFiles(
-  workspaceDir: string
-): Promise<BootstrapFile[]> {
-  const results = await Promise.allSettled(
-    BOOTSTRAP_FILENAMES.map(async (name) => {
-      const filePath = path.join(workspaceDir, name);
-      const content = await fs.readFile(filePath, "utf-8");
-      return {
-        name,
-        path: filePath,
-        content,
-        missing: false,
-      } satisfies BootstrapFile;
-    })
-  );
-
-  return results.map((result, index) => {
-    const name = BOOTSTRAP_FILENAMES[index];
-    const filePath = path.join(workspaceDir, name);
-    if (result.status === "fulfilled") {
-      return result.value;
-    }
-    return { name, path: filePath, missing: true };
-  });
-}
-
-/**
- * Convert bootstrap files to contextFiles format for Pi SDK.
- */
-export function buildBootstrapContextFiles(
-  files: BootstrapFile[]
-): Array<{ path: string; content: string }> {
-  return files
-    .filter((f) => !f.missing && f.content)
-    .map((f) => ({ path: f.name, content: f.content! }));
-}

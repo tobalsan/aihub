@@ -57,8 +57,9 @@ export class SchedulerApiClient {
     return data as T;
   }
 
-  listSchedules(): Promise<ScheduleJob[]> {
-    return this.request<ScheduleJob[]>("/schedules");
+  listSchedules(agentId?: string): Promise<ScheduleJob[]> {
+    const query = agentId ? `?agent=${encodeURIComponent(agentId)}` : "";
+    return this.request<ScheduleJob[]>(`/schedules${query}`);
   }
 
   createSchedule(body: CreateScheduleRequest): Promise<ScheduleJob> {
@@ -68,17 +69,27 @@ export class SchedulerApiClient {
     });
   }
 
-  updateSchedule(id: string, body: UpdateScheduleRequest): Promise<ScheduleJob> {
-    return this.request<ScheduleJob>(`/schedules/${id}`, {
-      method: "PATCH",
-      body,
-    });
+  updateSchedule(
+    agentId: string,
+    id: string,
+    body: UpdateScheduleRequest
+  ): Promise<ScheduleJob> {
+    return this.request<ScheduleJob>(
+      `/schedules/${encodeURIComponent(agentId)}/${encodeURIComponent(id)}`,
+      {
+        method: "PATCH",
+        body,
+      }
+    );
   }
 
-  deleteSchedule(id: string): Promise<{ ok: boolean }> {
-    return this.request<{ ok: boolean }>(`/schedules/${id}`, {
-      method: "DELETE",
-    });
+  deleteSchedule(agentId: string, id: string): Promise<{ ok: boolean }> {
+    return this.request<{ ok: boolean }>(
+      `/schedules/${encodeURIComponent(agentId)}/${encodeURIComponent(id)}`,
+      {
+        method: "DELETE",
+      }
+    );
   }
 }
 

@@ -37,7 +37,7 @@ const heartbeatExtension: Extension = {
   id: "heartbeat",
   displayName: "Heartbeat",
   description: "Periodic heartbeat checks and alert runs",
-  dependencies: ["scheduler"],
+  dependencies: [],
   configSchema: HeartbeatExtensionConfigSchema,
   routePrefixes: ["/api/agents/:id/heartbeat"],
   validateConfig(raw) {

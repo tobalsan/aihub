@@ -37,13 +37,14 @@ Core TypeScript/Node.js application. Exports:
 - Inbound Slack/Discord message runs now normalize `channel`, `place`, `conversation_type`, and `sender`, render a fallback-filled `[CHANNEL CONTEXT]` block, and append it to the true system prompt. This applies to both in-process and sandbox/container runs. First-party gateway/CLI runs do not get channel context. Web UI runs in multi-user mode pass a name-only `[USER CONTEXT]` block from the authenticated OAuth profile.
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
 - **Components** (`src/components/`): Opt-in wrappers that validate config, mount routes, and own lifecycle for modular features. Phase 2a now moves scheduler, heartbeat, amsg, and conversations behind component wrappers; scheduler/heartbeat/conversations routes are no longer defined in the core API module. All built-in extensions (including `scheduler` and `heartbeat`) must be opted in via `extensions.<id>` in `aihub.json` — there are no auto-loaded built-ins. `pnpm dev` respects this opt-in: extensions only run when configured, in dev and prod alike. The `--dev` banner reflects the actual loaded state of `scheduler`/`heartbeat`.
+  - Built-in `projects` and `board` are optional packages from core's perspective: gateway loads them through runtime optional imports only when configured, and the web route registry discovers optional route modules only when present. `board` explicitly depends on `projects` and `subagents`.
   - `subagents` is an opt-in first-party extension for project-agnostic CLI subagent runtime; load it by adding an `extensions.subagents` block (e.g. `{}`) to the gateway config. It owns `/api/subagents`, `aihub subagents ...`, process lifecycle, normalized logs, `subagent_changed` websocket broadcasts, run storage under `$AIHUB_HOME/sessions/subagents/runs/<runId>`, and contributes subagent command guidance through `Extension.getSystemPromptContributions()`. Codex/Claude CLI lifecycle chatter remains in raw `logs.jsonl` but is filtered from the logs API and latest-output summaries. Default `/api/subagents` list responses also merge project-backed subagent sessions so orchestrator runs are visible to `aihub subagents list --status running`; `projectId` scopes project-backed lookup to one project before `sliceId`, `status`, `cwd`, and `includeArchived` filtering.
   - `multiUser` is an auth component that enables Better Auth + SQLite, guards `/api/*` and `/ws`, exposes `/api/auth/*`, `/api/me`, `/api/admin/*`, keeps session/history storage isolated per user, and must finish startup before the HTTP server begins accepting requests.
   - `langfuse` is an optional tracing component. Its registry entry is lazy-loaded, has no routes, validates `publicKey`/`secretKey` from component config or `LANGFUSE_PUBLIC_KEY`/`LANGFUSE_SECRET_KEY`, and subscribes to `agentEventBus` stream/history events. `langfuse/tracer.ts` maps `agentId:sessionId` to traces, honors per-run trace context (`enabled`, explicit `surface`/`name`, metadata), buffers text/thinking into generations, maps HistoryEvent user/meta/tool_call/tool_result data into generation input/model/usage and tool spans, finalizes on `done`/`error`, catches flush/shutdown failures as warnings, and idle-cleans traces after 30 minutes.
   - `system_prompt` history events now capture the harness-assembled prompt text itself. Langfuse generation observations are emitted as chat-style input arrays (`system` + `user`), so the Langfuse UI shows the real system prompt section. `system_context` remains separate metadata for normalized Slack/Discord channel details.
   - `webhooks` is auto-loaded when any agent has `webhooks` config. It registers `/hooks/:agentId/:name/:secret`, stores generated URL secrets in `$AIHUB_HOME/webhook-secrets.json` with `0600` permissions, validates secrets from an mtime-cached file read so rotations take effect without restart, rotates them with `aihub webhooks rotate <agentId> <webhookName>`, resolves inline or workspace-contained `.md`/`.txt` prompts relative to the agent workspace, interpolates `$WEBHOOK_ORIGIN_URL`, `$WEBHOOK_HEADERS`, and `$WEBHOOK_PAYLOAD`, enforces per-webhook `maxPayloadSize` bytes (default 1MB) while streaming request bodies, and runs each invocation in a fresh `webhook:<agentId>:<name>:<requestId>` session with source/surface `webhook`. Optional `verification: { location: "header"|"payload", fieldName }` short-circuits setup requests containing that header or JSON payload key before signature verification or agent invocation; requests without the configured field continue through normal webhook handling. `langfuseTracing: false` disables Langfuse tracing for that webhook; async webhook failures emit traceable `agent.stream` error events when tracing is enabled. Known GitHub, Notion, and Zendesk webhooks verify HMAC-SHA256 signatures when `signingSecret` is configured, with `$env:VAR` resolution.
 - **Extensions** (`src/extensions/`): Gateway runtime glue that loads first-party and external extensions, validates config, appends prompt guidance, and exposes agent tools to Pi/container sessions.
-  - Tool-style extensions use `packages/shared/src/tool-extension.ts`; root `extensions.<id>` supplies defaults, and `agents[].extensions.<id>` opts an agent in unless `enabled: false`.
+  - Tool-style extensions use `packages/shared/src/tool-extension.ts`; root `extensions.<id>` supplies defaults, and `agent.yaml` `extensions.<id>` opts an agent in unless `enabled: false`.
   - The `projects` extension owns the project agent tools (`project.create`, `project.get`, `project.update`, `project.comment`). In-process Pi runs and sandbox/container Pi runs both receive these only through the unified extension tool path, so disabling the `projects` extension removes the sanitized `project_*` tools from agent-visible custom tools.
 
 ### apps/web
@@ -90,6 +91,7 @@ Features:
 - Project overview worktree rows combine Space `queueStatus` with live `agentRun.status` into working/failed/conflict/stale/pending/skipped/integrated/idle pills and expand locally to show cwd-filtered runtime subagent runs through `SubagentRunsPanel`. The panel fetches `/api/subagents?cwd=...` only when a worktree is expanded, then lazy-loads normalized logs when a run is expanded and exposes stop/archive/delete controls. The `__unassigned` overview entry is pinned at the bottom, bypasses filters/search, is read-only, and shows active runtime subagents whose `cwd` does not match any real project worktree. Board project overview rows show title/count above area/status. In the Board tab, Pitch/Specs Edit opens the existing project or slice detail editor inline in the right pane with same-URL history close behavior.
 - `SPECS.md` split view includes one checklist toggle in the lower pane header that collapses/expands both Tasks and Acceptance Criteria for more document space
 - Right context panel shows last 5 recently viewed projects (from `localStorage`) at the bottom, with truncated titles and relative viewed timestamps
+- Optional web extension routes are registered through `apps/web/src/lib/web-route-registry.tsx`, which discovers `apps/web/src/extensions/*/routes.tsx` with `import.meta.glob` and filters by `/api/capabilities`; core `App.tsx` must not hard-import board/projects route or component modules, so `pnpm build:web` can pass when optional web extension route files are absent.
 - Projects, Areas, and Conversations route bundles are lazy-loaded and only imported when their owning component is enabled
 - Global quick chat is opt-in via root config `agentFab: true`; when enabled, it is available from a bottom-right floating bubble and opens a route-persistent lead-agent overlay with header agent picker, streaming chat, and image attachment upload support
 - Agent `ChatView` file attachments support drag-and-drop with zone feedback on the history pane, composer, and `+` attach button, in addition to the picker button
@@ -160,7 +162,7 @@ Container OneCLI proxy wiring:
 - Container runs bind `$AIHUB_HOME/agents/<agentId>/data` to `/workspace/data` writable and session upload copies to `/workspace/uploads` read-only. The runner emits raw `ContainerFileOutputRequest` protocol events (`---AIHUB_EVENT---{"type":"file_output","path":"/workspace/data/..."}`); the gateway validates that seam, copies the file to `$AIHUB_HOME/media/outbound`, registers metadata, emits media-backed `FileOutputEvent`, and persists canonical history as `assistant_file`/`FileBlock`.
 - Extension tool calls inside the container route back to the gateway through `/internal/tools`. LLM network egress still uses the OneCLI proxy env when configured; CA trust for HTTPS CONNECT tunneling relies on `NODE_EXTRA_CA_CERTS` (set via container env).
 - Container extension tool results larger than 20KB are materialized as JSON files under `/workspace/data/tool-results/`; the model receives a compact pointer plus preview so scripts can consume large results by path instead of reserializing JSON through shell commands.
-- Gateway calls `ensureBootstrapFiles(workspaceDir)` on the host before spawning the container, so workspace template files (AGENTS.md, SOUL.md, etc.) are created for new agents even in sandbox mode.
+- Gateway calls `ensureWorkspaceFiles(workspaceDir)` on the host before spawning the container, so workspace template files (AGENTS.md, SOUL.md, etc.) are created for new agents even in sandbox mode.
 - Docker-backed agent containers use UUID-suffixed names (`aihub-agent-<agentId>-<uuid>`) so simultaneous runs for the same agent do not collide on Docker `--name`.
 - Orchestration callbacks go to `POST /internal/tools`. `apps/gateway/src/sdk/container/tokens.ts` tracks active per-container tokens, and `apps/gateway/src/server/internal-tools.ts` validates them before dispatching subagent/project operations on the gateway side.
 - When `onecli.sandbox.network` is configured, the adapter attaches that extra Docker network asynchronously after `docker run` starts. If Docker rejects startup first (for example a missing bind-mount source), gateway logs now surface the captured `docker run` stderr instead of masking it as a network-connect failure.
@@ -216,7 +218,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `aihub.json` - Main config (agents, server, scheduler)
 - `models.json` - Custom model providers (Pi SDK format; read directly by Pi SDK)
 - `webhook-secrets.json` - Generated per-agent webhook URL secrets
-- `schedules.json` - Persisted schedule jobs with state
+- `agents/<id>/cron/jobs.json` - Per-agent schedule jobs; run outputs in `agents/<id>/cron/output/`
 - `projects.json` - Project ID counter (`{ lastId }`)
 - `sessions.json` - Session key -> sessionId mapping with timestamps
 - `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
@@ -271,7 +273,8 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
       network?: string,              // Inherits top-level sandbox.network.name
       memory?: string,               // Default: 2g
       cpus?: number,                 // Default: 1
-      timeout?: number,              // Default: 300 seconds
+      maxRunTime?: number,           // Default: 1800 seconds
+      timeout?: number,              // Legacy alias; used as fallback if maxRunTime is unset
       workspaceWritable?: boolean,   // Default: false
       env?: Record<string, string>,
       mounts?: Array<{ host: string, container: string, readonly?: boolean }>
@@ -392,7 +395,7 @@ curl -H "Authorization: Bearer $T" http://127.0.0.1:4000/api/me
 6. **Slash Commands**: Auto-discovered from `{workspace}/.pi/commands`, `~/.pi/agent/commands`
 7. **Bootstrap Files**: On first run, creates workspace files from `docs/templates/`. Injected as contextFiles into system prompt.
 
-- Tool-style extensions are injected at agent session start when `agents[].extensions.<id>` is present and not `enabled: false`.
+- Tool-style extensions are injected at agent session start when `agent.yaml` `extensions.<id>` is present and not `enabled: false`.
 - If `extensionsPath` is unset, external extensions are discovered from `$AIHUB_HOME/extensions` (default `~/.aihub/extensions`).
 - External extension discovery accepts both real directories and symlinked directories.
 - Tool-extension parameter schemas are object-only Zod schemas.
@@ -423,23 +426,20 @@ curl -H "Authorization: Bearer $T" http://127.0.0.1:4000/api/me
 
 ### Workspace Bootstrap
 
-Templates in `docs/templates/` are copied to `{workspace}/` on first agent run (using `flag: 'wx'` to avoid overwriting):
+Templates in `docs/templates/` are copied to `{workspace}/` when missing (using `flag: 'wx'` to avoid overwriting):
 
-| File           | Purpose                                                    |
-| -------------- | ---------------------------------------------------------- |
-| `AGENTS.md`    | Workspace overview, memory management, safety guidelines   |
-| `SOUL.md`      | Agent persona, core behaviors, boundaries                  |
-| `IDENTITY.md`  | Agent name, creature type, vibe, emoji                     |
-| `USER.md`      | User profile - name, timezone, context                     |
-| `TOOLS.md`     | Environment-specific tool notes (SSH hosts, TTS prefs)     |
-| `BOOTSTRAP.md` | First-run ritual - guides identity formation, then deleted |
+| File        | Purpose                                                  |
+| ----------- | -------------------------------------------------------- |
+| `AGENTS.md` | Prime workspace instructions, memory, safety guidelines  |
+| `SOUL.md`   | Agent identity/persona, core behaviors, boundaries       |
+| `USER.md`   | User profile - name, timezone, context                   |
 
-Bootstrap flow:
+Bootstrap/config flow:
 
-1. `ensureBootstrapFiles(workspaceDir)` writes missing files from templates
-2. `loadBootstrapFiles(workspaceDir)` reads all files
-3. `buildBootstrapContextFiles(files)` converts to Pi SDK contextFiles format
-4. Passed to `buildSystemPrompt()` and `createAgentSession()`
+1. v3 `aihub.json` discovers agents from `agents` string/string[] entries; each entry may be exact dir or direct-child glob, and each matched dir must contain flat `agent.yaml`.
+2. `ensureWorkspaceFiles(workspaceDir)` writes missing `AGENTS.md`, `SOUL.md`, and `USER.md`, and returns whether none existed before creation.
+3. First launches append a concise bootstrap instruction directly to the system prompt; no `BOOTSTRAP.md` is generated.
+4. `@aihub/shared/node/system-files` resolves system prompt files for Pi and container runs: `AGENTS.md` is implicitly prepended, `system_files` controls the remaining order, and default is required `SOUL.md` plus optional `USER.md`.
 
 ### Queue Semantics
 
@@ -523,16 +523,13 @@ The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHist
 
 ### Scheduler (`packages/extensions/scheduler/`)
 
-Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled? }`). Routes `/api/schedules` (GET/POST) and `/api/schedules/:id` (PATCH/DELETE) are mounted by the extension; the `heartbeat` extension depends on it.
+Opt-in extension; load by adding an `extensions.scheduler` block (`{ enabled? }`). `enabled: false` means runtime firing disabled only: the extension still loads so scheduler API/CLI can read/write per-agent `cron/jobs.json`.
 
-Two schedule types:
+Jobs live per agent in `<workspace>/cron/jobs.json` (`{ version: 1, jobs[] }`). Disk jobs omit `agentId`; runtime synthesizes it from the owning workspace, so two agents may reuse the same job id. Schedule shape is `{ cron: string, tz: string, startAt?: ISO8601 }`; `tz` is required and next runs are computed through `cron-parser`. `aihub agents migrate` rewrites old interval/daily schedules to cron and uses the local system timezone when old jobs omit `tz`. Malformed `cron/jobs.json` logs a warning and is treated as empty. No watcher in phase 1: edits are loaded on gateway restart.
 
-- **interval**: `{ type: "interval", everyMinutes: N, startAt?: ISO8601 }` — without `startAt` the first run fires `everyMinutes` after creation; with `startAt` runs align to that anchor.
-- **daily**: `{ type: "daily", time: "HH:MM", timezone?: string }` — IANA timezone optional; defaults to the gateway's local zone.
+Each fire dispatches through `ExtensionContext.runAgent({ agentId, message, sessionId, source: "scheduler" })` with default `sessionId = "scheduler:<jobId>:<uuid>"`; runs skip (and advance `nextRunAtMs`) when `ctx.isAgentActive(agentId)` is false, so scheduled traffic does not hijack single-agent mode. Ticks are serialized and missed runs do not back-fill. Output writes to `<workspace>/cron/output/<job_id>/YYYY-MM-DD_HH-mm-ss.md` with YAML frontmatter plus `# Cron Job`, `## Prompt`, and `## Response`/`## Error` sections.
 
-Jobs stored in `$AIHUB_HOME/schedules.json` (`{ version, jobs[] }`) with per-job `state` (`nextRunAtMs`, `lastRunAtMs`, `lastStatus`, `lastError`). Timezone calculation uses `Intl.DateTimeFormat` for proper DST handling. Each fire dispatches through `ExtensionContext.runAgent({ agentId, message, sessionId })` with default `sessionId = "scheduler:<jobId>"`; runs skip (and advance `nextRunAtMs`) when `ctx.isAgentActive(agentId)` is false, so scheduled traffic does not hijack single-agent mode. Ticks are serialized and missed runs do not back-fill — on boot the runner recomputes `nextRunAtMs` from now, so a job that was due during downtime fires once. Full reference: `packages/extensions/scheduler/README.md`.
-
-CLI: `aihub scheduler {list,get,create,update,enable,disable,delete}` wraps `/api/schedules`. `create` derives `--name` as `<agent>-every-<dur>` or `<agent>-daily-HH:MM` when omitted. Because `GET /api/schedules` returns only enabled jobs, `aihub scheduler get <id>` cannot see disabled jobs — keep the id from the `disable` response if you intend to re-enable later. CLI registration lives in `packages/extensions/scheduler/src/cli/`; wired into the gateway CLI at `apps/gateway/src/cli/index.ts`.
+CLI: `aihub scheduler add <agent-id> --cron <expr> --tz <iana> -m <message>`, `list [--agent <id>]`, `update <agent-id> <job-id>`, `rm <agent-id> <job-id>`, and `tail <agent-id> <job-id>`. API breaking changes: update/delete/tail paths are agent-scoped (`/api/schedules/:agentId/:id`), and schedule payloads use cron+required `tz` instead of old interval/daily variants. CLI registration lives in `packages/extensions/scheduler/src/cli/`; wired into the gateway CLI at `apps/gateway/src/cli/index.ts`.
 
 ### Discord (`src/discord/`)
 
@@ -580,15 +577,15 @@ discord: {
 
 **Live broadcast:** Main-session responses from other sources (web, amsg, scheduler) are broadcast to `broadcastToChannel`. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
 
-### Heartbeat (`src/heartbeat/`)
+### Heartbeat (`packages/extensions/heartbeat/`)
 
-Periodic agent check-in with Discord alert delivery.
+Periodic agent check-in with Discord alert delivery. Heartbeat depends on scheduler availability as the tick gate; if `extensions.scheduler` is absent or `enabled: false` while heartbeat is configured, heartbeat logs a warning and noops.
 
 **Config:**
 
 ```typescript
 heartbeat?: {
-  every?: string,      // Duration: "30m", "1h", "0" (disabled). Default: "30m"
+  every?: string,      // Duration: "30m", "1h", "0" (disabled). Required to enable timers.
   prompt?: string,     // Custom prompt (overrides HEARTBEAT.md)
   ackMaxChars?: number // Max chars after token strip. Default: 300
 }
@@ -604,6 +601,7 @@ heartbeat?: {
    - Empty reply → status `ok-empty`, no delivery
    - No token or substantial content → status `sent`, delivered to Discord
 5. Session `updatedAt` preserved (heartbeat doesn't reset idle timer)
+6. Completed runs write `<workspace>/cron/output/__heartbeat__/YYYY-MM-DD_HH-mm-ss.md` with YAML frontmatter (`run_type: heartbeat`, `result_status`) plus `# Heartbeat`, `## Prompt`, and `## Response`/`## Error` sections. Response body is latest assistant text only.
 
 **Token matching:** Strips HTML/Markdown wrappers (`<b>HEARTBEAT_OK</b>`, `**HEARTBEAT_OK**`, etc.)
 
@@ -633,8 +631,8 @@ Polls `amsg inbox --new -a <id>` every 60s. Reads amsg ID from `{workspace}/.ams
 | WS     | `/ws`                                            | WebSocket streaming (JSON protocol)                                                                                         |
 | GET    | `/api/schedules`                                 | List schedules                                                                                                              |
 | POST   | `/api/schedules`                                 | Create schedule                                                                                                             |
-| PATCH  | `/api/schedules/:id`                             | Update schedule                                                                                                             |
-| DELETE | `/api/schedules/:id`                             | Delete schedule                                                                                                             |
+| PATCH  | `/api/schedules/:agentId/:id`                    | Update schedule                                                                                                             |
+| DELETE | `/api/schedules/:agentId/:id`                    | Delete schedule                                                                                                             |
 | GET    | `/api/projects`                                  | List projects                                                                                                               |
 | POST   | `/api/projects`                                  | Create project                                                                                                              |
 | GET    | `/api/projects/:id`                              | Get project                                                                                                                 |

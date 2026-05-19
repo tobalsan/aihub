@@ -2,6 +2,7 @@ import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 describe("extension-disabled API responses", () => {
   let tmpDir: string;
@@ -18,22 +19,10 @@ describe("extension-disabled API responses", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    await fs.mkdir(path.join(tmpDir, ".aihub"), { recursive: true });
-    await fs.writeFile(
-      path.join(tmpDir, ".aihub", "aihub.json"),
-      JSON.stringify({
-        version: 2,
-        agents: [
-          {
-            id: "main",
-            name: "Main",
-            workspace: "~/agents/main",
-            model: { provider: "anthropic", model: "claude" },
-          },
-        ],
-        extensions: {},
-      })
-    );
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
+      agents: [{ id: "main", name: "Main" }],
+      extensions: {},
+    });
 
     vi.resetModules();
     const { clearConfigCacheForTests } = await import("../config/index.js");

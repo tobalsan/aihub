@@ -1,144 +1,18 @@
-import type { Schedule, IntervalSchedule, DailySchedule } from "@aihub/shared";
+import { CronExpressionParser } from "cron-parser";
+import type { Schedule } from "@aihub/shared";
 
 export function computeNextRunAtMs(schedule: Schedule, nowMs: number): number {
-  if (schedule.type === "interval") {
-    return computeIntervalNext(schedule, nowMs);
-  }
-  return computeDailyNext(schedule, nowMs);
-}
-
-function computeIntervalNext(schedule: IntervalSchedule, nowMs: number): number {
-  const intervalMs = schedule.everyMinutes * 60 * 1000;
-
-  if (schedule.startAt) {
-    const startMs = new Date(schedule.startAt).getTime();
-    if (startMs > nowMs) return startMs;
-
-    const elapsed = nowMs - startMs;
-    const intervals = Math.floor(elapsed / intervalMs);
-    return startMs + (intervals + 1) * intervalMs;
-  }
-
-  // No startAt: next run is now + interval
-  return nowMs + intervalMs;
-}
-
-/**
- * Get UTC offset in minutes for timezone at specific instant.
- * Uses Intl.DateTimeFormat to get local representation, then computes
- * difference using Date.UTC for accurate month/year boundary handling.
- */
-function getTimezoneOffsetMinutes(tz: string, date: Date): number {
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    second: "2-digit",
-    hour12: false,
+  const currentDate = schedule.startAt
+    ? new Date(Math.max(nowMs, Date.parse(schedule.startAt)))
+    : new Date(nowMs);
+  const expression = CronExpressionParser.parse(schedule.cron, {
+    currentDate,
+    tz: schedule.tz,
   });
-
-  const parts = formatter.formatToParts(date);
-  const getPart = (type: string) =>
-    parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
-
-  const tzYear = getPart("year");
-  const tzMonth = getPart("month");
-  const tzDay = getPart("day");
-  const tzHour = getPart("hour");
-  const tzMinute = getPart("minute");
-  const tzSecond = getPart("second");
-
-  // Construct same wall-clock time as UTC to get offset
-  const tzAsUtcMs = Date.UTC(tzYear, tzMonth - 1, tzDay, tzHour, tzMinute, tzSecond);
-  const actualUtcMs = date.getTime();
-
-  // Offset = how much TZ ahead of UTC (positive = east of UTC)
-  return Math.round((tzAsUtcMs - actualUtcMs) / 60000);
+  return expression.next().toDate().getTime();
 }
 
-/**
- * Convert local time in timezone to UTC milliseconds.
- * Uses binary search to handle DST edge cases.
- */
-function localTimeToUtc(
-  year: number,
-  month: number,
-  day: number,
-  hour: number,
-  minute: number,
-  tz: string
-): number {
-  // Start with naive assumption (treat local as UTC)
-  const naiveUtcMs = Date.UTC(year, month - 1, day, hour, minute, 0);
-
-  // Get offset at this approximate time
-  const offset = getTimezoneOffsetMinutes(tz, new Date(naiveUtcMs));
-
-  // Actual UTC time earlier if TZ ahead of UTC
-  const candidateUtcMs = naiveUtcMs - offset * 60000;
-
-  // Verify by checking offset at candidate time (handles DST)
-  const verifyOffset = getTimezoneOffsetMinutes(tz, new Date(candidateUtcMs));
-  if (verifyOffset !== offset) {
-    // DST transition - use verified offset
-    return naiveUtcMs - verifyOffset * 60000;
-  }
-
-  return candidateUtcMs;
-}
-
-function computeDailyNext(schedule: DailySchedule, nowMs: number): number {
-  const [hours, minutes] = schedule.time.split(":").map(Number);
-  const tz = schedule.timezone ?? Intl.DateTimeFormat().resolvedOptions().timeZone;
-
-  // Get current date/time in target timezone
-  const now = new Date(nowMs);
-  const formatter = new Intl.DateTimeFormat("en-US", {
-    timeZone: tz,
-    year: "numeric",
-    month: "2-digit",
-    day: "2-digit",
-    hour: "2-digit",
-    minute: "2-digit",
-    hour12: false,
-  });
-
-  const parts = formatter.formatToParts(now);
-  const getPart = (type: string) =>
-    parseInt(parts.find((p) => p.type === type)?.value ?? "0", 10);
-
-  const currentHour = getPart("hour");
-  const currentMinute = getPart("minute");
-  const currentYear = getPart("year");
-  const currentMonth = getPart("month");
-  const currentDay = getPart("day");
-
-  // Check if we've passed today's scheduled time
-  const todayPassed =
-    currentHour > hours || (currentHour === hours && currentMinute >= minutes);
-
-  // Calculate target date (today or tomorrow in target timezone)
-  let targetYear = currentYear;
-  let targetMonth = currentMonth;
-  let targetDay = currentDay;
-
-  if (todayPassed) {
-    // Increment day, handling month/year boundaries
-    const daysInMonth = new Date(targetYear, targetMonth, 0).getDate();
-    targetDay++;
-    if (targetDay > daysInMonth) {
-      targetDay = 1;
-      targetMonth++;
-      if (targetMonth > 12) {
-        targetMonth = 1;
-        targetYear++;
-      }
-    }
-  }
-
-  // Convert target local time to UTC
-  return localTimeToUtc(targetYear, targetMonth, targetDay, hours, minutes, tz);
+export function formatSchedule(schedule: Schedule): string {
+  const base = `${schedule.cron} ${schedule.tz}`;
+  return schedule.startAt ? `${base} @ ${schedule.startAt}` : base;
 }

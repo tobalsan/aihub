@@ -118,6 +118,27 @@ describe("extension registry", () => {
     expect(isExtensionLoaded("heartbeat")).toBe(false);
   });
 
+  it("loads heartbeat extension when any agent has heartbeat config", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+          heartbeat: { every: "30m" },
+        },
+      ],
+      extensions: {},
+    });
+
+    const result = await loadExtensions(config);
+
+    expect(result.map((extension) => extension.id)).toEqual(["heartbeat"]);
+    expect(isExtensionLoaded("heartbeat")).toBe(true);
+  });
+
   it("loads webhooks extension when any agent has webhooks config", async () => {
     const config = GatewayConfigSchema.parse({
       version: 2,
@@ -195,8 +216,29 @@ describe("extension registry", () => {
     );
   });
 
-  it("fails on missing dependencies", async () => {
-    // Explicitly disable scheduler so heartbeat's dependency is missing
+  it("loads disabled scheduler for API and CLI routes", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      extensions: {
+        scheduler: { enabled: false },
+      },
+    });
+
+    const result = await loadExtensions(config);
+
+    expect(result.map((extension) => extension.id)).toEqual(["scheduler"]);
+    expect(isExtensionLoaded("scheduler")).toBe(true);
+  });
+
+  it("does not fail heartbeat dependency when scheduler runtime is disabled", async () => {
     const config = GatewayConfigSchema.parse({
       version: 2,
       agents: [
@@ -213,9 +255,33 @@ describe("extension registry", () => {
       },
     });
 
-    await expect(loadExtensions(config)).rejects.toThrow(
-      'Extension "heartbeat" requires "scheduler" which is not enabled'
-    );
+    const result = await loadExtensions(config);
+
+    expect(result.map((extension) => extension.id)).toEqual([
+      "scheduler",
+      "heartbeat",
+    ]);
+  });
+
+  it("loads heartbeat without scheduler dependency", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+        },
+      ],
+      extensions: {
+        heartbeat: { enabled: true },
+      },
+    });
+
+    const result = await loadExtensions(config);
+
+    expect(result.map((extension) => extension.id)).toEqual(["heartbeat"]);
   });
 
   it("returns known extension route metadata without loading extensions", () => {

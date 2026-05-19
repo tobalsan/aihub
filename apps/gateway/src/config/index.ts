@@ -1,14 +1,17 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import fg from "fast-glob";
+import yaml from "js-yaml";
 import {
-  GatewayConfigSchema,
+  AgentYamlConfigSchema,
+  GatewayRootConfigSchema,
   resolveConfigPath,
   resolveHomeDir,
+  type AgentConfig,
   type GatewayConfig,
   type SubagentConfig,
 } from "@aihub/shared";
-import { migrateConfigV1toV2 } from "./migrate.js";
 
 export const CONFIG_DIR = resolveHomeDir();
 export const SCHEDULES_PATH = path.join(CONFIG_DIR, "schedules.json");
@@ -18,6 +21,68 @@ let singleAgentId: string | null = null;
 
 export function getConfigPath(): string {
   return resolveConfigPath();
+}
+
+function resolvePathFromConfig(input: string, configDir: string): string {
+  const expanded = input.startsWith("~")
+    ? path.join(os.homedir(), input.slice(1))
+    : input.replace(/^\$AIHUB_HOME(?=\/|$)/, CONFIG_DIR);
+  return path.isAbsolute(expanded) ? expanded : path.resolve(configDir, expanded);
+}
+
+function hasGlobMagic(input: string): boolean {
+  return /[*?[\]{}]/.test(input);
+}
+
+function globToDirs(pattern: string, configDir: string): string[] {
+  const resolved = resolvePathFromConfig(pattern, configDir);
+  if (!hasGlobMagic(pattern)) return [resolved];
+  return fg.sync(resolved, {
+    absolute: true,
+    dot: true,
+    onlyDirectories: true,
+    unique: true,
+  });
+}
+
+function discoverAgents(agentGlobs: string | string[] | undefined, configDir: string): AgentConfig[] {
+  const patterns = typeof agentGlobs === "string" ? [agentGlobs] : agentGlobs ?? [];
+  const agents: AgentConfig[] = [];
+  const seen = new Map<string, string>();
+
+  for (const pattern of patterns) {
+    for (const workspaceDir of globToDirs(pattern, configDir)) {
+      const agentPath = path.join(workspaceDir, "agent.yaml");
+      if (!fs.existsSync(agentPath)) {
+        console.warn(`[config] no agent.yaml in ${workspaceDir}; skipping`);
+        continue;
+      }
+      let parsedYaml: unknown;
+      try {
+        parsedYaml = yaml.load(fs.readFileSync(agentPath, "utf8"));
+      } catch (error) {
+        console.warn(`[config] failed to read ${agentPath}: ${(error as Error).message}`);
+        continue;
+      }
+      const parsed = AgentYamlConfigSchema.safeParse(parsedYaml);
+      if (!parsed.success) {
+        console.warn(`[config] invalid ${agentPath}: ${parsed.error.message}`);
+        continue;
+      }
+      const folderName = path.basename(workspaceDir);
+      if (parsed.data.id !== folderName) {
+        throw new Error(`agent.yaml id mismatch in ${agentPath}: id "${parsed.data.id}" must match folder "${folderName}"`);
+      }
+      const duplicate = seen.get(parsed.data.id);
+      if (duplicate) {
+        throw new Error(`Duplicate agent id "${parsed.data.id}" in ${duplicate} and ${agentPath}`);
+      }
+      seen.set(parsed.data.id, agentPath);
+      agents.push({ ...parsed.data, workspace: workspaceDir, workspaceDir });
+    }
+  }
+
+  return agents.sort((a, b) => a.id.localeCompare(b.id));
 }
 
 export function loadConfig(): GatewayConfig {
@@ -37,16 +102,22 @@ export function loadConfig(): GatewayConfig {
 
   const raw = fs.readFileSync(configPath, "utf8");
   const json = JSON.parse(raw);
-  const parsed = GatewayConfigSchema.parse(json);
-  const migration =
-    parsed.version === undefined ? migrateConfigV1toV2(parsed) : null;
-  const result = migration?.config ?? parsed;
-
-  if (migration) {
-    for (const warning of migration.warnings) {
-      console.warn(`[config] ${warning}`);
-    }
+  if (
+    json.version !== 3 ||
+    (Array.isArray(json.agents) &&
+      json.agents.some(
+        (agent: unknown) => typeof agent === "object" && agent !== null
+      ))
+  ) {
+    throw new Error("aihub.json is version 2. Run `aihub agents migrate` to upgrade to version 3.");
   }
+  const parsed = GatewayRootConfigSchema.parse(json);
+  const configDir = path.dirname(configPath);
+  const result: GatewayConfig = {
+    ...parsed,
+    version: 3,
+    agents: discoverAgents(parsed.agents as string | string[] | undefined, configDir),
+  };
 
   // Validate OneCLI CA file path at startup if configured
   if (result.onecli?.enabled && result.onecli.ca?.source === "file") {

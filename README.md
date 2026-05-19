@@ -52,8 +52,8 @@ The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Project document layout is centralized in `ProjectDocumentStore`: project metadata stays in `README.md`, pitch in `PITCH.md`, comments in `THREAD.md`, slices under `slices/<sliceId>/`, and `SCOPE_MAP.md` is generated.
-Config now supports a modular v2 shape with optional top-level `version`, `onecli`, and `components`. Legacy v1 configs still load and are auto-migrated in memory at startup.
-Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agents[].extensions.<id>` opts an agent into tool-style extensions with optional per-agent overrides.
+Config uses v3: `$AIHUB_HOME/aihub.json` holds global settings and `agents` discovery globs; each lead agent lives in its own workspace with `agent.yaml`.
+Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agent.yaml` `extensions.<id>` opts that agent into tool-style extensions with optional per-agent overrides.
 Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, starts `Reviewer` subagents for `review`, and starts `Merger` subagents for `ready_to_merge`. The dispatcher is split internally into dispatch policy, prompt factory, and run planner modules. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`. HITL bursts require `hitl_channel` to name an existing `notifications.channels` key.
 Orchestrated Worker/Reviewer/Merger prompts tell agents to pass their role via `--author` when posting project or slice comments, so THREAD.md keeps role attribution.
 
@@ -94,35 +94,16 @@ Agents can optionally run inside ephemeral Docker containers for filesystem, net
 ### Lead agents
 
 Lead agent configuration is optional, as orchestration is done via CLI subagents.
-But if you want to configure lead agent, you can do so by adding them in the main config file. Each agent has their workspace, and is powered by Pi SDK under the hood.
+If you want lead agents, point `aihub.json` at agent workspace folders. Each workspace contains `agent.yaml` and prompt files.
 
 ```bash
 export AIHUB_HOME="${AIHUB_HOME:-$HOME/.aihub}"
-mkdir -p "$AIHUB_HOME"
+mkdir -p "$AIHUB_HOME/agents/my-agent" "$AIHUB_HOME/agents/openclaw-agent"
 cat > "$AIHUB_HOME/aihub.json" << 'EOF'
 {
-  "version": 2,
-  "agents": [
-    {
-      "id": "my-agent",
-      "name": "My Agent",
-      "workspace": "~/workspace/my-agent",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4-5-20250929" }
-    },
-    {
-      "id": "openclaw-agent",
-      "name": "Cloud",
-      "workspace": "~/workspace/cloud",
-      "sdk": "openclaw",
-      "openclaw": {
-        "gatewayUrl": "ws://127.0.0.1:18789",
-        "token": "your-openclaw-gateway-token",
-        "sessionKey": "agent:main:main"
-      },
-      "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
-    }
-  ],
-  "components": {
+  "version": 3,
+  "agents": "./agents/*",
+  "extensions": {
     "projects": {
       "enabled": true,
       "root": "/your/custom/projects/path"
@@ -133,18 +114,39 @@ cat > "$AIHUB_HOME/aihub.json" << 'EOF'
   }
 }
 EOF
+cat > "$AIHUB_HOME/agents/my-agent/agent.yaml" << 'EOF'
+id: my-agent
+name: My Agent
+model:
+  provider: anthropic
+  model: claude-sonnet-4-5-20250929
+EOF
+cat > "$AIHUB_HOME/agents/openclaw-agent/agent.yaml" << 'EOF'
+id: openclaw-agent
+name: Cloud
+sdk: openclaw
+openclaw:
+  gatewayUrl: ws://127.0.0.1:18789
+  token: your-openclaw-gateway-token
+  sessionKey: agent:main:main
+model:
+  provider: openclaw
+  model: claude-sonnet-4
+EOF
 ```
+
+Run `aihub agents migrate` to convert older v2 configs with centralized `agents[]` records.
 
 For repo-local dev, `pnpm init-dev-config` writes `./.aihub/aihub.json` from `scripts/config-template.json`, picking the first free UI port in `3001-3100` and the first free gateway port in `4001-4100`.
 
-### Built-in components
+### Built-in extensions
 
-AIHub v2 is modular. These are the built-in component IDs you can enable under `components`:
+AIHub v3 is modular. These are the built-in extension IDs you can enable under `extensions`:
 
 - `discord`: one shared Discord bot that routes configured channels/DMs to agents
 - `slack`: one shared Slack Socket Mode bot that routes configured channels/DMs to agents
-- `scheduler`: recurring schedule runner for interval/daily jobs
-- `heartbeat`: periodic heartbeat prompts for agents; depends on `scheduler`
+- `scheduler`: recurring cron runner for per-agent `cron/jobs.json` jobs
+- `heartbeat`: periodic heartbeat prompts for agents with `heartbeat.every` in `agent.yaml`
 - `amsg`: background watcher that checks agent amsg inboxes and nudges agents when new messages arrive
 - `conversations`: saved conversation API/UI surface for browsing threads, attachments, and creating projects from conversations
 - `projects`: project management surface including areas, kanban, taskboard, activity feed, subagents, and Space workflows
@@ -152,37 +154,27 @@ AIHub v2 is modular. These are the built-in component IDs you can enable under `
 - `langfuse`: optional tracing component for stream/history events, LLM generations, tool spans, and model usage
 - `webhooks`: auto-loaded when any agent defines `webhooks`; exposes `/hooks/:agentId/:name/:secret`
 
-If a component key is absent, it is disabled and not loaded.
-`webhooks` is the exception: it is configured per agent and needs no top-level component key.
+If an extension key is absent, it is disabled and not loaded.
+`webhooks` and `heartbeat` are exceptions: they auto-load when any agent defines matching per-agent config.
 Inbound Slack and Discord messages now append a normalized `[CHANNEL CONTEXT]` block to the actual agent system prompt. It includes the channel (`slack` or `discord`), place (`#channel`, `#channel / thread`, or `direct message / <peer>`), conversation type, sender, and fallback-filled channel/topic/thread/history fields. The same block is persisted in full history as a system message and forwarded to Langfuse as both trace input and generation `systemPrompt` metadata. First-party gateway/web/CLI messages do not get this block.
 
 ### Webhooks
 
-Agents can be triggered by external HTTP webhooks:
+Agents can be triggered by external HTTP webhooks. Configure webhooks in the agent's `agent.yaml`:
 
-```json
-{
-  "agents": [
-    {
-      "id": "sales",
-      "name": "Sales",
-      "workspace": "~/agents/sales",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
-      "webhooks": {
-        "notion": {
-          "prompt": "Payload: $WEBHOOK_PAYLOAD",
-          "langfuseTracing": true,
-          "signingSecret": "$env:NOTION_WEBHOOK_SECRET",
-          "verification": {
-            "location": "payload",
-            "fieldName": "verification_token"
-          },
-          "maxPayloadSize": 1048576
-        }
-      }
-    }
-  ]
-}
+```yaml
+id: sales
+name: Sales
+model: { provider: anthropic, model: claude-sonnet-4 }
+webhooks:
+  notion:
+    prompt: "Payload: $WEBHOOK_PAYLOAD"
+    langfuseTracing: true
+    signingSecret: "$env:NOTION_WEBHOOK_SECRET"
+    verification:
+      location: payload
+      fieldName: verification_token
+    maxPayloadSize: 1048576
 ```
 
 On startup, AIHub creates `$AIHUB_HOME/webhook-secrets.json` and logs the full URL:
@@ -211,43 +203,35 @@ Running gateways pick up rotated secrets without restart.
 
 ### Multi-User Mode
 
-Enable multi-user auth with a top-level `multiUser` block in `$AIHUB_HOME/aihub.json`:
+Enable multi-user auth with `extensions.multiUser` in `$AIHUB_HOME/aihub.json`:
 
 ```json
 {
-  "version": 2,
-  "agents": [
-    {
-      "id": "main",
-      "name": "Main",
-      "workspace": "~/workspace/main",
-      "model": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5-20250929"
-      }
+  "version": 3,
+  "agents": "./agents/*",
+  "extensions": {
+    "multiUser": {
+      "enabled": true,
+      "oauth": {
+        "google": {
+          "clientId": "$env:GOOGLE_CLIENT_ID",
+          "clientSecret": "$env:GOOGLE_CLIENT_SECRET"
+        }
+      },
+      "allowedDomains": ["example.com"],
+      "sessionSecret": "$env:BETTER_AUTH_SECRET"
     }
-  ],
-  "multiUser": {
-    "enabled": true,
-    "oauth": {
-      "google": {
-        "clientId": "$env:GOOGLE_CLIENT_ID",
-        "clientSecret": "$env:GOOGLE_CLIENT_SECRET"
-      }
-    },
-    "allowedDomains": ["example.com"],
-    "sessionSecret": "$env:BETTER_AUTH_SECRET"
   }
 }
 ```
 
 Required config:
 
-- `multiUser.enabled: true`
-- `multiUser.oauth.google.clientId`
-- `multiUser.oauth.google.clientSecret`
-- `multiUser.sessionSecret`
-- `multiUser.allowedDomains` if you want to restrict signups by email domain
+- `extensions.multiUser.enabled: true`
+- `extensions.multiUser.oauth.google.clientId`
+- `extensions.multiUser.oauth.google.clientSecret`
+- `extensions.multiUser.sessionSecret`
+- `extensions.multiUser.allowedDomains` if you want to restrict signups by email domain
 
 Bootstrap flow:
 
@@ -270,7 +254,7 @@ Notes:
 Extensions own optional gateway routes, lifecycle hooks, prompt contributions, and agent tools. Tool-style extensions are config-driven, stateless tool bundles mounted per agent.
 
 - Root `extensions.<id>` holds shared defaults for both first-party and external extensions.
-- `agents[].extensions.<id>` opts an agent into a tool-style extension and can override root defaults. Presence is enough to enable it unless `enabled: false`.
+- `agent.yaml` `extensions.<id>` opts an agent into a tool-style extension and can override root defaults. Presence is enough to enable it unless `enabled: false`.
 - External extensions load from `extensionsPath` when set, otherwise `$AIHUB_HOME/extensions` (default `~/.aihub/extensions`).
 - Discovery follows real directories and symlinked extension directories.
 - The helper for migrated tool bundles exports from `packages/shared/src/tool-extension.ts`.
@@ -329,25 +313,16 @@ This builds a `node:22-slim` image with the agent-runner entry point. It does **
 
 #### 2. Enable sandbox for an agent
 
-Add a `sandbox` block to the agent config in `aihub.json`:
+Add a `sandbox` block to the agent's `agent.yaml`:
 
-```json
-{
-  "agents": [
-    {
-      "id": "sandboxed-agent",
-      "name": "Sandboxed Agent",
-      "workspace": "~/agents/sandboxed",
-      "model": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5-20250929"
-      },
-      "sandbox": {
-        "enabled": true
-      }
-    }
-  ]
-}
+```yaml
+id: sandboxed-agent
+name: Sandboxed Agent
+model:
+  provider: anthropic
+  model: claude-sonnet-4-5-20250929
+sandbox:
+  enabled: true
 ```
 
 That's the minimum. All other sandbox settings have sensible defaults.
@@ -383,7 +358,8 @@ OneCLI proxy config lives in the top-level `onecli` block (see [OneCLI](#onecli)
 | `network`           | From global `sandbox.network.name` | Docker network name                                                    |
 | `memory`            | `2g`                               | Memory limit                                                           |
 | `cpus`              | `1`                                | CPU limit                                                              |
-| `timeout`           | `300`                              | Max seconds before the container is stopped and killed                 |
+| `maxRunTime`        | `1800`                             | Max seconds before the container is stopped and killed                  |
+| `timeout`           | *(legacy alias)*                   | Deprecated; equivalent to `maxRunTime` when `maxRunTime` is unset        |
 | `workspaceWritable` | `false`                            | Allow the agent to write to its workspace mount                        |
 | `env`               | `{}`                               | Extra environment variables (secret values are automatically filtered) |
 | `mounts`            | `[]`                               | Additional bind mounts (validated against the allowlist)               |
@@ -607,17 +583,12 @@ pnpm aihub auth login anthropic
 # Configure agent to use OAuth
 ```
 
-```json
-{
-  "agents": [
-    {
-      "id": "my-agent",
-      "workspace": "~/workspace",
-      "auth": { "mode": "oauth" },
-      "model": { "provider": "anthropic", "model": "claude-opus-4-5" }
-    }
-  ]
-}
+```yaml
+# agents/my-agent/agent.yaml
+id: my-agent
+name: My Agent
+auth: { mode: oauth }
+model: { provider: anthropic, model: claude-opus-4-5 }
 ```
 
 ```bash
@@ -627,36 +598,29 @@ pnpm aihub auth login openai-codex
 # Configure agent to use OAuth with OpenAI Codex
 ```
 
-```json
-{
-  "agents": [
-    {
-      "id": "my-agent",
-      "workspace": "~/workspace",
-      "auth": { "mode": "oauth" },
-      "model": { "provider": "openai-codex", "model": "gpt-5.3-codex-spark" }
-    }
-  ]
-}
+```yaml
+# agents/my-agent/agent.yaml
+id: my-agent
+name: My Agent
+auth: { mode: oauth }
+model: { provider: openai-codex, model: gpt-5.3-codex-spark }
 ```
 
 **API Key auth (e.g. OpenRouter):**
 
 ```json
-{
-  "env": { "OPENROUTER_API_KEY": "sk-or-..." },
-  "agents": [
-    {
-      "id": "my-agent",
-      "workspace": "~/workspace",
-      "auth": { "mode": "api_key" },
-      "model": {
-        "provider": "openrouter",
-        "model": "anthropic/claude-sonnet-4"
-      }
-    }
-  ]
-}
+// $AIHUB_HOME/aihub.json
+{ "version": 3, "agents": "./agents/*", "env": { "OPENROUTER_API_KEY": "sk-or-..." } }
+```
+
+```yaml
+# agents/my-agent/agent.yaml
+id: my-agent
+name: My Agent
+auth: { mode: api_key }
+model:
+  provider: openrouter
+  model: anthropic/claude-sonnet-4
 ```
 
 Credentials stored in `$AIHUB_HOME/auth.json` (default: `~/.aihub/auth.json`). Tokens auto-refresh when expired.
@@ -667,23 +631,16 @@ Connect to an [OpenClaw](https://github.com/openclaw/openclaw) gateway to use an
 
 If you use the `sessionKey: agent:main:main`, then it while share the same conversation context. The first two elements must match the configured agents in OpenClaw, e.g. if you configured a `main` agent, the session key must start with `agent:main:`, otherwise it will create a new agent profile in `~/.openclaw`. The third key is how control the behavior. Using `main` will continue in the OpenClaw main session, while anything else will create a new session id `third_key-openclaw`.
 
-```json
-{
-  "agents": [
-    {
-      "id": "cloud",
-      "name": "Cloud",
-      "workspace": "~/workspace/cloud",
-      "sdk": "openclaw",
-      "openclaw": {
-        "gatewayUrl": "ws://127.0.0.1:18789",
-        "token": "your-openclaw-gateway-token",
-        "sessionKey": "agent:main:main"
-      },
-      "model": { "provider": "openclaw", "model": "claude-sonnet-4" }
-    }
-  ]
-}
+```yaml
+# agents/cloud/agent.yaml
+id: cloud
+name: Cloud
+sdk: openclaw
+openclaw:
+  gatewayUrl: ws://127.0.0.1:18789
+  token: your-openclaw-gateway-token
+  sessionKey: agent:main:main
+model: { provider: openclaw, model: claude-sonnet-4 }
 ```
 
 | Field                 | Description                                                             |
@@ -703,7 +660,7 @@ openclaw sessions list
 
 **Notes:**
 
-- The `workspace` and `model` fields are still required for schema validation
+- `model` is still required for schema validation
 - The `model` field doesn't control the actual model (that's configured in OpenClaw) - it's just for display/validation
 - Set `OPENCLAW_DEBUG=1` environment variable to log WebSocket frames for debugging
 
@@ -715,7 +672,7 @@ openclaw sessions list
 | `/api/agents/:id/messages`                       | POST            | Send message                                          |
 | `/api/agents/:id/history`                        | GET             | Session history (?sessionKey=main&view=simple\|full)  |
 | `/api/schedules`                                 | GET/POST        | List/create schedules                                 |
-| `/api/schedules/:id`                             | PATCH/DELETE    | Update/delete schedule                                |
+| `/api/schedules/:agentId/:id`                    | PATCH/DELETE    | Update/delete schedule                                |
 | `/api/projects`                                  | GET/POST        | List/create projects                                  |
 | `/api/projects/:id`                              | GET/PATCH       | Get/update project                                    |
 | `/api/projects/:id/space`                        | GET             | Get project Space state                               |
@@ -736,32 +693,42 @@ Project API details: `docs/projects_api.md`
 
 ## Configuration
 
-`$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`):
+`$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`) stores global settings and agent discovery globs:
 
 ```json
 {
-  "agents": [
-    {
-      "id": "agent-1",
-      "name": "Agent One",
-      "workspace": "~/projects/agent-1",
-      "model": {
-        "provider": "anthropic",
-        "model": "claude-sonnet-4-5-20250929"
-      },
-      "reasoning": "off",
-      "queueMode": "queue",
-      "amsg": { "id": "agent-1", "enabled": true }
-    }
-  ],
+  "version": 3,
+  "agents": "./agents/*",
   "sessions": { "idleMinutes": 360 },
   "gateway": { "port": 4000, "bind": "tailnet" },
-  "scheduler": { "enabled": true },
+  "extensions": {
+    "scheduler": { "enabled": true },
+    "projects": { "root": "~/projects" }
+  },
   "ui": { "port": 3000, "bind": "loopback" },
-  "projects": { "root": "~/projects" },
   "env": { "OPENROUTER_API_KEY": "sk-or-..." }
 }
 ```
+
+Each matched workspace must contain `agent.yaml`:
+
+```yaml
+id: agent-1
+name: Agent One
+model:
+  provider: anthropic
+  model: claude-sonnet-4-5-20250929
+reasoning: off
+queueMode: queue
+system_files:
+  - SOUL.md
+  - USER.md
+extensions:
+  amsg:
+    enabled: true
+```
+
+The `id` must match the workspace folder name. The workspace directory is the directory containing `agent.yaml`.
 
 Project lead-session titles can be generated with `extensions.sessions.autoTitleModel`; when omitted, AIHub uses the cheapest available Anthropic Haiku model and refuses Opus/thinking models for title generation.
 
@@ -771,7 +738,7 @@ Project lead-session titles can be generated with `extensions.sessions.autoTitle
 | ------------------ | ------------------------------------------------------------------------------------ |
 | `id`               | Unique identifier                                                                    |
 | `name`             | Display name                                                                         |
-| `workspace`        | Agent working directory                                                              |
+| `system_files`     | Ordered prompt files; `AGENTS.md` is always prepended when present                  |
 | `sdk`              | Agent SDK: `pi` (default), `claude`, or `openclaw`                                   |
 | `model.provider`   | Model provider (required for Pi SDK)                                                 |
 | `model.model`      | Model name                                                                           |
@@ -835,16 +802,19 @@ Create via CLI:
 
 ```bash
 # Every hour
-aihub scheduler create --agent my-agent --every 1h -m "Run hourly check"
+aihub scheduler add my-agent --cron "0 * * * *" --tz UTC \
+  -m "Run hourly check"
 
 # Daily at 9am New York time
-aihub scheduler create --agent my-agent --daily 09:00 --tz America/New_York \
+aihub scheduler add my-agent --cron "0 9 * * *" --tz America/New_York \
   -m "Generate standup summary"
 
-aihub scheduler list
-aihub scheduler disable <id>
-aihub scheduler delete <id> -y
+aihub scheduler list --agent my-agent
+aihub scheduler rm my-agent <job-id> -y
+aihub scheduler tail my-agent <job-id>
 ```
+
+Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`.
 
 Or directly via the HTTP API:
 
@@ -852,14 +822,14 @@ Or directly via the HTTP API:
 curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d '{
   "name": "Hourly check",
   "agentId": "my-agent",
-  "schedule": { "type": "interval", "everyMinutes": 60 },
+  "schedule": { "cron": "0 * * * *", "tz": "UTC" },
   "payload": { "message": "Run hourly check" }
 }'
 ```
 
 ## Channels
 
-AIHub supports Discord and Slack as messaging channels. Both are opt-in via `components` in `aihub.json`.
+AIHub supports Discord and Slack as messaging channels. Shared bots are opt-in via `extensions` in `aihub.json`; per-agent bot config lives in `agent.yaml`.
 
 ### Discord
 
@@ -873,7 +843,7 @@ Inbound Discord messages inject normalized channel context into the real agent s
 
 ```json
 {
-  "components": {
+  "extensions": {
     "discord": {
       "enabled": true,
       "token": "$env:DISCORD_BOT_TOKEN",
@@ -906,7 +876,7 @@ Inbound Slack messages inject the same normalized channel-context block into the
 
 ```json
 {
-  "components": {
+  "extensions": {
     "slack": {
       "enabled": true,
       "token": "$env:SLACK_BOT_TOKEN",
@@ -924,7 +894,7 @@ Inbound Slack messages inject the same normalized channel-context block into the
 
 ```json
 {
-  "components": {
+  "extensions": {
     "slack": {
       "enabled": true,
       "token": "$env:SLACK_BOT_TOKEN",
@@ -1051,54 +1021,43 @@ settings:
 
 Each agent can have its own Slack bot (own `token`/`appToken` pair) in the same workspace. This lets different agents appear as different bots with different names and avatars:
 
-```json
-{
-  "agents": [
-    {
-      "id": "main",
-      "name": "Main Agent",
-      "workspace": "~/agents/main",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
-      "slack": {
-        "token": "$env:SLACK_MAIN_BOT_TOKEN",
-        "appToken": "$env:SLACK_MAIN_APP_TOKEN"
-      }
-    },
-    {
-      "id": "assistant",
-      "name": "Helper",
-      "workspace": "~/agents/helper",
-      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
-      "slack": {
-        "token": "$env:SLACK_HELPER_BOT_TOKEN",
-        "appToken": "$env:SLACK_HELPER_APP_TOKEN"
-      }
-    }
-  ]
-}
+```yaml
+# agents/main/agent.yaml
+id: main
+name: Main Agent
+model: { provider: anthropic, model: claude-sonnet-4 }
+slack:
+  token: "$env:SLACK_MAIN_BOT_TOKEN"
+  appToken: "$env:SLACK_MAIN_APP_TOKEN"
+```
+
+```yaml
+# agents/assistant/agent.yaml
+id: assistant
+name: Helper
+model: { provider: anthropic, model: claude-sonnet-4 }
+slack:
+  token: "$env:SLACK_HELPER_BOT_TOKEN"
+  appToken: "$env:SLACK_HELPER_APP_TOKEN"
 ```
 
 Each agent creates its own Slack app at https://api.slack.com/apps with its own bot token and Socket Mode connection. Per-agent `slack` config supports the same fields as the component config (`channels`, `dm`, `historyLimit`, etc.).
 
-**Note:** Per-agent mode and component shared-token mode can coexist — agents with `agent.slack` get their own bots, while `components.slack` creates an additional shared bot for channel-based routing.
+**Note:** Per-agent mode and shared-token mode can coexist — agents with `slack` in `agent.yaml` get their own bots, while `extensions.slack` creates an additional shared bot for channel-based routing.
 
 ## Heartbeat
 
 Periodic agent check-ins with channel delivery for alerts.
 
-```json
-{
-  "agents": [
-    {
-      "id": "my-agent",
-      "heartbeat": {
-        "every": "30m",
-        "prompt": "Check on your human",
-        "ackMaxChars": 300
-      }
-    }
-  ]
-}
+```yaml
+# agents/my-agent/agent.yaml
+id: my-agent
+name: My Agent
+model: { provider: anthropic, model: claude-sonnet-4 }
+heartbeat:
+  every: 30m
+  prompt: Check on your human
+  ackMaxChars: 300
 ```
 
 | Field         | Description                                                            |
@@ -1113,6 +1072,9 @@ Periodic agent check-ins with channel delivery for alerts.
 2. Agent replies with `HEARTBEAT_OK` token if all is well
 3. If no token (or substantial content beyond `ackMaxChars`), the reply is delivered to the configured channel as an alert
 4. Heartbeat runs don't affect session `updatedAt` (preserves idle timeout)
+5. Completed runs write hybrid markdown output to `<agent-workspace>/cron/output/__heartbeat__/` with frontmatter plus prompt/response sections
+
+If the scheduler extension is disabled or unavailable, heartbeat logs a warning and does not run.
 
 ## Custom Models
 
@@ -1214,5 +1176,5 @@ pnpm aihub gateway  # no --dev flag
 - Config: `$AIHUB_HOME/aihub.json` (default: `~/.aihub/aihub.json`)
 - Auth: `$AIHUB_HOME/auth.json` (OAuth/API key credentials)
 - Models: `$AIHUB_HOME/models.json` (optional)
-- Schedules: `$AIHUB_HOME/schedules.json`
+- Schedules: `<agent-workspace>/cron/jobs.json` and outputs under `<agent-workspace>/cron/output/`
 - Sessions: `$AIHUB_HOME/sessions/*.jsonl`

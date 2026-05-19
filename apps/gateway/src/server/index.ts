@@ -63,6 +63,7 @@ app.use("/api/*", async (c, next) => {
   for (const matcher of runtime.getRouteMatchers()) {
     if (!matcher.matches(path)) continue;
     if (isExtensionEnabled(config, matcher.extension, runtime)) break;
+    if (matcher.allowWhenDisabled && runtime.isEnabled(matcher.extension)) break;
     return c.json(
       {
         error: "extension_disabled",

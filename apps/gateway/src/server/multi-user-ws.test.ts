@@ -4,6 +4,7 @@ import * as path from "node:path";
 import os from "node:os";
 import type { AddressInfo } from "node:net";
 import { WebSocket } from "ws";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 describe("gateway multi-user websocket auth", () => {
   let tmpDir: string;
@@ -22,34 +23,21 @@ describe("gateway multi-user websocket auth", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify({
-        version: 2,
-        agents: [
-          {
-            id: "main",
-            name: "Main",
-            workspace: "~/agents/main",
-            model: { provider: "anthropic", model: "claude" },
-          },
-        ],
-        extensions: {
-          multiUser: {
-            enabled: true,
-            oauth: {
-              google: {
-                clientId: "client-id",
-                clientSecret: "client-secret",
-              },
+    await writeTestV3Config(path.join(tmpDir, ".aihub"), {
+      agents: [{ id: "main", name: "Main" }],
+      extensions: {
+        multiUser: {
+          enabled: true,
+          oauth: {
+            google: {
+              clientId: "client-id",
+              clientSecret: "client-secret",
             },
-            sessionSecret: "x".repeat(32),
           },
+          sessionSecret: "x".repeat(32),
         },
-      })
-    );
+      },
+    });
 
     vi.resetModules();
     const { clearConfigCacheForTests, loadConfig } =
@@ -69,7 +57,9 @@ describe("gateway multi-user websocket auth", () => {
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
 
     if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
     else process.env.AIHUB_HOME = prevAihubHome;

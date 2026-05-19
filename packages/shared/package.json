@@ -24,6 +24,11 @@
       "development": "./src/projectPrompt.ts",
       "import": "./dist/projectPrompt.js",
       "types": "./dist/projectPrompt.d.ts"
+    },
+    "./node/system-files": {
+      "development": "./src/node/system-files.ts",
+      "import": "./dist/node/system-files.js",
+      "types": "./dist/node/system-files.d.ts"
     }
   },
   "scripts": {

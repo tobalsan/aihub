@@ -4,6 +4,7 @@ import path from "node:path";
 import type { AddressInfo } from "node:net";
 import { afterAll, beforeAll, describe, expect, it, vi } from "vitest";
 import { WebSocket } from "ws";
+import { writeTestV3Config } from "../test-utils/v3-config.js";
 
 describe("lead session websocket events", () => {
   let tmpDir: string;
@@ -22,12 +23,7 @@ describe("lead session websocket events", () => {
     process.env.HOME = tmpDir;
     process.env.USERPROFILE = tmpDir;
 
-    const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify({ agents: [] }, null, 2)
-    );
+    await writeTestV3Config(path.join(tmpDir, ".aihub"));
 
     vi.resetModules();
     const { startServer } = await import("./index.js");
@@ -40,7 +36,9 @@ describe("lead session websocket events", () => {
   });
 
   afterAll(async () => {
-    await new Promise<void>((resolve) => server.close(() => resolve()));
+    if (server) {
+      await new Promise<void>((resolve) => server.close(() => resolve()));
+    }
     if (prevAihubHome === undefined) delete process.env.AIHUB_HOME;
     else process.env.AIHUB_HOME = prevAihubHome;
     if (prevHome === undefined) delete process.env.HOME;

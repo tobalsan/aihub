@@ -5,8 +5,13 @@ import type {
   UpdateScheduleRequest,
   ExtensionContext,
 } from "@aihub/shared";
-import { loadScheduleStore, saveScheduleStore, type ScheduleStore } from "./store.js";
+import { PerAgentScheduleStore, type ScheduleStore } from "./store.js";
 import { computeNextRunAtMs } from "./schedule.js";
+import {
+  formatScheduleForOutput,
+  latestAssistantText,
+  writeCronRunOutput,
+} from "./output.js";
 
 export type SchedulerState = {
   nextRunAtMs?: number;
@@ -34,7 +39,7 @@ function uuidv7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
-function getSchedulerContext(): ExtensionContext {
+export function getSchedulerContext(): ExtensionContext {
   if (!schedulerCtx) {
     throw new Error("Scheduler context not initialized");
   }
@@ -51,16 +56,24 @@ export function clearSchedulerContext(): void {
 }
 
 export class SchedulerService {
-  private store: ScheduleStore;
+  private store: ScheduleStore = { version: 1, jobs: [] };
+  private jobStore: PerAgentScheduleStore;
   private timer: NodeJS.Timeout | null = null;
   private running = false;
+  private loaded = false;
 
   constructor() {
     const ctx = getSchedulerContext();
-    this.store = loadScheduleStore(ctx.getDataDir());
+    this.jobStore = new PerAgentScheduleStore(
+      ctx.getAgents(),
+      (agent) => ctx.resolveWorkspaceDir(agent),
+      ctx.getDataDir(),
+      (message) => ctx.logger.warn(message)
+    );
   }
 
   async start() {
+    await this.load();
     const config = getSchedulerContext().getConfig();
     if (config.extensions?.scheduler?.enabled === false) {
       console.log("[scheduler] Disabled");
@@ -68,7 +81,6 @@ export class SchedulerService {
     }
 
     this.recomputeNextRuns();
-    this.save();
     this.armTimer();
     console.log(`[scheduler] Started with ${this.store.jobs.length} job(s)`);
   }
@@ -81,33 +93,43 @@ export class SchedulerService {
     console.log("[scheduler] Stopped");
   }
 
-  async list(): Promise<ScheduleJob[]> {
-    return this.store.jobs.filter((j) => j.enabled);
+  async list(agentId?: string): Promise<ScheduleJob[]> {
+    await this.load();
+    return this.store.jobs.filter((job) => !agentId || job.agentId === agentId);
   }
 
-  async add(input: CreateScheduleRequest): Promise<ScheduleJob> {
+  async add(agentId: string, input: Omit<CreateScheduleRequest, "agentId">): Promise<ScheduleJob> {
+    await this.load();
+    const ctx = getSchedulerContext();
+    if (!ctx.getAgent(agentId)) throw new Error(`Agent not found: ${agentId}`);
     const id = crypto.randomUUID();
     const job: JobWithState = {
       id,
       name: input.name,
-      agentId: input.agentId,
+      agentId,
       enabled: true,
       schedule: input.schedule,
       payload: input.payload,
+      createdAt: new Date().toISOString(),
       state: {},
     };
 
     job.state!.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
     this.store.jobs.push(job);
-    this.save();
+    await this.saveAgent(agentId);
     this.armTimer();
 
     return job;
   }
 
-  async update(id: string, patch: UpdateScheduleRequest): Promise<ScheduleJob> {
-    const job = this.store.jobs.find((j) => j.id === id) as JobWithState | undefined;
-    if (!job) throw new Error(`Schedule not found: ${id}`);
+  async update(
+    agentId: string,
+    id: string,
+    patch: UpdateScheduleRequest
+  ): Promise<ScheduleJob> {
+    await this.load();
+    const job = this.findJob(agentId, id);
+    if (!job) throw new Error(`Schedule not found: ${agentId}/${id}`);
 
     if (patch.name !== undefined) job.name = patch.name;
     if (patch.enabled !== undefined) job.enabled = patch.enabled;
@@ -119,21 +141,36 @@ export class SchedulerService {
       job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
     }
 
-    this.save();
+    await this.saveAgent(agentId);
     this.armTimer();
 
     return job;
   }
 
-  async remove(id: string): Promise<{ removed: boolean }> {
+  async remove(agentId: string, id: string): Promise<{ removed: boolean }> {
+    await this.load();
     const before = this.store.jobs.length;
-    this.store.jobs = this.store.jobs.filter((j) => j.id !== id);
+    this.store.jobs = this.store.jobs.filter(
+      (job) => !(job.agentId === agentId && job.id === id)
+    );
     const removed = this.store.jobs.length !== before;
     if (removed) {
-      this.save();
+      await this.saveAgent(agentId);
       this.armTimer();
     }
     return { removed };
+  }
+
+  private async load() {
+    if (this.loaded) return;
+    this.store = await this.jobStore.load();
+    this.loaded = true;
+  }
+
+  private findJob(agentId: string, id: string): JobWithState | undefined {
+    return this.store.jobs.find(
+      (job) => job.agentId === agentId && job.id === id
+    ) as JobWithState | undefined;
   }
 
   private recomputeNextRuns() {
@@ -145,8 +182,11 @@ export class SchedulerService {
     }
   }
 
-  private save() {
-    saveScheduleStore(this.store, getSchedulerContext().getDataDir());
+  private async saveAgent(agentId: string) {
+    await this.jobStore.saveAgentJobs(
+      agentId,
+      this.store.jobs.filter((job) => job.agentId === agentId)
+    );
   }
 
   private armTimer() {
@@ -154,6 +194,9 @@ export class SchedulerService {
       clearTimeout(this.timer);
       this.timer = null;
     }
+
+    const config = getSchedulerContext().getConfig();
+    if (config.extensions?.scheduler?.enabled === false) return;
 
     const nextAt = this.getNextWakeAt();
     if (!nextAt) return;
@@ -177,7 +220,6 @@ export class SchedulerService {
 
     try {
       await this.runDueJobs();
-      this.save();
       this.armTimer();
     } finally {
       this.running = false;
@@ -199,12 +241,14 @@ export class SchedulerService {
   private async executeJob(job: JobWithState) {
     const ctx = getSchedulerContext();
     const agent = ctx.getAgent(job.agentId);
+    const firedAt = new Date();
+    const sessionId = job.payload.sessionId ?? `scheduler:${job.id}:${uuidv7()}`;
     if (!agent) {
       console.error(`[scheduler] Agent not found: ${job.agentId}`);
       job.state = job.state ?? {};
       job.state.lastStatus = "error";
       job.state.lastError = "Agent not found";
-      job.state.lastRunAtMs = Date.now();
+      job.state.lastRunAtMs = firedAt.getTime();
       job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
       return;
     }
@@ -217,27 +261,58 @@ export class SchedulerService {
     }
 
     console.log(`[scheduler] Running job: ${job.name} -> ${agent.name}`);
-    const startedAt = Date.now();
 
     try {
-      await ctx.runAgent({
+      const result = await ctx.runAgent({
         agentId: job.agentId,
         message: job.payload.message,
-        sessionId: job.payload.sessionId ?? `scheduler:${job.id}:${uuidv7()}`,
+        sessionId,
+        source: "scheduler",
       });
 
       job.state = job.state ?? {};
       job.state.lastStatus = "ok";
       job.state.lastError = undefined;
+      await writeCronRunOutput({
+        workspaceDir: ctx.resolveWorkspaceDir(agent),
+        jobId: job.id,
+        agentId: job.agentId,
+        sessionId: result.meta.sessionId,
+        runType: "cron",
+        name: job.name,
+        prompt: job.payload.message,
+        schedule: formatScheduleForOutput(job.schedule),
+        firedAt,
+        finishedAt: new Date(),
+        status: "ok",
+        durationMs: Date.now() - firedAt.getTime(),
+        response: latestAssistantText(result.payloads),
+      });
     } catch (err) {
       job.state = job.state ?? {};
       job.state.lastStatus = "error";
       job.state.lastError = err instanceof Error ? err.message : String(err);
       console.error(`[scheduler] Job failed: ${job.name}`, err);
+      await writeCronRunOutput({
+        workspaceDir: ctx.resolveWorkspaceDir(agent),
+        jobId: job.id,
+        agentId: job.agentId,
+        sessionId,
+        runType: "cron",
+        name: job.name,
+        prompt: job.payload.message,
+        schedule: formatScheduleForOutput(job.schedule),
+        firedAt,
+        finishedAt: new Date(),
+        status: "error",
+        durationMs: Date.now() - firedAt.getTime(),
+        error: err,
+      });
     }
 
-    job.state.lastRunAtMs = startedAt;
+    job.state.lastRunAtMs = firedAt.getTime();
     job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+    await this.saveAgent(job.agentId);
   }
 }
 

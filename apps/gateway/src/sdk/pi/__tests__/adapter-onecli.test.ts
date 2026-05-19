@@ -8,18 +8,19 @@ import {
 
 const mockCreateAgentSession = vi.fn();
 const mockGetEnvApiKey = vi.fn(() => "env-api-key");
-const mockEnsureBootstrapFiles = vi.fn(async () => undefined);
-const mockLoadBootstrapFiles = vi.fn(async () => []);
-const mockBuildBootstrapContextFiles = vi.fn(() => []);
+const mockEnsureWorkspaceFiles = vi.fn(async () => undefined);
+const mockLoadWorkspaceFiles = vi.fn(async () => []);
+const mockBuildWorkspaceContextFiles = vi.fn(() => []);
 const mockGetLoadedExtensions = vi.fn<() => Partial<Extension>[]>(() => []);
 const mockGetExtensionAgentTools = vi.fn<() => Promise<unknown[]>>(
   async () => []
 );
 
 vi.mock("../../agents/workspace.js", () => ({
-  ensureBootstrapFiles: mockEnsureBootstrapFiles,
-  loadBootstrapFiles: mockLoadBootstrapFiles,
-  buildBootstrapContextFiles: mockBuildBootstrapContextFiles,
+  FIRST_RUN_BOOTSTRAP_PROMPT: "first run bootstrap",
+  ensureWorkspaceFiles: mockEnsureWorkspaceFiles,
+  loadWorkspaceFiles: mockLoadWorkspaceFiles,
+  buildWorkspaceContextFiles: mockBuildWorkspaceContextFiles,
 }));
 
 vi.mock("../../sessions/store.js", () => ({

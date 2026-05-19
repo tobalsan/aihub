@@ -10,11 +10,13 @@ import {
   SchedulerService,
   clearSchedulerContext,
   getScheduler,
+  getSchedulerContext,
   setSchedulerContext,
   startScheduler,
   stopScheduler,
 } from "./service.js";
 import { computeNextRunAtMs } from "./schedule.js";
+import { readLatestOutputFile } from "./store.js";
 
 const schedulerExtension: Extension = {
   id: "scheduler",
@@ -33,7 +35,8 @@ const schedulerExtension: Extension = {
   registerRoutes(app: Hono) {
     app.get("/schedules", async (c) => {
       const scheduler = getScheduler();
-      const jobs = await scheduler.list();
+      const agentId = c.req.query("agent") ?? undefined;
+      const jobs = await scheduler.list(agentId);
       return c.json(jobs);
     });
 
@@ -44,12 +47,35 @@ const schedulerExtension: Extension = {
         return c.json({ error: parsed.error.message }, 400);
       }
 
+      if (!parsed.data.agentId) {
+        return c.json({ error: "agentId is required" }, 400);
+      }
       const scheduler = getScheduler();
-      const job = await scheduler.add(parsed.data);
-      return c.json(job, 201);
+      const { agentId, ...input } = parsed.data;
+      try {
+        const job = await scheduler.add(agentId, input);
+        return c.json(job, 201);
+      } catch (error) {
+        return c.json(
+          { error: error instanceof Error ? error.message : "Schedule create failed" },
+          404
+        );
+      }
     });
 
-    app.patch("/schedules/:id", async (c) => {
+    app.get("/schedules/:agentId/:id/tail", async (c) => {
+      const agentId = c.req.param("agentId");
+      const id = c.req.param("id");
+      const ctx = getSchedulerContext();
+      const agent = ctx.getAgent(agentId);
+      if (!agent) return c.json({ error: "Agent not found" }, 404);
+      const latest = await readLatestOutputFile(ctx.resolveWorkspaceDir(agent), id);
+      if (!latest) return c.json({ error: "Output not found" }, 404);
+      return c.json(latest);
+    });
+
+    app.patch("/schedules/:agentId/:id", async (c) => {
+      const agentId = c.req.param("agentId");
       const id = c.req.param("id");
       const body = await c.req.json();
       const parsed = UpdateScheduleRequestSchema.safeParse(body);
@@ -59,17 +85,18 @@ const schedulerExtension: Extension = {
 
       const scheduler = getScheduler();
       try {
-        const job = await scheduler.update(id, parsed.data);
+        const job = await scheduler.update(agentId, id, parsed.data);
         return c.json(job);
       } catch {
         return c.json({ error: "Schedule not found" }, 404);
       }
     });
 
-    app.delete("/schedules/:id", async (c) => {
+    app.delete("/schedules/:agentId/:id", async (c) => {
+      const agentId = c.req.param("agentId");
       const id = c.req.param("id");
       const scheduler = getScheduler();
-      const result = await scheduler.remove(id);
+      const result = await scheduler.remove(agentId, id);
       if (!result.removed) {
         return c.json({ error: "Schedule not found" }, 404);
       }
@@ -98,5 +125,6 @@ export {
   stopScheduler,
   computeNextRunAtMs,
 };
+export { latestAssistantText, writeCronRunOutput } from "./output.js";
 
 export { registerSchedulerCommands } from "./cli/index.js";
