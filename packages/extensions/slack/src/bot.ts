@@ -283,14 +283,26 @@ async function sendSlackReply(
   }
 }
 
+function getSlackErrorText(err: unknown): string {
+  const message = err instanceof Error ? err.message : String(err);
+  if (message.includes("Container idle timed out")) {
+    return "Request timed out while I was still working. Please retry, or narrow the request if it is broad.";
+  }
+  if (message.includes("Container exceeded max runtime")) {
+    return "Request ran too long and was stopped. Please retry with a narrower request.";
+  }
+  return "Sorry, I encountered an error processing your message.";
+}
+
 async function sendSlackError(
   client: SlackWebClient,
   channel: string,
-  threadTs?: string
+  threadTs: string | undefined,
+  err: unknown
 ): Promise<void> {
   await client.chat.postMessage({
     channel,
-    text: "Sorry, I encountered an error processing your message.",
+    text: getSlackErrorText(err),
     mrkdwn: true,
     thread_ts: threadTs,
   });
@@ -826,7 +838,7 @@ async function handleSlackMessage(
     await stopThinkingReaction(client, data.channel, data.ts);
   } catch (err) {
     console.error(`${target.logPrefix} Error:`, err);
-    await sendSlackError(client, data.channel, replyThreadTs);
+    await sendSlackError(client, data.channel, replyThreadTs, err);
     await thinkingDisplay?.cleanup();
     await stopThinkingReaction(client, data.channel, data.ts);
   }

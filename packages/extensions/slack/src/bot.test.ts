@@ -322,6 +322,87 @@ describe("createSlackBot", () => {
     );
   });
 
+  it("shows a specific Slack error for container idle timeouts", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+    mockRunAgent.mockRejectedValueOnce(
+      new Error(
+        "Container idle timed out after 300s without activity; last activity was history_tool_result 310s ago"
+      )
+    );
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Request timed out while I was still working. Please retry, or narrow the request if it is broad.",
+      })
+    );
+  });
+
+  it("shows a specific Slack error for container max runtime", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+    mockRunAgent.mockRejectedValueOnce(
+      new Error("Container exceeded max runtime after 900s")
+    );
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Request ran too long and was stopped. Please retry with a narrower request.",
+      })
+    );
+  });
+
+  it("keeps generic Slack error text for other errors", async () => {
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+    mockRunAgent.mockRejectedValueOnce(new Error("Unexpected failure"));
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        text: "hello",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({
+        text: "Sorry, I encountered an error processing your message.",
+      })
+    );
+  });
+
   it("passes Slack file_share image files as agent attachments", async () => {
     vi.stubGlobal(
       "fetch",
