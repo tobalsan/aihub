@@ -2,6 +2,7 @@ import type { Hono } from "hono";
 import { z } from "zod";
 import { getRequestAuthContext, requireAdmin } from "./middleware.js";
 import { getMultiUserRuntime } from "./index.js";
+import { logImpersonationEvent, startImpersonation } from "./impersonation.js";
 
 const UpdateAdminUserBodySchema = z
   .object({
@@ -14,6 +15,10 @@ const UpdateAdminUserBodySchema = z
 
 const SetAgentAssignmentsBodySchema = z.object({
   userIds: z.array(z.string()),
+});
+
+const StartImpersonationBodySchema = z.object({
+  targetUserId: z.string().min(1),
 });
 
 function getRuntimeOrThrow() {
@@ -32,6 +37,36 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
       query: {},
     });
     return c.json(result);
+  });
+
+  app.post("/admin/impersonate/start", requireAdmin(), async (c) => {
+    const parsed = StartImpersonationBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+
+    const authContext = getRequestAuthContext(c);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+    if (parsed.data.targetUserId === authContext.user.id) {
+      return c.json({ error: "cannot_impersonate_self" }, 400);
+    }
+
+    const { auth } = getRuntimeOrThrow();
+    const target = await auth.api.getUser({
+      headers: c.req.raw.headers,
+      query: { id: parsed.data.targetUserId },
+    });
+    if (!target) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    startImpersonation(authContext.session.id, parsed.data.targetUserId);
+    logImpersonationEvent({
+      action: "start",
+      adminId: authContext.user.id,
+      targetId: parsed.data.targetUserId,
+    });
+    return c.body(null, 204);
   });
 
   app.patch("/admin/users/:id", requireAdmin(), async (c) => {

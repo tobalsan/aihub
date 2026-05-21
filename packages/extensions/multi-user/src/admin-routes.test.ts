@@ -325,6 +325,61 @@ describe("multi-user admin routes", () => {
     });
   });
 
+  it("admin can start impersonation for another user", async () => {
+    vi.spyOn(console, "info").mockImplementation(() => undefined);
+    const runtime = createRuntime();
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const { getImpersonation, endImpersonation } = await import("./impersonation.js");
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/impersonate/start", {
+        method: "POST",
+        headers: {
+          cookie: "session=1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ targetUserId: "user-1" }),
+      })
+    );
+
+    expect(response.status).toBe(204);
+    expect(getImpersonation("admin-session")?.targetUserId).toBe("user-1");
+    endImpersonation("admin-session");
+  });
+
+  it("rejects self impersonation", async () => {
+    const runtime = createRuntime();
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/impersonate/start", {
+        method: "POST",
+        headers: {
+          cookie: "session=1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ targetUserId: "admin-1" }),
+      })
+    );
+
+    expect(response.status).toBe(400);
+    await expect(response.json()).resolves.toEqual({
+      error: "cannot_impersonate_self",
+    });
+  });
+
   it("admin can approve and reject a user", async () => {
     const runtime = createRuntime();
     getMultiUserRuntime.mockReturnValue(runtime.runtime);

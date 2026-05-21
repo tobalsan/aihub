@@ -1,13 +1,16 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
   fetchAgentAssignments,
+  fetchImpersonationStatus,
   fetchUsers,
   setAgentAssignments,
+  startImpersonation,
   updateUser,
 } from "./admin";
 
 type FetchResponse = {
   ok: boolean;
+  status?: number;
   json: () => Promise<unknown>;
 };
 
@@ -88,5 +91,36 @@ describe("admin api client", () => {
         credentials: "include",
       }
     );
+  });
+
+  it("starts impersonation with 204 response", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      status: 204,
+      json: vi.fn(async () => {
+        throw new Error("should not parse 204");
+      }),
+    });
+
+    await startImpersonation("user-2");
+
+    expect(fetchMock).toHaveBeenCalledWith("/api/admin/impersonate/start", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ targetUserId: "user-2" }),
+      credentials: "include",
+    });
+  });
+
+  it("fetches impersonation status", async () => {
+    fetchMock.mockResolvedValue({
+      ok: true,
+      json: async () => ({ active: false }),
+    });
+
+    await expect(fetchImpersonationStatus()).resolves.toEqual({ active: false });
+    expect(fetchMock).toHaveBeenCalledWith("/api/impersonation/status", {
+      credentials: "include",
+    });
   });
 });

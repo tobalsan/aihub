@@ -19,6 +19,10 @@ import { QuickChatFAB } from "./components/QuickChatFAB";
 import { QuickChatOverlay } from "./components/QuickChatOverlay";
 import { LeftNavShell } from "./components/LeftNavShell";
 import {
+  ImpersonationBanner,
+  impersonationStatus,
+} from "./components/ImpersonationBanner";
+import {
   capabilitiesReady,
   capabilities,
   loadCapabilities,
@@ -200,10 +204,17 @@ function Layout(props: { children?: JSX.Element }) {
     <>
       <Show when={capabilitiesReady()} fallback={<AppBootSplash />}>
         <div class="app" classList={{ "zen-mode": zenMode() }}>
+          <ImpersonationBanner />
           {props.children}
         </div>
       </Show>
-      <Show when={canLoadQuickChatAgents() && !isOnChatPage()}>
+      <Show
+        when={
+          canLoadQuickChatAgents() &&
+          !isOnChatPage() &&
+          !impersonationStatus()?.active
+        }
+      >
         <QuickChatOverlay
           open={quickChatOpen()}
           mobile={quickChatMobile()}

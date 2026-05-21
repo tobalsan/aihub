@@ -423,6 +423,115 @@ describe("multi-user middleware", () => {
     });
   });
 
+  it("swaps admin session context during active impersonation", async () => {
+    const prepare = vi.fn((sql: string) => ({
+      get: vi.fn(() => {
+        if (sql.includes("SELECT id, email")) {
+          return {
+            id: "user-2",
+            email: "target@example.com",
+            name: "Target",
+            image: null,
+            approved: 1,
+          };
+        }
+        return undefined;
+      }),
+    }));
+    getMultiUserRuntime.mockReturnValue({
+      auth: {
+        api: {
+          getSession: vi.fn(async () => ({
+            user: {
+              id: "admin-1",
+              email: "admin@example.com",
+              role: "admin",
+              approved: true,
+            },
+            session: {
+              id: "session-1",
+              userId: "admin-1",
+            },
+          })),
+        },
+      },
+      db: { prepare },
+    });
+
+    const { startImpersonation, endImpersonation } = await import("./impersonation.js");
+    const { createAuthMiddleware, getRequestAuthContext } = await import("./middleware.js");
+    startImpersonation("session-1", "user-2");
+
+    const app = new Hono();
+    app.use("/api/*", createAuthMiddleware());
+    app.get("/api/protected", (c) => c.json(getRequestAuthContext(c)));
+
+    const response = await app.request("/api/protected");
+    endImpersonation("session-1");
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      user: {
+        id: "user-2",
+        email: "target@example.com",
+        name: "Target",
+        image: null,
+        role: "user",
+        approved: true,
+      },
+      session: {
+        id: "session-1",
+        userId: "user-2",
+      },
+      impersonator: {
+        id: "admin-1",
+        email: "admin@example.com",
+      },
+    });
+  });
+
+  it("ignores active impersonation for bearer tokens", async () => {
+    getMultiUserRuntime.mockReturnValue({
+      auth: {
+        api: {
+          getSession: vi.fn(async () => null),
+          verifyApiKey: vi.fn(async () => ({
+            valid: true,
+            key: { id: "key-1", referenceId: "admin-1" },
+          })),
+        },
+      },
+      db: {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => ({
+            id: "admin-1",
+            email: "admin@example.com",
+            name: "Admin",
+            image: null,
+            role: "admin",
+            approved: 1,
+          })),
+        })),
+      },
+    });
+
+    const { startImpersonation, endImpersonation } = await import("./impersonation.js");
+    const { createAuthMiddleware, getRequestAuthContext } = await import("./middleware.js");
+    startImpersonation("apikey:key-1", "user-2");
+
+    const app = new Hono();
+    app.use("/api/*", createAuthMiddleware());
+    app.get("/api/protected", (c) => c.json(getRequestAuthContext(c)));
+
+    const response = await app.request("/api/protected", {
+      headers: { Authorization: "Bearer my-token" },
+    });
+    endImpersonation("apikey:key-1");
+
+    expect(response.status).toBe(200);
+    expect((await response.json()).user.id).toBe("admin-1");
+  });
+
   it("validates websocket requests via Better Auth session lookup", async () => {
     getMultiUserRuntime.mockReturnValue({
       auth: {

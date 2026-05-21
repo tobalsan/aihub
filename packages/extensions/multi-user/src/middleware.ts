@@ -1,5 +1,6 @@
 import type { Context, MiddlewareHandler } from "hono";
 import { getMultiUserRuntime } from "./index.js";
+import { getImpersonation } from "./impersonation.js";
 
 export const FORWARDED_AUTH_CONTEXT_HEADER = "x-aihub-auth-context";
 
@@ -16,6 +17,10 @@ export type RequestAuthContext = {
     id: string;
     userId: string;
     expiresAt?: string;
+  };
+  impersonator?: {
+    id: string;
+    email?: string;
   };
 };
 
@@ -92,6 +97,56 @@ function refreshApprovalFromDb(authContext: RequestAuthContext): void {
     authContext.user.approved = true;
     if (row.role) authContext.user.role = row.role;
   }
+}
+
+function applyActiveImpersonation(authContext: RequestAuthContext): RequestAuthContext {
+  if (!hasAdminRole(authContext)) return authContext;
+  if (authContext.session.id.startsWith("apikey:")) return authContext;
+
+  const entry = getImpersonation(authContext.session.id);
+  if (!entry) return authContext;
+
+  const runtime = getMultiUserRuntime();
+  if (!runtime?.db) return authContext;
+
+  const target = runtime.db
+    .prepare("SELECT id, email, name, image, approved FROM user WHERE id = ?")
+    .get(entry.targetUserId) as
+    | {
+        id: string;
+        email: string | null;
+        name: string | null;
+        image: string | null;
+        approved: number | boolean | null;
+      }
+    | undefined;
+  if (!target) return authContext;
+
+  return {
+    user: {
+      id: target.id,
+      email: target.email ?? undefined,
+      name: target.name ?? undefined,
+      image: target.image,
+      role: "user",
+      approved:
+        typeof target.approved === "boolean"
+          ? target.approved
+          : target.approved === 1
+            ? true
+            : target.approved === 0
+              ? false
+              : null,
+    },
+    session: {
+      ...authContext.session,
+      userId: target.id,
+    },
+    impersonator: {
+      id: authContext.user.id,
+      email: authContext.user.email,
+    },
+  };
 }
 
 function encodeAuthContext(authContext: RequestAuthContext): string {
@@ -302,7 +357,7 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
         const authContext = normalizeAuthContext(session);
         refreshApprovalFromDb(authContext);
         if (isApproved(authContext)) {
-          c.set(REQUEST_AUTH_CONTEXT_KEY, authContext);
+          c.set(REQUEST_AUTH_CONTEXT_KEY, applyActiveImpersonation(authContext));
         }
       }
       await next();
@@ -319,7 +374,21 @@ export const createAuthMiddleware = (): MiddlewareHandler => {
       return c.json({ error: "forbidden" }, 403);
     }
 
-    c.set(REQUEST_AUTH_CONTEXT_KEY, authContext);
+    c.set(REQUEST_AUTH_CONTEXT_KEY, applyActiveImpersonation(authContext));
+    await next();
+  };
+};
+
+export function hasActiveImpersonation(authContext: RequestAuthContext | null): boolean {
+  return Boolean(authContext?.impersonator);
+}
+
+export const requireNotImpersonating = (): MiddlewareHandler => {
+  return async (c, next) => {
+    const authContext = getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+    if (hasActiveImpersonation(authContext)) {
+      return c.json({ error: "read_only_impersonation", code: "READ_ONLY_IMPERSONATION" }, 403);
+    }
     await next();
   };
 };
@@ -392,5 +461,6 @@ export const requireAgentAccess = (agentIdParam = "id"): MiddlewareHandler => {
 export async function validateWebSocketRequest(
   request: Request
 ): Promise<RequestAuthContext | null> {
-  return getValidatedAuthContext(request.headers);
+  const authContext = await getValidatedAuthContext(request.headers);
+  return authContext ? applyActiveImpersonation(authContext) : null;
 }

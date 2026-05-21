@@ -54,9 +54,11 @@ export {
   forwardAuthContextToRequest,
   getForwardedAuthContext,
   getRequestAuthContext,
+  hasActiveImpersonation,
   hasAgentAccess,
   requireAdmin,
   requireAgentAccess,
+  requireNotImpersonating,
   validateWebSocketRequest,
 } from "./middleware.js";
 export type { RequestAuthContext } from "./middleware.js";
@@ -75,7 +77,7 @@ export const multiUserExtension: Extension = {
   description: "OAuth authentication, sessions, and per-user agent access control",
   dependencies: [],
   configSchema: MultiUserConfigSchema,
-  routePrefixes: ["/api/auth", "/api/me", "/api/admin"],
+  routePrefixes: ["/api/auth", "/api/me", "/api/admin", "/api/impersonation"],
   validateConfig(raw) {
     const result = MultiUserConfigSchema.safeParse(raw);
     return result.success

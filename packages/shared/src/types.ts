@@ -1242,7 +1242,7 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
       .optional(),
   }),
   FileOutputEventSchema,
-  z.object({ type: z.literal("error"), message: z.string() }),
+  z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
 ]);
 export type StreamEvent = z.infer<typeof StreamEventSchema>;
 

@@ -46,6 +46,7 @@ import {
   formatFileSize,
 } from "../lib/attachments";
 import { createChatAttachmentRuntime } from "../lib/chat-runtime";
+import { impersonationStatus } from "./ImpersonationBanner";
 
 function isEmoji(str: string): boolean {
   return /^\p{Emoji}/u.test(str) && str.length <= 4;
@@ -616,7 +617,10 @@ export function ChatView() {
   };
 
   const canAttachFiles = () =>
-    !loading() && !uploadingFiles() && !isStreaming();
+    !loading() &&
+    !uploadingFiles() &&
+    !isStreaming() &&
+    !impersonationStatus()?.active;
 
   const getFileDropError = () => {
     if (isStreaming()) {
@@ -1380,6 +1384,7 @@ export function ChatView() {
       });
     }
 
+    if (impersonationStatus()?.active) return;
     const text = input().trim();
     const currentPendingFiles = pendingFiles();
     const hasFiles = currentPendingFiles.length > 0;
@@ -2312,7 +2317,7 @@ export function ChatView() {
           accept={FILE_INPUT_ACCEPT}
           multiple
           onChange={(e) => {
-            if (isStreaming()) return;
+            if (isStreaming() || impersonationStatus()?.active) return;
             const files = e.currentTarget.files;
             if (!files || files.length === 0) return;
             addPendingFiles(files);
@@ -2326,7 +2331,7 @@ export function ChatView() {
             "drop-target": isFileDragActive() && activeDropZone() === "attach",
           }}
           aria-label="Attach files"
-          disabled={loading() || uploadingFiles() || isStreaming()}
+          disabled={loading() || uploadingFiles() || isStreaming() || impersonationStatus()?.active}
           onClick={() => fileInputRef?.click()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2349,8 +2354,9 @@ export function ChatView() {
           <textarea
             ref={textareaRef}
             class="input"
-            placeholder="Message..."
+            placeholder={impersonationStatus()?.active ? "Read-only — exit impersonation to send." : "Message..."}
             value={input()}
+            disabled={impersonationStatus()?.active}
             onInput={(e) => {
               setInput(e.currentTarget.value);
               resizeTextarea();
@@ -2359,6 +2365,11 @@ export function ChatView() {
             rows={1}
           />
         </div>
+        <Show when={impersonationStatus()?.active}>
+          <div class="readonly-impersonation-hint">
+            Read-only — exit impersonation to send.
+          </div>
+        </Show>
         <Show
           when={isStreaming()}
           fallback={
@@ -2366,6 +2377,7 @@ export function ChatView() {
               class="send-btn"
               onClick={handleSend}
               disabled={
+                impersonationStatus()?.active ||
                 (!input().trim() && pendingFiles().length === 0) ||
                 loading() ||
                 uploadingFiles()

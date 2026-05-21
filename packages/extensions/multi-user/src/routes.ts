@@ -6,6 +6,7 @@ import {
   getRequestAuthContext,
   hasAdminRole,
 } from "./middleware.js";
+import { endImpersonation, logImpersonationEvent } from "./impersonation.js";
 
 function refreshApproval(
   user: Record<string, unknown>,
@@ -92,6 +93,39 @@ export function registerMultiUserRoutes(app: Hono): void {
       },
       assignedAgentIds: assignments.getAssignmentsForUser(userId),
     });
+  });
+
+  app.get("/impersonation/status", (c) => {
+    const authContext =
+      getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+    if (!authContext?.impersonator) {
+      return c.json({ active: false });
+    }
+    return c.json({
+      active: true,
+      admin: authContext.impersonator,
+      target: {
+        id: authContext.user.id,
+        name: authContext.user.name ?? null,
+        email: authContext.user.email ?? null,
+      },
+    });
+  });
+
+  app.post("/admin/impersonate/end", (c) => {
+    const authContext =
+      getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+    const targetId = authContext.user.id;
+    endImpersonation(authContext.session.id);
+    if (authContext.impersonator) {
+      logImpersonationEvent({
+        action: "exit",
+        adminId: authContext.impersonator.id,
+        targetId,
+      });
+    }
+    return c.body(null, 204);
   });
 
   app.delete("/user/token/:id", async (c) => {

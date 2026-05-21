@@ -7,11 +7,12 @@ import {
   createResource,
   createSignal,
 } from "solid-js";
-import { fetchUsers, updateUser } from "../../api/admin";
+import { fetchUsers, startImpersonation, updateUser } from "../../api/admin";
 import { useSession } from "../../auth/client";
 import AdminLayout from "./AdminLayout";
 
 type SessionUser = {
+  id?: string;
   role?: string | string[] | null;
 };
 
@@ -50,6 +51,18 @@ export default function AdminUsersPage() {
       return rightTime - leftTime;
     })
   );
+
+  async function handleViewAs(id: string) {
+    setPendingUserId(id);
+    setError(null);
+    try {
+      await startImpersonation(id);
+      location.assign("/");
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Impersonation failed.");
+      setPendingUserId(null);
+    }
+  }
 
   async function handleUpdate(id: string, payload: { approved?: boolean; role?: string }) {
     setPendingUserId(id);
@@ -125,6 +138,16 @@ export default function AdminUsersPage() {
                         <td>{formatDate(user.createdAt)}</td>
                         <td>
                           <div class="admin-actions">
+                            <Show when={user.id !== sessionUser()?.id}>
+                              <button
+                                type="button"
+                                class="admin-action-button"
+                                disabled={busy()}
+                                onClick={() => void handleViewAs(user.id)}
+                              >
+                                View as
+                              </button>
+                            </Show>
                             <button
                               type="button"
                               class="admin-action-button"

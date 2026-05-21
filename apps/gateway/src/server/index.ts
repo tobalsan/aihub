@@ -84,6 +84,31 @@ app.use("/api/*", async (c, next) => {
   const { createAuthMiddleware } = await loadMultiUserMiddlewareModule();
   return createAuthMiddleware()(c, next);
 });
+app.use("/api/*", async (c, next) => {
+  if (!currentExtensionRuntime().isEnabled("multiUser")) {
+    await next();
+    return;
+  }
+
+  const { getRequestAuthContext, hasActiveImpersonation } =
+    await loadMultiUserMiddlewareModule();
+  const pathname = new URL(c.req.url).pathname;
+  const allowed =
+    pathname === "/api/admin/impersonate/end" ||
+    pathname === "/api/auth/signout" ||
+    pathname === "/api/auth/sign-out" ||
+    pathname === "/api/impersonation/status";
+  if (
+    hasActiveImpersonation(getRequestAuthContext(c)) &&
+    c.req.method !== "GET" &&
+    !allowed
+  ) {
+    return c.json({ error: "read_only_impersonation" }, 403);
+  }
+
+  await next();
+});
+
 app.use("/api/agents/:id", async (c, next) => {
   if (!currentExtensionRuntime().isEnabled("multiUser")) {
     await next();

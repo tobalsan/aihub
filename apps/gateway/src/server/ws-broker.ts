@@ -206,6 +206,15 @@ export class WsBroker {
     authContext: RequestAuthContext | null,
     authAdapter: WsBrokerAuthAdapter
   ): Promise<void> {
+    if (authContext?.impersonator) {
+      this.send(ws, {
+        type: "error",
+        code: "read_only_impersonation",
+        message: "read_only_impersonation",
+      });
+      return;
+    }
+
     const agent = getAgent(msg.agentId);
     if (!agent || !isAgentActive(msg.agentId)) {
       this.send(ws, { type: "error", message: "Agent not found" });
