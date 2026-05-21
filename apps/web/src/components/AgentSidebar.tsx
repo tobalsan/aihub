@@ -189,6 +189,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           padding: 2px 6px;
           border-radius: 4px;
           letter-spacing: 0.05em;
+          flex-shrink: 0;
           transition: opacity 0.2s ease;
         }
 
@@ -201,6 +202,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           background: var(--bg-surface);
           color: var(--text-primary);
           cursor: pointer;
+          flex-shrink: 0;
         }
 
         .collapse-btn:focus-visible {
@@ -253,6 +255,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
           display: inline-flex;
           align-items: center;
           gap: 8px;
+          min-width: 0;
           color: var(--text-primary);
           text-decoration: none;
           font-size: 20px;
@@ -264,9 +267,16 @@ export function AgentSidebar(props: AgentSidebarProps) {
           white-space: nowrap;
         }
 
+        .logo-full {
+          min-width: 0;
+          overflow: hidden;
+          text-overflow: ellipsis;
+        }
+
         .sidebar-brand-logo {
           height: 22px;
           width: auto;
+          flex-shrink: 0;
           object-fit: contain;
         }
 
@@ -322,6 +332,21 @@ export function AgentSidebar(props: AgentSidebarProps) {
           display: inline;
         }
 
+        .agent-sidebar.collapsed .sidebar-header {
+          justify-content: center;
+          padding: 10px 0;
+        }
+
+        .agent-sidebar.collapsed .sidebar-logo {
+          gap: 0;
+          justify-content: center;
+          width: 100%;
+        }
+
+        .agent-sidebar.collapsed .sidebar-logo .logo-short {
+          display: none;
+        }
+
         .agent-sidebar.collapsed .nav-link {
           text-align: center;
           padding: 8px 4px;
@@ -346,6 +371,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
         .agent-sidebar.collapsed:hover .logo-short,
         .agent-sidebar.collapsed:hover .nav-short {
           display: none;
+        }
+
+        .agent-sidebar.collapsed:hover .sidebar-header {
+          justify-content: unset;
+          padding: 10px 10px;
+        }
+
+        .agent-sidebar.collapsed:hover .sidebar-logo {
+          flex: 1;
+          gap: 8px;
+          justify-content: unset;
+          width: auto;
         }
 
         .agent-sidebar.collapsed:hover .nav-link {
