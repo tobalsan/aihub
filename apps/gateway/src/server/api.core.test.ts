@@ -23,7 +23,7 @@ const getSessionThinkLevel = vi.fn();
 const multiUserState = vi.hoisted(() => ({
   loaded: false,
   authContext: null as null | {
-    user: { id: string; name?: string };
+    user: { id: string; name?: string; role?: string | string[] | null };
     session: { id: string; userId: string };
   },
 }));
@@ -158,6 +158,72 @@ describe("api core session resolution", () => {
       expect.objectContaining({
         id: "beta",
         isDefaultProjectManager: true,
+      }),
+    ]);
+  });
+
+  it("redacts model and workspace from non-admin multi-user agent lists", async () => {
+    const agents = [
+      {
+        id: "alpha",
+        name: "Alpha",
+        model: { provider: "anthropic", model: "claude" },
+        workspace: "/tmp/alpha",
+      },
+    ];
+    getActiveAgents.mockReturnValue(agents);
+    loadConfigValue = {
+      branding: undefined,
+      agentFab: false,
+      agents,
+    };
+    multiUserState.loaded = true;
+    multiUserState.authContext = {
+      user: { id: "user-1", role: "user" },
+      session: { id: "session-1", userId: "user-1" },
+    };
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/agents"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      expect.not.objectContaining({
+        model: expect.anything(),
+        workspace: expect.anything(),
+      }),
+    ]);
+  });
+
+  it("keeps model and workspace for admin multi-user agent lists", async () => {
+    const agents = [
+      {
+        id: "alpha",
+        name: "Alpha",
+        model: { provider: "anthropic", model: "claude" },
+        workspace: "/tmp/alpha",
+      },
+    ];
+    getActiveAgents.mockReturnValue(agents);
+    loadConfigValue = {
+      branding: undefined,
+      agentFab: false,
+      agents,
+    };
+    multiUserState.loaded = true;
+    multiUserState.authContext = {
+      user: { id: "admin-1", role: "admin" },
+      session: { id: "session-1", userId: "admin-1" },
+    };
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/agents"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      expect.objectContaining({
+        model: { provider: "anthropic", model: "claude" },
+        workspace: "/tmp/alpha",
       }),
     ]);
   });

@@ -73,6 +73,17 @@ async function getRequestUserId(c: Context): Promise<string | undefined> {
   return (await getRequestAuthContext(c))?.session.userId;
 }
 
+function hasAdminRole(role: unknown): boolean {
+  if (Array.isArray(role)) return role.includes("admin");
+  return role === "admin";
+}
+
+async function canViewAgentPrivateMeta(c: Context): Promise<boolean> {
+  if (!isExtensionLoaded("multiUser")) return true;
+  const authContext = await getRequestAuthContext(c);
+  return hasAdminRole(authContext?.user.role);
+}
+
 async function getVisibleAgents(c: Context) {
   const agents = getActiveAgents();
   if (!isExtensionLoaded("multiUser")) {
@@ -186,6 +197,7 @@ function resolveAvatarForApi(
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", async (c) => {
   const agents = await getVisibleAgents(c);
+  const includePrivateMeta = await canViewAgentPrivateMeta(c);
   const configDefaultId = resolveDefaultProjectManager(loadConfig());
   const visibleDefaultId = agents.some((agent) => agent.id === configDefaultId)
     ? configDefaultId
@@ -196,9 +208,11 @@ api.get("/agents", async (c) => {
       name: a.name,
       description: a.description,
       avatar: resolveAvatarForApi(a.avatar, a.id),
-      model: a.model,
+      ...(includePrivateMeta ? { model: a.model } : {}),
       sdk: a.sdk ?? "pi",
-      workspace: a.workspace ? resolveWorkspaceDir(a.workspace) : undefined,
+      ...(includePrivateMeta && a.workspace
+        ? { workspace: resolveWorkspaceDir(a.workspace) }
+        : {}),
       authMode: a.auth?.mode,
       queueMode: a.queueMode ?? "queue",
       isDefaultProjectManager: a.id === visibleDefaultId,
@@ -214,22 +228,23 @@ api.get("/agents/status", async (c) => {
 });
 
 // GET /api/agents/:id - get single agent
-api.get("/agents/:id", (c) => {
+api.get("/agents/:id", async (c) => {
   const agentId = c.req.param("id");
   const agent = getAgent(agentId);
   if (!agent || !isAgentActive(agentId)) {
     return c.json({ error: "Agent not found" }, 404);
   }
+  const includePrivateMeta = await canViewAgentPrivateMeta(c);
   return c.json({
     id: agent.id,
     name: agent.name,
     description: agent.description,
     avatar: resolveAvatarForApi(agent.avatar, agent.id),
-    model: agent.model,
+    ...(includePrivateMeta ? { model: agent.model } : {}),
     sdk: agent.sdk ?? "pi",
-    workspace: agent.workspace
-      ? resolveWorkspaceDir(agent.workspace)
-      : undefined,
+    ...(includePrivateMeta && agent.workspace
+      ? { workspace: resolveWorkspaceDir(agent.workspace) }
+      : {}),
     authMode: agent.auth?.mode,
     queueMode: agent.queueMode ?? "queue",
   });

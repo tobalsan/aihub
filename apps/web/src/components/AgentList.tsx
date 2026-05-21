@@ -76,16 +76,22 @@ export function AgentList() {
                     <Show when={agent.description}>
                       <div class="agent-description">{agent.description}</div>
                     </Show>
-                    <div class="agent-meta">
-                      <span class="agent-model">
-                        {agent.model.provider}/{agent.model.model}
-                      </span>
-                      {agent.workspace && (
-                        <span class="agent-workspace">
-                          {shortenPath(agent.workspace)}
-                        </span>
-                      )}
-                    </div>
+                    <Show when={agent.model || agent.workspace}>
+                      <div class="agent-meta">
+                        <Show when={agent.model}>
+                          {(model) => (
+                            <span class="agent-model">
+                              {model().provider}/{model().model}
+                            </span>
+                          )}
+                        </Show>
+                        {agent.workspace && (
+                          <span class="agent-workspace">
+                            {shortenPath(agent.workspace)}
+                          </span>
+                        )}
+                      </div>
+                    </Show>
                   </div>
                 </div>
               </A>

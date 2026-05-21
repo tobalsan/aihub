@@ -65,7 +65,7 @@ export type Agent = {
   description?: string;
   avatar?: string;
   sdk?: SdkId; // default "pi"
-  model: {
+  model?: {
     provider: string;
     model: string;
   };
