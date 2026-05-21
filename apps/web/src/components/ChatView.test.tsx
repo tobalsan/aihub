@@ -118,7 +118,9 @@ describe("ChatView abort handling", () => {
       isStreaming: false,
       activeTurn: null,
     });
-    fetchAgentStatusesMock.mockResolvedValue({ statuses: { "agent-1": "idle" } });
+    fetchAgentStatusesMock.mockResolvedValue({
+      statuses: { "agent-1": "idle" },
+    });
     fetchCapabilitiesMock.mockResolvedValue({
       version: 2,
       extensions: {},
@@ -166,9 +168,9 @@ describe("ChatView abort handling", () => {
     expect(container.textContent).toContain("Thinking");
     expect(container.textContent).toContain("final answer");
 
-    const thinkingToggle = Array.from(container.querySelectorAll("button")).find(
-      (button) => button.textContent?.includes("Thinking")
-    );
+    const thinkingToggle = Array.from(
+      container.querySelectorAll("button")
+    ).find((button) => button.textContent?.includes("Thinking"));
     if (!(thinkingToggle instanceof HTMLButtonElement)) {
       throw new Error("Expected thinking toggle");
     }
