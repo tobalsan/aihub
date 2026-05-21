@@ -135,7 +135,7 @@ model:
 EOF
 ```
 
-Run `aihub agents migrate` to convert older v2 configs with centralized `agents[]` records.
+Run `pnpm aihub agents migrate` to convert older v2 configs with centralized `agents[]` records into per-agent `agent.yaml` folders. Find it in help via `pnpm aihub --help` (shows `agents`), then `pnpm aihub agents --help` (shows `migrate`).
 
 For repo-local dev, `pnpm init-dev-config` writes `./.aihub/aihub.json` from `scripts/config-template.json`, picking the first free UI port in `3001-3100` and the first free gateway port in `4001-4100`.
 
@@ -488,11 +488,17 @@ pnpm aihub slices specs <sliceId> --from-readme [--force]
 pnpm aihub slices block <sliceId> --on <blockerId>[,<blockerId>...]
 pnpm aihub slices unblock <sliceId> [--from <blockerId>[,<blockerId>...]]
 
-# Local config CLI
+# Agent-folder config migration (v2 -> v3 centralized agents[] to agent.yaml)
+pnpm aihub agents migrate
+pnpm aihub agents --help
+pnpm aihub agents migrate --help
+
+# Projects extension config migration (v1 -> v2 component entries)
 pnpm aihub projects config migrate [--config <path>] [--dry-run]
 pnpm aihub projects config validate [--config <path>]
 
-# Note: v1 -> v2 migration only adds component entries when legacy config explicitly implied them.
+# Note: `projects config migrate` is separate from `agents migrate`.
+# v1 -> v2 migration only adds component entries when legacy config explicitly implied them.
 # It no longer auto-adds `components.amsg` or `components.conversations` just because agents exist.
 
 # `--subagent <name>` resolves a config-defined subagent from `aihub.json`.

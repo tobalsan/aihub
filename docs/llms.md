@@ -186,7 +186,7 @@ Zod schemas and TypeScript types:
 Projects extension. Owns project APIs, project subagent orchestration, and the gateway-mounted `aihub projects` command.
 
 - Remote project/subagent commands talk to the gateway API over HTTP.
-- Local config commands (`aihub projects config migrate`, `aihub projects config validate`) read/write `aihub.json` directly.
+- Local projects config commands (`aihub projects config migrate`, `aihub projects config validate`) read/write `aihub.json` directly and only cover v1 -> v2 component-entry migration. Agent-folder migration is `aihub agents migrate` (v2 centralized `agents[]` -> v3 per-agent `agent.yaml`); top-level help shows `agents`, then `aihub agents --help` shows `migrate`.
 - Env URL precedence for HTTP commands: `AIHUB_API_URL` > `AIHUB_URL` > `$AIHUB_HOME/aihub.json` (`apiUrl`, default home `~/.aihub/`)
 - Token precedence for HTTP commands: `AIHUB_TOKEN` > `$AIHUB_HOME/aihub.json` (`token`, default home `~/.aihub/`)
 - Local config path precedence: `--config` > `$AIHUB_HOME/aihub.json` (legacy fallback: derive home from `AIHUB_CONFIG`)
