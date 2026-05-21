@@ -27,12 +27,45 @@ import {
   resolveStartupConfig,
 } from "../config/validate.js";
 import { startGatewayCommand } from "./gateway.js";
-import {
-  getExtensionRuntime,
-  loadExtensions,
-} from "../extensions/registry.js";
+import { getExtensionRuntime, loadExtensions } from "../extensions/registry.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
+const monorepoProjectsExtensionImport = new URL(
+  "../../../../packages/extensions/projects/src/index.ts",
+  import.meta.url
+).href;
+
+function isModuleNotFound(error: unknown): boolean {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
+}
+
+function isMonorepoDevRuntime(): boolean {
+  return (
+    process.env.AIHUB_WEB_DEV === "1" ||
+    process.env.NODE_OPTIONS?.includes("--conditions=development") === true
+  );
+}
+
+async function importOptionalProjectsExtension(): Promise<
+  Record<string, unknown>
+> {
+  const specifier = "@aihub/extension-projects";
+  try {
+    return (await import(specifier)) as Record<string, unknown>;
+  } catch (error) {
+    if (isModuleNotFound(error) && isMonorepoDevRuntime()) {
+      return (await import(monorepoProjectsExtensionImport)) as Record<
+        string,
+        unknown
+      >;
+    }
+    throw error;
+  }
+}
 
 // Tracks web UI child process for cleanup
 let webProcess: ChildProcess | null = null;
@@ -43,8 +76,7 @@ const TAILSCALE_SERVE_REFRESH_INTERVAL_MS = 5 * 60 * 1000;
 
 async function registerOptionalProjectsCli(program: Command): Promise<void> {
   try {
-    const specifier = "@aihub/extension-projects";
-    const module = (await import(specifier)) as Record<string, unknown>;
+    const module = await importOptionalProjectsExtension();
     const registerProjectsCommands = module.registerProjectsCommands;
     const registerSlicesCommands = module.registerSlicesCommands;
     if (
@@ -52,7 +84,7 @@ async function registerOptionalProjectsCli(program: Command): Promise<void> {
       typeof registerSlicesCommands !== "function"
     ) {
       throw new Error(
-        "Package \"@aihub/extension-projects\" does not export project CLI commands"
+        'Package "@aihub/extension-projects" does not export project CLI commands'
       );
     }
     registerProjectsCommands(
@@ -68,15 +100,11 @@ async function registerOptionalProjectsCli(program: Command): Promise<void> {
         .version("0.1.0")
     );
   } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? (error as { code?: unknown }).code
-        : undefined;
-    if (code !== "ERR_MODULE_NOT_FOUND" && code !== "MODULE_NOT_FOUND") {
+    if (!isModuleNotFound(error)) {
       throw error;
     }
     const message =
-      "Project CLI commands require optional package \"@aihub/extension-projects\". Install it or do not use `aihub projects`/`aihub slices`.";
+      'Project CLI commands require optional package "@aihub/extension-projects". Install it or do not use `aihub projects`/`aihub slices`.';
     program
       .command("projects")
       .description("Manage AIHub projects")

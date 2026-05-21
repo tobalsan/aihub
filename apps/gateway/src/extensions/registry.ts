@@ -14,12 +14,54 @@ type ExtensionRegistration = {
   allowRoutesWhenDisabled?: boolean;
 };
 
+type ExtensionModule = Record<string, unknown>;
+
+const MONOREPO_DEV_EXTENSION_IMPORTS: Record<string, string> = {
+  "@aihub/extension-board": new URL(
+    "../../../../packages/extensions/board/src/index.ts",
+    import.meta.url
+  ).href,
+  "@aihub/extension-projects": new URL(
+    "../../../../packages/extensions/projects/src/index.ts",
+    import.meta.url
+  ).href,
+};
+
+function isModuleNotFound(error: unknown): boolean {
+  const code =
+    error && typeof error === "object" && "code" in error
+      ? (error as { code?: unknown }).code
+      : undefined;
+  return code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND";
+}
+
+function isMonorepoDevRuntime(): boolean {
+  return (
+    process.env.AIHUB_WEB_DEV === "1" ||
+    process.env.NODE_OPTIONS?.includes("--conditions=development") === true
+  );
+}
+
+async function importExtensionModule(
+  packageName: string
+): Promise<ExtensionModule> {
+  try {
+    return (await import(packageName)) as ExtensionModule;
+  } catch (error) {
+    const devImport = MONOREPO_DEV_EXTENSION_IMPORTS[packageName];
+    if (isModuleNotFound(error) && devImport && isMonorepoDevRuntime()) {
+      return (await import(devImport)) as ExtensionModule;
+    }
+    throw error;
+  }
+}
+
 async function importExtension(
   packageName: string,
   exportName: string
 ): Promise<Extension> {
   try {
-    const module = (await import(packageName)) as Record<string, unknown>;
+    const module = await importExtensionModule(packageName);
     const extension = module[exportName];
     if (!extension) {
       throw new Error(
@@ -28,11 +70,7 @@ async function importExtension(
     }
     return extension as Extension;
   } catch (error) {
-    const code =
-      error && typeof error === "object" && "code" in error
-        ? (error as { code?: unknown }).code
-        : undefined;
-    if (code === "ERR_MODULE_NOT_FOUND" || code === "MODULE_NOT_FOUND") {
+    if (isModuleNotFound(error)) {
       throw new Error(
         `Extension package "${packageName}" is required because it is enabled, but it is not installed. Install the package or disable the extension in config.`
       );
@@ -106,7 +144,10 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     getConfig: (config) => {
       const hasPerAgent = config.agents.some((agent) => agent.heartbeat?.every);
       if (config.extensions?.heartbeat) {
-        return { ...config.extensions.heartbeat, _perAgentFallback: hasPerAgent };
+        return {
+          ...config.extensions.heartbeat,
+          _perAgentFallback: hasPerAgent,
+        };
       }
       return hasPerAgent ? { _perAgent: true } : undefined;
     },
@@ -260,7 +301,8 @@ export async function loadExtensions(
 
     // Most extensions are skipped when explicitly disabled. Scheduler is
     // special: disabled means no timer firing, but API/CLI routes stay usable.
-    if (extensionConfig?.enabled === false && !registration.loadWhenDisabled) continue;
+    if (extensionConfig?.enabled === false && !registration.loadWhenDisabled)
+      continue;
 
     // Skip extensions that have no config — must be opted in via config.extensions[id]
     if (!hasConfig) continue;
