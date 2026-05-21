@@ -2,6 +2,10 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { delegateEvents, render } from "solid-js/web";
 import { ChatView } from "./ChatView";
+import {
+  resetCapabilitiesForTests,
+  setCapabilitiesForTests,
+} from "../lib/capabilities";
 
 const navigateMock = vi.fn();
 
@@ -10,6 +14,7 @@ const {
   fetchSimpleHistoryMock,
   fetchFullHistoryMock,
   fetchAgentStatusesMock,
+  fetchCapabilitiesMock,
   getSessionKeyMock,
   postAbortMock,
   streamMessageMock,
@@ -22,6 +27,7 @@ const {
   fetchSimpleHistoryMock: vi.fn(),
   fetchFullHistoryMock: vi.fn(),
   fetchAgentStatusesMock: vi.fn(),
+  fetchCapabilitiesMock: vi.fn(),
   getSessionKeyMock: vi.fn(),
   postAbortMock: vi.fn(),
   streamMessageMock: vi.fn(),
@@ -42,6 +48,7 @@ vi.mock("../api", () => ({
   fetchSimpleHistory: fetchSimpleHistoryMock,
   fetchFullHistory: fetchFullHistoryMock,
   fetchAgentStatuses: fetchAgentStatusesMock,
+  fetchCapabilities: fetchCapabilitiesMock,
   getSessionKey: getSessionKeyMock,
   postAbort: postAbortMock,
   streamMessage: streamMessageMock,
@@ -51,6 +58,19 @@ vi.mock("../api", () => ({
 }));
 
 const tick = () => new Promise((resolve) => setTimeout(resolve, 0));
+async function waitFor(assertion: () => void) {
+  let lastError: unknown;
+  for (let i = 0; i < 20; i += 1) {
+    try {
+      assertion();
+      return;
+    } catch (error) {
+      lastError = error;
+      await tick();
+    }
+  }
+  throw lastError;
+}
 
 function createFileDragEvent(
   type: "dragenter" | "dragover" | "drop",
@@ -99,6 +119,14 @@ describe("ChatView abort handling", () => {
       activeTurn: null,
     });
     fetchAgentStatusesMock.mockResolvedValue({ statuses: { "agent-1": "idle" } });
+    fetchCapabilitiesMock.mockResolvedValue({
+      version: 2,
+      extensions: {},
+      agents: ["agent-1"],
+      multiUser: false,
+      agentFab: false,
+    });
+    setCapabilitiesForTests({ multiUser: false });
     getSessionKeyMock.mockReturnValue("main");
     postAbortMock.mockResolvedValue(undefined);
     streamMessageMock.mockImplementation(() => () => {});
@@ -110,7 +138,79 @@ describe("ChatView abort handling", () => {
 
   afterEach(() => {
     document.body.innerHTML = "";
+    resetCapabilitiesForTests();
     vi.clearAllMocks();
+  });
+
+  it("renders thinking traces in simple history", async () => {
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "private chain summary" },
+            { type: "text", text: "final answer" },
+          ],
+          timestamp: 123,
+        },
+      ],
+      thinkingLevel: undefined,
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    expect(container.textContent).toContain("Thinking");
+    expect(container.textContent).toContain("final answer");
+
+    const thinkingToggle = Array.from(container.querySelectorAll("button")).find(
+      (button) => button.textContent?.includes("Thinking")
+    );
+    if (!(thinkingToggle instanceof HTMLButtonElement)) {
+      throw new Error("Expected thinking toggle");
+    }
+    thinkingToggle.click();
+    await tick();
+
+    expect(container.textContent).toContain("private chain summary");
+
+    dispose();
+  });
+
+  it("forces simple view and hides view toggle for non-admin users", async () => {
+    routeState.view = "full";
+    setCapabilitiesForTests({
+      multiUser: true,
+      user: { id: "user-1", role: "user" },
+    });
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [
+            { type: "thinking", thinking: "simple trace" },
+            { type: "text", text: "simple answer" },
+          ],
+          timestamp: 123,
+        },
+      ],
+      thinkingLevel: undefined,
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".view-toggle")).toBeNull();
+    expect(container.textContent).toContain("simple answer");
+    expect(container.querySelector(".full-message")).toBeNull();
+
+    dispose();
   });
 
   it("keeps streamed assistant text visible after Stop aborts the run", async () => {
@@ -147,6 +247,7 @@ describe("ChatView abort handling", () => {
     if (!(sendBtn instanceof HTMLButtonElement)) {
       throw new Error("Expected send button");
     }
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
     sendBtn.click();
     await tick();
 
@@ -232,6 +333,7 @@ describe("ChatView abort handling", () => {
     if (!(sendBtn instanceof HTMLButtonElement)) {
       throw new Error("Expected send button");
     }
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
     sendBtn.click();
     await tick();
 
@@ -240,7 +342,13 @@ describe("ChatView abort handling", () => {
     callbacks?.onToolCall?.("tool-1", "bash", { command: "date" });
     callbacks?.onToolResult?.("tool-1", "bash", "tool output", false);
     onText?.(" Last text.");
-    await tick();
+    await waitFor(() => {
+      const text = container.textContent ?? "";
+      expect(text).toContain("First text.");
+      expect(text).toContain("bash");
+      expect(text).toContain("tool output");
+      expect(text).toContain("Last text.");
+    });
 
     const liveText = container.textContent ?? "";
     expect(liveText.indexOf("First text.")).toBeLessThan(
