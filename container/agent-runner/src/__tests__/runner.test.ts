@@ -490,6 +490,49 @@ describe("Pi runner", () => {
     await fs.rm(tempDir, { recursive: true, force: true });
   });
 
+  it("includes non-image attachment paths in the prompt", async () => {
+    const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
+    const workspaceDir = path.join(tempDir, "workspace");
+    const sessionDir = path.join(tempDir, "sessions");
+    await fs.mkdir(workspaceDir, { recursive: true });
+    await fs.mkdir(sessionDir, { recursive: true });
+
+    piMock.session.prompt.mockImplementationOnce(async () => {
+      piMock.session.messages.push({
+        role: "assistant",
+        content: [{ type: "text", text: "ok" }],
+        stopReason: "end_turn",
+      });
+    });
+
+    await runAgent(
+      createInput({
+        workspaceDir,
+        sessionDir,
+        attachments: [
+          {
+            path: "/workspace/uploads/1-report.xlsx",
+            filename: "report.xlsx",
+            mimeType:
+              "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
+            size: 1234,
+          },
+        ],
+      })
+    );
+
+    expect(piMock.session.prompt).toHaveBeenCalledWith(
+      expect.stringContaining("/workspace/uploads/1-report.xlsx"),
+      undefined
+    );
+    expect(piMock.session.prompt).toHaveBeenCalledWith(
+      expect.stringContaining("Use read/bash to inspect them"),
+      undefined
+    );
+
+    await fs.rm(tempDir, { recursive: true, force: true });
+  });
+
   it("appends channel context to the system prompt and emits full/system context history", async () => {
     const tempDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-runner-"));
     const workspaceDir = path.join(tempDir, "workspace");
@@ -570,6 +613,7 @@ function createInput(paths: {
   extensionSystemPrompts?: ContainerInput["extensionSystemPrompts"];
   extensionTools?: ContainerInput["extensionTools"];
   context?: ContainerInput["context"];
+  attachments?: ContainerInput["attachments"];
 }): ContainerInput {
   return {
     agentId: "agent-1",
@@ -583,6 +627,7 @@ function createInput(paths: {
     extensionSystemPrompts: paths.extensionSystemPrompts,
     extensionTools: paths.extensionTools,
     context: paths.context,
+    attachments: paths.attachments,
     sdkConfig: {
       sdk: "pi",
       model: {

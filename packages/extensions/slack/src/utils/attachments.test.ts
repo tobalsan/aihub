@@ -23,10 +23,12 @@ describe("Slack attachment helpers", () => {
       ["photo.gif", "image/gif"],
       ["photo.webp", "image/webp"],
       ["doc.pdf", "application/pdf"],
+      ["doc.doc", "application/msword"],
       [
         "doc.docx",
         "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
       ],
+      ["sheet.xls", "application/vnd.ms-excel"],
       [
         "sheet.xlsx",
         "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -134,6 +136,10 @@ describe("Slack attachment helpers", () => {
   });
 
   it("maps extension-only files to the expected MIME type", () => {
+    expect(getSlackFileMimeType({ name: "doc.doc" })).toBe("application/msword");
+    expect(getSlackFileMimeType({ name: "sheet.xls" })).toBe(
+      "application/vnd.ms-excel"
+    );
     expect(getSlackFileMimeType({ name: "sheet.xlsx" })).toBe(
       "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
     );

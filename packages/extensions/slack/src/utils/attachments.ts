@@ -8,7 +8,9 @@ const SUPPORTED_MIME_TYPES = new Set([
   "image/gif",
   "image/webp",
   "application/pdf",
+  "application/msword",
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+  "application/vnd.ms-excel",
   "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
 ]);
 
@@ -19,7 +21,9 @@ const SUPPORTED_EXTENSIONS = new Set([
   "gif",
   "webp",
   "pdf",
+  "doc",
   "docx",
+  "xls",
   "xlsx",
 ]);
 
@@ -30,10 +34,12 @@ const MIME_TYPES_BY_EXTENSION = new Map([
   ["gif", "image/gif"],
   ["webp", "image/webp"],
   ["pdf", "application/pdf"],
+  ["doc", "application/msword"],
   [
     "docx",
     "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
   ],
+  ["xls", "application/vnd.ms-excel"],
   [
     "xlsx",
     "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
@@ -108,8 +114,12 @@ export function getSlackFileMimeType(file: SlackFile): string {
       return "image/webp";
     case "pdf":
       return "application/pdf";
+    case "doc":
+      return "application/msword";
     case "docx":
       return "application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+    case "xls":
+      return "application/vnd.ms-excel";
     case "xlsx":
       return "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet";
     default:

@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import mammoth from "mammoth";
 import { PDFParse } from "pdf-parse";
-import * as XLSX from "xlsx";
+import XLSX from "xlsx";
 
 const RAW_TEXT_MIME_TYPES = new Set([
   "text/csv",

@@ -75,9 +75,13 @@ export async function runAgent(
   const history: HistoryEvent[] = [];
   const context = input.context as AgentContext | undefined;
   const renderedContext = context ? renderAgentContext(context) : "";
-  const promptText = renderedContext
-    ? `${renderedContext}\n\n${input.message}`
+  const attachmentContext = formatNonImageAttachmentContext(input);
+  const messageWithAttachments = attachmentContext
+    ? `${input.message}\n\n${attachmentContext}`
     : input.message;
+  const promptText = renderedContext
+    ? `${renderedContext}\n\n${messageWithAttachments}`
+    : messageWithAttachments;
   if (renderedContext && context) {
     const systemContextEvent: HistoryEvent = {
       type: "system_context",
@@ -210,6 +214,26 @@ export async function runAgent(
   pendingFollowUps = [];
 
   return { text, aborted, history };
+}
+
+function formatNonImageAttachmentContext(input: ContainerInput): string {
+  const attachments = input.attachments?.filter(
+    (attachment) => !attachment.mimeType.startsWith("image/")
+  );
+  if (!attachments?.length) return "";
+
+  const lines = attachments.map((attachment) => {
+    const filename = attachment.filename ?? path.basename(attachment.path);
+    const size =
+      typeof attachment.size === "number" ? `, ${attachment.size} bytes` : "";
+    return `- ${filename}: ${attachment.path} (${attachment.mimeType}${size})`;
+  });
+
+  return [
+    "Attached files are available inside the container at these paths:",
+    ...lines,
+    "Use read/bash to inspect them if extracted text is not included above.",
+  ].join("\n");
 }
 
 async function loadContextFiles(

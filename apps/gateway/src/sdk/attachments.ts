@@ -58,17 +58,25 @@ export async function buildDocumentAttachmentContext(
     try {
       const normalized = await normalizeInboundAttachment(attachment);
       text = await extractText(normalized.path, attachment.mimeType);
-    } catch {
-      continue;
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      console.warn(
+        `Failed to extract attachment text from ${getAttachmentFilename(attachment)}: ${message}`
+      );
+      text = null;
     }
-    if (!text?.trim()) continue;
+    const content = text?.trim();
     blocks.push(
       [
         `File: ${getAttachmentFilename(attachment)}`,
         `MIME type: ${attachment.mimeType}`,
-        "",
-        text.trim(),
-      ].join("\n")
+        content
+          ? ""
+          : "Content: not extracted; inspect the attached file path if available.",
+        content ?? "",
+      ]
+        .filter((line) => line !== "")
+        .join("\n")
     );
   }
 
