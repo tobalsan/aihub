@@ -17,6 +17,22 @@ import {
 } from "@buape/carbon";
 import { GatewayPlugin, GatewayIntents } from "@buape/carbon/gateway";
 
+// Carbon's GatewayPlugin emits 'error' on a protected EventEmitter for transient
+// WS failures (e.g. DNS blips during reconnect). Without a listener, Node's
+// EventEmitter throws and crashes the gateway process. Subclass to attach a
+// no-op listener so reconnect logic can run unimpeded.
+class SafeGatewayPlugin extends GatewayPlugin {
+  constructor(
+    options: ConstructorParameters<typeof GatewayPlugin>[0],
+    gatewayInfo: ConstructorParameters<typeof GatewayPlugin>[1]
+  ) {
+    super(options, gatewayInfo);
+    this.emitter.on("error", (err) => {
+      console.error("[discord] gateway error:", err);
+    });
+  }
+}
+
 export type { Client as CarbonClient };
 
 const DISCORD_GATEWAY_URL = "wss://gateway.discord.gg/?v=10&encoding=json";
@@ -119,7 +135,7 @@ export function createCarbonClient(config: DiscordClientConfig): Client {
     disableEventsRoute: true,
   };
 
-  const gatewayPlugin = new GatewayPlugin(
+  const gatewayPlugin = new SafeGatewayPlugin(
     {
       intents:
         GatewayIntents.Guilds |

@@ -289,6 +289,13 @@ function printDevBanner(
 `);
 }
 
+process.on("uncaughtException", (err) => {
+  console.error("[gateway] uncaughtException:", err);
+});
+process.on("unhandledRejection", (reason) => {
+  console.error("[gateway] unhandledRejection:", reason);
+});
+
 const gatewayCmd = program
   .command("gateway")
   .description("Start the gateway server (multi-agent mode)")
