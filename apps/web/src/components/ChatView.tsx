@@ -4,11 +4,13 @@ import {
   createResource,
   createMemo,
   For,
+  Index,
   onCleanup,
   Show,
   on,
   batch,
 } from "solid-js";
+
 import { useParams, useNavigate, A } from "@solidjs/router";
 import {
   streamMessage,
@@ -760,9 +762,7 @@ export function ChatView() {
     setLoading(false);
   };
 
-  const applyActiveTurnSnapshot = (
-    turn: import("../api").ActiveTurn
-  ) => {
+  const applyActiveTurnSnapshot = (turn: import("../api").ActiveTurn) => {
     setIsStreaming(true);
     setStreamingStartedAt(turn.startedAt ?? Date.now());
     setStreamingThinking(turn.thinking ?? "");
@@ -859,12 +859,12 @@ export function ChatView() {
 
   const appendStreamingTextBlock = (chunk: string, timestamp = Date.now()) => {
     setStreamingBlocks((blocks) => {
-      const last = blocks.at(-1);
+      const lastIdx = blocks.length - 1;
+      const last = lastIdx >= 0 ? blocks[lastIdx] : undefined;
       if (last?.type === "text") {
-        return [
-          ...blocks.slice(0, -1),
-          { ...last, text: last.text + chunk },
-        ];
+        const next = blocks.slice();
+        next[lastIdx] = { ...last, text: last.text + chunk };
+        return next;
       }
       return [...blocks, { type: "text", text: chunk, timestamp }];
     });
@@ -875,12 +875,12 @@ export function ChatView() {
     timestamp = Date.now()
   ) => {
     setStreamingBlocks((blocks) => {
-      const last = blocks.at(-1);
+      const lastIdx = blocks.length - 1;
+      const last = lastIdx >= 0 ? blocks[lastIdx] : undefined;
       if (last?.type === "thinking") {
-        return [
-          ...blocks.slice(0, -1),
-          { ...last, thinking: last.thinking + chunk },
-        ];
+        const next = blocks.slice();
+        next[lastIdx] = { ...last, thinking: last.thinking + chunk };
+        return next;
       }
       return [...blocks, { type: "thinking", thinking: chunk, timestamp }];
     });
@@ -893,11 +893,8 @@ export function ChatView() {
     timestamp = Date.now()
   ) => {
     setStreamingBlocks((blocks) => {
-      if (
-        blocks.some((block) => block.type === "toolCall" && block.id === id)
-      ) {
+      if (blocks.some((b) => b.type === "toolCall" && b.id === id))
         return blocks;
-      }
       return [
         ...blocks,
         {
@@ -917,12 +914,10 @@ export function ChatView() {
     status: "done" | "error"
   ) => {
     setStreamingBlocks((blocks) =>
-      blocks.map((block) =>
-        block.type === "toolCall" &&
-        block.name === toolName &&
-        block.status === "running"
-          ? { ...block, status }
-          : block
+      blocks.map((b) =>
+        b.type === "toolCall" && b.name === toolName && b.status === "running"
+          ? { ...b, status }
+          : b
       )
     );
   };
@@ -943,12 +938,14 @@ export function ChatView() {
       details,
       timestamp: Date.now(),
     };
+    const status = isError ? "error" : "done";
     setStreamingBlocks((blocks) =>
-      blocks.map((block) =>
-        block.type === "toolCall" && block.id === id
-          ? { ...block, status: isError ? "error" : "done", result }
-          : block
+      blocks.map((b) =>
+        b.type === "toolCall" && b.id === id ? { ...b, status, result } : b
       )
+    );
+    setStreamingToolCalls((prev) =>
+      prev.map((tc) => (tc.id === id ? { ...tc, status } : tc))
     );
   };
 
@@ -992,24 +989,25 @@ export function ChatView() {
       onText: (chunk) => {
         if (cleanup) return;
         setStreamingFinished(false);
+        appendStreamingTextBlock(chunk);
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
-        appendStreamingTextBlock(chunk);
         setIsStreaming(true);
       },
       onThinking: (chunk) => {
         if (cleanup) return;
         setStreamingFinished(false);
+        appendStreamingThinkingBlock(chunk);
         setStreamingThinking((prev) => prev + chunk);
         if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
-        appendStreamingThinkingBlock(chunk);
         setIsStreaming(true);
       },
       onToolCall: (id, name, args) => {
         if (cleanup) return;
         setStreamingFinished(false);
+        appendStreamingToolCallBlock(id, name, args);
         setStreamingToolCalls((prev) => {
           if (prev.some((tc) => tc.id === id)) return prev;
           return [
@@ -1023,7 +1021,6 @@ export function ChatView() {
             },
           ];
         });
-        appendStreamingToolCallBlock(id, name, args);
         if (!streamingStartedAt()) setStreamingStartedAt(Date.now());
         setIsStreaming(true);
       },
@@ -1176,7 +1173,7 @@ export function ChatView() {
     simpleMessages();
     fullMessages();
     streamingText();
-    streamingBlocks();
+    streamingBlocks().length;
     streamingFiles();
     activeTools();
     scrollToBottom();
@@ -1734,9 +1731,9 @@ export function ChatView() {
       sessionKey(),
       (chunk) => {
         setStreamingFinished(false);
+        appendStreamingTextBlock(chunk);
         setStreamingText((prev) => prev + chunk);
         if (!streamingTextAt()) setStreamingTextAt(Date.now());
-        appendStreamingTextBlock(chunk);
       },
       (meta?: DoneMeta) => {
         // Queued ack arrived unexpectedly - reset state only if no real stream content
@@ -1825,12 +1822,13 @@ export function ChatView() {
       {
         onThinking: (chunk) => {
           setStreamingFinished(false);
+          appendStreamingThinkingBlock(chunk);
           setStreamingThinking((prev) => prev + chunk);
           if (!streamingThinkingAt()) setStreamingThinkingAt(Date.now());
-          appendStreamingThinkingBlock(chunk);
         },
         onToolCall: (id, name, args) => {
           setStreamingFinished(false);
+          appendStreamingToolCallBlock(id, name, args);
           setStreamingToolCalls((prev) => [
             ...prev,
             {
@@ -1841,7 +1839,6 @@ export function ChatView() {
               timestamp: Date.now(),
             },
           ]);
-          appendStreamingToolCallBlock(id, name, args);
         },
         onToolStart: (toolName) => {
           setActiveTools((prev) => [
@@ -2048,40 +2045,40 @@ export function ChatView() {
             {(msg) => {
               const skipAnim = noAnimIds.delete(msg.id);
               return (
-              <div class={`message ${msg.role}${skipAnim ? " no-anim" : ""}`}>
-                {msg.role === "tool" ? (
-                  <SimpleToolBlock name={msg.toolName} />
-                ) : msg.role === "thinking" ? (
-                  <CollapsibleBlock
-                    title="Thinking"
-                    content={msg.content}
-                    defaultCollapsed={true}
-                    timestamp={msg.timestamp}
-                  />
-                ) : msg.role === "assistant" ? (
-                  <>
-                    <Show when={msg.content}>
-                      <div
-                        class="content markdown-content"
-                        innerHTML={renderMarkdown(msg.content)}
-                      />
-                    </Show>
-                    <For each={msg.files ?? []}>
-                      {(file) => <FileCard file={file} />}
-                    </For>
-                  </>
-                ) : (
-                  <>
-                    <div class="content">{msg.content}</div>
-                    <FileAttachmentList files={msg.files} />
-                  </>
-                )}
-                <Show when={msg.role !== "tool" && msg.role !== "thinking"}>
-                  <div class="message-time">
-                    {formatTimestamp(msg.timestamp)}
-                  </div>
-                </Show>
-              </div>
+                <div class={`message ${msg.role}${skipAnim ? " no-anim" : ""}`}>
+                  {msg.role === "tool" ? (
+                    <SimpleToolBlock name={msg.toolName} />
+                  ) : msg.role === "thinking" ? (
+                    <CollapsibleBlock
+                      title="Thinking"
+                      content={msg.content}
+                      defaultCollapsed={true}
+                      timestamp={msg.timestamp}
+                    />
+                  ) : msg.role === "assistant" ? (
+                    <>
+                      <Show when={msg.content}>
+                        <div
+                          class="content markdown-content"
+                          innerHTML={renderMarkdown(msg.content)}
+                        />
+                      </Show>
+                      <For each={msg.files ?? []}>
+                        {(file) => <FileCard file={file} />}
+                      </For>
+                    </>
+                  ) : (
+                    <>
+                      <div class="content">{msg.content}</div>
+                      <FileAttachmentList files={msg.files} />
+                    </>
+                  )}
+                  <Show when={msg.role !== "tool" && msg.role !== "thinking"}>
+                    <div class="message-time">
+                      {formatTimestamp(msg.timestamp)}
+                    </div>
+                  </Show>
+                </div>
               );
             }}
           </For>
@@ -2167,39 +2164,50 @@ export function ChatView() {
             classList={{ streaming: isStreaming() }}
           >
             <div class="content-blocks">
-              <For each={streamingBlocks()}>
-                {(block) => {
-                  if (block.type === "thinking") {
+              <Index each={streamingBlocks()}>
+                {(blockAccessor) => {
+                  const initial = blockAccessor();
+                  if (initial.type === "thinking") {
                     return (
                       <CollapsibleBlock
                         title="Thinking"
-                        content={block.thinking}
+                        content={(blockAccessor() as { thinking: string }).thinking}
                         defaultCollapsed={false}
-                        timestamp={block.timestamp}
+                        timestamp={initial.timestamp}
                       />
                     );
                   }
-                  if (block.type === "text") {
+                  if (initial.type === "text") {
                     return (
                       <div
                         class="block-text markdown-content"
-                        innerHTML={renderMarkdown(block.text)}
+                        innerHTML={renderMarkdown(
+                          (blockAccessor() as { text: string }).text
+                        )}
                       />
                     );
                   }
-                  if (block.type === "toolCall") {
+                  if (initial.type === "toolCall") {
                     return (
                       <ToolBlock
-                        name={block.name}
-                        arguments={block.arguments}
-                        result={block.result}
-                        status={block.status}
+                        name={initial.name}
+                        arguments={initial.arguments}
+                        result={
+                          (blockAccessor() as {
+                            result?: FullToolResultMessage;
+                          }).result
+                        }
+                        status={
+                          (blockAccessor() as {
+                            status: "running" | "done" | "error";
+                          }).status
+                        }
                       />
                     );
                   }
-                  return <FileCard file={block} />;
+                  return <FileCard file={blockAccessor() as FileBlock} />;
                 }}
-              </For>
+              </Index>
             </div>
             {streamingStartedAt() && (
               <div class="message-time">
@@ -2235,53 +2243,58 @@ export function ChatView() {
                 )}
               </div>
             </Show>
-            <For each={streamingBlocks()}>
-              {(block) => {
-                if (block.type === "text") {
+            <Index each={streamingBlocks()}>
+              {(blockAccessor) => {
+                const initial = blockAccessor();
+                if (initial.type === "text") {
                   return (
                     <div class="message assistant streaming">
                       <div
                         class="content markdown-content"
-                        innerHTML={renderMarkdown(block.text)}
+                        innerHTML={renderMarkdown(
+                          (blockAccessor() as { text: string }).text
+                        )}
                       />
                       <div class="message-time">
-                        {formatTimestamp(block.timestamp)}
+                        {formatTimestamp(initial.timestamp)}
                       </div>
                     </div>
                   );
                 }
-                if (block.type === "thinking") {
+                if (initial.type === "thinking") {
                   return (
                     <div class="message thinking streaming">
                       <CollapsibleBlock
                         title="Thinking"
-                        content={block.thinking}
+                        content={
+                          (blockAccessor() as { thinking: string }).thinking
+                        }
                         defaultCollapsed={false}
-                        timestamp={block.timestamp}
+                        timestamp={initial.timestamp}
                       />
                     </div>
                   );
                 }
-                if (block.type === "toolCall") {
+                if (initial.type === "toolCall") {
                   return (
                     <div class="message tool">
-                      <SimpleToolBlock name={block.name} />
+                      <SimpleToolBlock name={initial.name} />
                     </div>
                   );
                 }
-                if (block.type === "file") {
+                if (initial.type === "file") {
                   return (
                     <div class="message assistant">
-                      <FileCard file={block} />
+                      <FileCard file={initial} />
                       <div class="message-time">
-                        {formatTimestamp(block.timestamp)}
+                        {formatTimestamp(initial.timestamp)}
                       </div>
                     </div>
                   );
                 }
                 return null;
               }}
-            </For>
+            </Index>
             <Show when={streamingBlocks().length === 0}>
               <For each={streamingFiles()}>
                 {(file) => <FileCard file={file} />}
@@ -2386,7 +2399,12 @@ export function ChatView() {
             "drop-target": isFileDragActive() && activeDropZone() === "attach",
           }}
           aria-label="Attach files"
-          disabled={loading() || uploadingFiles() || isStreaming() || impersonationStatus()?.active}
+          disabled={
+            loading() ||
+            uploadingFiles() ||
+            isStreaming() ||
+            impersonationStatus()?.active
+          }
           onClick={() => fileInputRef?.click()}
         >
           <svg viewBox="0 0 24 24" aria-hidden="true">
@@ -2409,7 +2427,11 @@ export function ChatView() {
           <textarea
             ref={textareaRef}
             class="input"
-            placeholder={impersonationStatus()?.active ? "Read-only — exit impersonation to send." : "Message..."}
+            placeholder={
+              impersonationStatus()?.active
+                ? "Read-only — exit impersonation to send."
+                : "Message..."
+            }
             value={input()}
             disabled={impersonationStatus()?.active}
             onInput={(e) => {
