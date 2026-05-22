@@ -1100,6 +1100,8 @@ Add custom providers via `$AIHUB_HOME/models.json` (default: `~/.aihub/models.js
 
 Synced to Pi SDK's agent dir on each run.
 
+`pnpm update-models` includes models declared here when refreshing web context usage data. If a model has `contextWindow` in `models.json`, that value is used; otherwise the script tries OpenRouter first, then falls back to `https://models.dev/api.json`.
+
 ## Skills
 
 Each agent can have their own skills. Skills (and other custom agent resources like commands) should be available to any coding harnesses, therefore, we use a generalized folder name. Therefore, place agent skills in `{agent_workspace}/agent/skills/`
