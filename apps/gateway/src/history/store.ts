@@ -120,6 +120,18 @@ type HistoryEntry =
   | AssistantHistoryEntry
   | ToolResultHistoryEntry;
 
+function orderMessagesByTimestamp<T extends { timestamp: number }>(
+  messages: T[]
+): T[] {
+  return messages
+    .map((message, index) => ({ message, index }))
+    .sort((a, b) => {
+      const diff = a.message.timestamp - b.message.timestamp;
+      return diff === 0 ? a.index - b.index : diff;
+    })
+    .map((entry) => entry.message);
+}
+
 // Meta entry for session-level metadata (e.g., thinkingLevel changes)
 type MetaEntry = {
   type: "meta";
@@ -574,7 +586,7 @@ export async function getSimpleHistory(
     console.warn("[history] Could not read simple history file", { agentId, sessionId, error: String(err) });
   }
 
-  return messages;
+  return orderMessagesByTimestamp(messages);
 }
 
 /**
@@ -639,7 +651,71 @@ export async function getFullHistory(
     console.warn("[history] Could not read full history file", { agentId, sessionId, error: String(err) });
   }
 
-  return messages;
+  return orderMessagesByTimestamp(messages);
+}
+
+export async function replaceCanonicalHistoryWithCompaction(params: {
+  agentId: string;
+  sessionId: string;
+  summary: string;
+  recentMessages: FullHistoryMessage[];
+  userId?: string;
+}): Promise<void> {
+  const file = await resolveHistoryFile(
+    params.agentId,
+    params.sessionId,
+    params.userId
+  );
+  await fs.mkdir(path.dirname(file), { recursive: true });
+  const firstRecentTimestamp = params.recentMessages.reduce(
+    (min, message) => Math.min(min, message.timestamp),
+    Date.now()
+  );
+  const entries: HistoryEntry[] = [
+    {
+      type: "history",
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      role: "system",
+      content: [
+        {
+          type: "text",
+          text: `[COMPACTED CONTEXT SUMMARY]\n${params.summary.trim()}`,
+        },
+      ],
+      timestamp: Math.max(0, firstRecentTimestamp - 1),
+    },
+  ];
+
+  for (const message of params.recentMessages) {
+    if (message.role === "toolResult") continue;
+    const entry =
+      message.role === "assistant" && message.meta
+        ? {
+            ...message,
+            meta: {
+              provider: message.meta.provider,
+              model: message.meta.model,
+              api: message.meta.api,
+              stopReason: message.meta.stopReason,
+            },
+          }
+        : message;
+    entries.push({
+      type: "history",
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      ...entry,
+    } as HistoryEntry);
+  }
+
+  const tmp = `${file}.${process.pid}.${Date.now()}.tmp`;
+  await fs.writeFile(
+    tmp,
+    entries.map((entry) => JSON.stringify(entry)).join("\n") + "\n",
+    "utf-8"
+  );
+  await fs.rename(tmp, file);
 }
 
 /**

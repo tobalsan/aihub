@@ -22,6 +22,7 @@ import {
   subscribeToSession,
   subscribeToRealtime,
   postAbort,
+  postCompact,
   type DoneMeta,
 } from "../api";
 import type {
@@ -98,6 +99,11 @@ type StreamingBlock =
       result?: FullToolResultMessage;
     }
   | (FileBlock & { timestamp: number });
+
+type CompactStatus = {
+  state: "running" | "done" | "error";
+  text: string;
+};
 
 function isLongContent(content: string): boolean {
   return content.length > COLLAPSE_THRESHOLD;
@@ -419,12 +425,17 @@ function FileCard(props: { file: FileBlock }) {
 // Model meta display
 function ModelMetaDisplay(props: { meta: ModelMeta }) {
   const usage = props.meta.usage;
+  const cacheTokens =
+    usage &&
+    (typeof usage.cacheRead === "number" ? usage.cacheRead : 0) +
+      (typeof usage.cacheWrite === "number" ? usage.cacheWrite : 0);
   return (
     <div class="model-meta">
       <span class="meta-model">{props.meta.model ?? "unknown"}</span>
       {usage && (
         <span class="meta-tokens">
-          {usage.input}→{usage.output} tok
+          {usage.input}
+          {cacheTokens ? `+${cacheTokens} cache` : ""}→{usage.output} tok
         </span>
       )}
     </div>
@@ -524,6 +535,9 @@ export function ChatView() {
   const [contextFullMessages, setContextFullMessages] = createSignal<
     FullHistoryMessage[]
   >([]);
+  const [compactStatus, setCompactStatus] = createSignal<CompactStatus | null>(
+    null
+  );
 
   let chatViewRef: HTMLDivElement | undefined;
   let messagesContainerRef: HTMLDivElement | undefined;
@@ -535,6 +549,7 @@ export function ChatView() {
   let skipNextHistoryRefresh = false;
   let fileDragDepth = 0;
   const noAnimIds = new Set<string>();
+  const noAnimFullMessageKeys = new Set<string>();
 
   const sessionKey = () => getSessionKey(params.agentId);
 
@@ -556,8 +571,7 @@ export function ChatView() {
   const estimatedContextUsagePct = createMemo(() => {
     let highestInputTokens = 0;
     let modelName: string | undefined;
-    const messages =
-      viewMode() === "full" ? fullMessages() : contextFullMessages();
+    const messages = contextFullMessages();
     for (const message of messages) {
       if (message.role !== "assistant") continue;
       const meta = message.meta;
@@ -579,19 +593,48 @@ export function ChatView() {
 
   const contextUsageDisplay = createMemo(() => {
     const pct = estimatedContextUsagePct();
-    if (pct > 0) {
-      return { text: `~${pct}% context used`, unavailable: false };
+    return {
+      text: pct > 0 ? `~${pct}% context used` : "0% context used",
+      unavailable: false,
+    };
+  });
+
+  const isContextUsageDanger = createMemo(
+    () => estimatedContextUsagePct() >= 75
+  );
+
+  const shouldAutoCompact = createMemo(() => estimatedContextUsagePct() >= 80);
+
+  const contextWarning = createMemo(() => {
+    const pct = estimatedContextUsagePct();
+    if (pct >= 75) {
+      return `Context usage is high, consider compacting by sending "/compact". Context will be auto-compacted above 80%.`;
     }
     return null;
   });
 
-  const contextWarning = createMemo(() => {
-    const pct = estimatedContextUsagePct();
-    if (pct >= 80) {
-      return `Context usage is high (~${pct}%). Consider wrapping up this conversation or creating a handoff document to continue in a new session.`;
-    }
-    return null;
-  });
+  const isCompactSummaryMessage = (message: FullHistoryMessage) =>
+    message.role === "system" &&
+    message.content.some(
+      (block) =>
+        block.type === "text" &&
+        block.text.startsWith("[COMPACTED CONTEXT SUMMARY]")
+    );
+
+  const visibleFullMessages = createMemo(() =>
+    fullMessages().filter((message) => !isCompactSummaryMessage(message))
+  );
+
+  const fullMessageKey = (message: FullHistoryMessage) =>
+    `${message.role}:${message.timestamp}:${message.content
+      .map((block) => {
+        if (block.type === "text") return block.text;
+        if (block.type === "thinking") return block.thinking;
+        if (block.type === "toolCall") return `${block.id}:${block.name}`;
+        return block.fileId;
+      })
+      .join("|")
+      .slice(0, 80)}`;
 
   const [autoScrollPinned, setAutoScrollPinned] = createSignal(true);
   const SCROLL_THRESHOLD = 40;
@@ -732,6 +775,7 @@ export function ChatView() {
       applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     } else {
       const res = await fetchFullHistory(params.agentId, sessionKey());
+      setContextFullMessages(res.messages);
       const base = fullMessagesToSimpleView(res.messages);
       if (res.activeTurn?.userText) {
         base.push({
@@ -760,6 +804,28 @@ export function ChatView() {
       applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     }
     setLoading(false);
+  };
+
+  const refreshContextUsage = async () => {
+    const res = await fetchFullHistory(params.agentId, sessionKey());
+    setContextFullMessages(res.messages);
+  };
+
+  const compactCurrentSession = async () => {
+    setCompactStatus({ state: "running", text: "Compacting context..." });
+    scrollToBottom(true);
+    try {
+      await postCompact(params.agentId, sessionKey());
+      await loadHistory(viewMode());
+      setCompactStatus({ state: "done", text: "Context compacted." });
+      scrollToBottom(true);
+    } catch (error) {
+      const message =
+        error instanceof Error ? error.message : "Failed to compact context";
+      setCompactStatus({ state: "error", text: message });
+      scrollToBottom(true);
+      throw error;
+    }
   };
 
   const applyActiveTurnSnapshot = (turn: import("../api").ActiveTurn) => {
@@ -965,19 +1031,6 @@ export function ChatView() {
     })
   );
 
-  // In simple view, also fetch full history in background for context estimation
-  createEffect(() => {
-    const mode = viewMode();
-    const currentAgent = agent();
-    if (mode === "simple" && currentAgent) {
-      fetchFullHistory(params.agentId, sessionKey())
-        .then((res) => {
-          setContextFullMessages(res.messages);
-        })
-        .catch(() => {});
-    }
-  });
-
   // Subscribe to live updates for background runs
   createEffect(() => {
     const agentId = params.agentId;
@@ -1082,6 +1135,7 @@ export function ChatView() {
       onHistoryUpdated: () => {
         if (skipNextHistoryRefresh) {
           skipNextHistoryRefresh = false;
+          void refreshContextUsage();
           return;
         }
         // Refetch history when background run completes
@@ -1374,18 +1428,16 @@ export function ChatView() {
       .filter((block) => block.type === "toolCall" && block.result)
       .map((block) => (block.type === "toolCall" ? block.result : undefined))
       .filter((result): result is FullToolResultMessage => Boolean(result));
-    setFullMessages((prev) => [
-      ...prev,
-      {
-        role: "assistant",
-        content:
-          contentBlocks.length > 0
-            ? contentBlocks
-            : [{ type: "text", text: content }],
-        timestamp,
-      },
-      ...toolResults,
-    ]);
+    const assistantMessage: FullHistoryMessage = {
+      role: "assistant",
+      content:
+        contentBlocks.length > 0
+          ? contentBlocks
+          : [{ type: "text", text: content }],
+      timestamp,
+    };
+    noAnimFullMessageKeys.add(fullMessageKey(assistantMessage));
+    setFullMessages((prev) => [...prev, assistantMessage, ...toolResults]);
     return true;
   };
 
@@ -1421,6 +1473,27 @@ export function ChatView() {
       if (textareaRef) textareaRef.style.height = "auto";
       handleStop();
       return;
+    }
+
+    if (text === "/compact") {
+      setInput("");
+      if (textareaRef) textareaRef.style.height = "auto";
+      await compactCurrentSession().catch(() => undefined);
+      return;
+    }
+
+    const isResetCommand =
+      text === "/new" ||
+      text.startsWith("/new ") ||
+      text === "/reset" ||
+      text.startsWith("/reset ");
+
+    if (!isResetCommand && !isStreaming() && shouldAutoCompact()) {
+      try {
+        await compactCurrentSession();
+      } catch {
+        return;
+      }
     }
 
     let attachments: FileAttachment[] | undefined;
@@ -1785,15 +1858,14 @@ export function ChatView() {
         }
 
         batch(() => {
+          appendStreamingAssistantMessage();
           skipNextHistoryRefresh = true;
           // Update thinkingLevel if pending was used
           if (pendingThinkLevel()) {
             setThinkingLevel(pendingThinkLevel()!);
             setPendingThinkLevel(null);
           }
-          setActiveTools([]);
-          setIsStreaming(false);
-          setStreamingFinished(true);
+          resetStreamingState();
           cleanup = null;
         });
       },
@@ -2085,7 +2157,7 @@ export function ChatView() {
         </Show>
 
         <Show when={viewMode() === "full"}>
-          <For each={fullMessages()}>
+          <For each={visibleFullMessages()}>
             {(msg) => {
               if (msg.role === "user") {
                 const textContent = msg.content
@@ -2112,8 +2184,14 @@ export function ChatView() {
                 );
               }
               if (msg.role === "assistant") {
+                const skipAnim = noAnimFullMessageKeys.delete(
+                  fullMessageKey(msg)
+                );
                 return (
-                  <div class="message assistant full-message">
+                  <div
+                    class="message assistant full-message"
+                    classList={{ "no-anim": skipAnim }}
+                  >
                     <ContentBlocks
                       blocks={msg.content}
                       timestamp={msg.timestamp}
@@ -2339,6 +2417,14 @@ export function ChatView() {
           </div>
         </Show>
 
+        <Show when={compactStatus()}>
+          {(status) => (
+            <div class={`message compact-status ${status().state}`}>
+              <div class="content">{status().text}</div>
+            </div>
+          )}
+        </Show>
+
         <div data-scroll-anchor />
       </div>
 
@@ -2497,7 +2583,10 @@ export function ChatView() {
         {(display) => (
           <div
             class="context-usage"
-            classList={{ unavailable: display().unavailable }}
+            classList={{
+              unavailable: display().unavailable,
+              danger: isContextUsageDanger(),
+            }}
           >
             {display().text}
           </div>
@@ -3608,6 +3697,10 @@ export function ChatView() {
           opacity: 0.9;
         }
 
+        .context-usage.danger {
+          color: #ef4444;
+        }
+
         .context-warning {
           width: min(calc(100% - 36px), calc(var(--transcript-width) - 36px));
           box-sizing: border-box;
@@ -3630,6 +3723,26 @@ export function ChatView() {
           color: var(--text-muted);
           font-size: 0.85em;
           font-style: italic;
+        }
+
+        .message.compact-status {
+          text-align: center;
+          padding: 8px 20px;
+        }
+
+        .message.compact-status .content {
+          display: inline-flex;
+          border: 1px solid var(--border-default);
+          border-radius: 999px;
+          padding: 5px 10px;
+          color: var(--text-muted);
+          font-size: 0.85em;
+          background: var(--bg-surface);
+        }
+
+        .message.compact-status.error .content {
+          border-color: color-mix(in srgb, #ef4444 45%, transparent);
+          color: #ef4444;
         }
 
         @media (max-width: 720px) {

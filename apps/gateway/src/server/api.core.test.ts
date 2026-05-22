@@ -15,6 +15,7 @@ const getAllSessionsForAgent = vi.fn();
 const getAgentStatuses = vi.fn();
 const getSessionHistory = vi.fn();
 const getFullSessionHistory = vi.fn();
+const compactAgentSession = vi.fn();
 
 const resolveSessionId = vi.fn();
 const getSessionEntry = vi.fn();
@@ -64,6 +65,10 @@ vi.mock("../agents/index.js", () => ({
   getFullSessionHistory,
 }));
 
+vi.mock("../agents/compact.js", () => ({
+  compactAgentSession,
+}));
+
 vi.mock("../sessions/index.js", () => ({
   resolveSessionId,
   getSessionEntry,
@@ -107,6 +112,11 @@ describe("api core session resolution", () => {
     runAgent.mockResolvedValue({
       payloads: [],
       meta: { durationMs: 0, sessionId: "resolved-1" },
+    });
+    compactAgentSession.mockResolvedValue({
+      sessionId: "resolved-1",
+      summary: "Compacted summary",
+      keptMessages: 8,
     });
     resolveSessionId.mockResolvedValue({
       sessionId: "resolved-1",
@@ -290,5 +300,37 @@ describe("api core session resolution", () => {
         source: "web",
       })
     );
+  });
+
+  it("compacts the resolved web session", async () => {
+    getSessionEntry.mockResolvedValue({
+      sessionId: "resolved-1",
+      updatedAt: 1,
+      createdAt: 1,
+    });
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(
+      new Request("http://localhost/agents/alpha/compact", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionKey: "main" }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(compactAgentSession).toHaveBeenCalledWith({
+      agentId: "alpha",
+      sessionKey: "main",
+      sessionId: "resolved-1",
+      userId: undefined,
+      extensionRuntime: expect.any(Object),
+      context: undefined,
+    });
+    expect(await response.json()).toEqual({
+      sessionId: "resolved-1",
+      summary: "Compacted summary",
+      keptMessages: 8,
+    });
   });
 });

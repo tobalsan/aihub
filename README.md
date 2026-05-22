@@ -969,6 +969,10 @@ Inbound Slack messages inject the same normalized channel-context block into the
 Slash commands enforce the same `users` and `allowFrom` allowlists as message routing.
 Slack uses `/stop` instead of `/abort`; both route to the same internal abort behavior.
 
+#### Web Chat Context Compaction
+
+The web chat supports `/compact` for agent sessions. AIHub asks the same agent model to summarize older context, then replaces the stored session with that compacted summary plus the last 8 user/assistant turns. The context usage indicator turns red at 75% and compaction runs automatically before the next send at 80%; if compaction fails at that point, the send is blocked.
+
 #### Slack App Manifest Commands
 
 Add these slash commands to the Slack app manifest so they appear in Slack autocomplete. Replace request URLs with any valid HTTPS URL; Socket Mode delivers commands to Bolt without requiring a public AIHub URL.

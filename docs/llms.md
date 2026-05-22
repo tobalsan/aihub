@@ -110,7 +110,7 @@ Features:
 - Project detail center-panel subagent chat follow-ups reuse the selected subagent `runMode` to preserve CLI session cwd continuity (important for Claude CLI resume by `session_id`)
 - Subagent resume/follow-up turns are delta-only: only the new user message (+ current-turn attachment marker), without re-prepending project summary context
 - Project detail center-panel chat keeps `Send` available while a run is active and also shows `Stop`; lead agents stop via `/abort`, subagents stop via `POST /api/projects/:id/subagents/:slug/interrupt` (codex/claude/pi), and queued follow-up subagent messages flush client-side after the active run exits `running`
-- Agent chat shows a red warning below the input when estimated context usage reaches 80%+, suggesting a wrap-up or handoff/new session
+- Agent chat shows estimated context usage under the input, turns the indicator red at 75%+, and runs context compaction before the next send at 80%+. `/compact` triggers the same compaction manually. Compaction asks the same agent/model to summarize older context, then rewrites AIHub canonical history and the Pi runtime session to a hidden compacted summary plus the last 8 user/assistant turns.
 - Agent `ChatView` full-mode assistant turns preserve emitted chronology for thinking, text, tool calls, and file blocks. Live streams use a block timeline, tool results attach only to their originating tool call, and successful local stream completion appends the streamed turn without re-fetching/re-sorting history.
 - Agent `ChatView` uses a centered transcript layout with quiet assistant text, soft user bubbles, compact single-card tool/result blocks, simplified Simple-mode tool rows, sticky blurred chrome, visible focus states, and reduced-motion fallbacks.
 - Subagent config updates are supported post-creation via `PATCH /api/projects/:id/subagents/:slug` (`name`, `model`, `reasoningEffort`, `thinking`); `aihub projects rename` maps to this endpoint and AgentPanel exposes a per-harness model selector when the run is not active.
@@ -498,7 +498,7 @@ Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`
 
 Store format: `{agentId}:{sessionKey}` -> `{ sessionId, updatedAt }`
 
-Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation.
+Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation or `/compact` to summarize older context while keeping the last 8 turns.
 
 ### Session Transcript Format
 

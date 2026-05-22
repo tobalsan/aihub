@@ -69,6 +69,25 @@ export async function postAbort(
   });
 }
 
+export async function postCompact(
+  agentId: string,
+  sessionKey: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/agents/${agentId}/compact`, {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ sessionKey }),
+  });
+  if (!res.ok) {
+    const body = (await res.json().catch(() => null)) as
+      | { error?: unknown }
+      | null;
+    throw new Error(
+      typeof body?.error === "string" ? body.error : "Failed to compact context"
+    );
+  }
+}
+
 export function getSessionKey(agentId: string): string {
   return (
     localStorage.getItem(`${SESSION_KEY_PREFIX}${agentId}`) ??

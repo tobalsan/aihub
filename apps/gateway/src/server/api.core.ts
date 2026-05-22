@@ -41,6 +41,7 @@ import {
   resolveMediaFilePath,
 } from "../media/metadata.js";
 import { normalizeRunRequest } from "./run-request.js";
+import { compactAgentSession } from "../agents/compact.js";
 
 const api = new Hono();
 const UUID_RE =
@@ -332,6 +333,46 @@ api.post("/agents/:id/messages", async (c) => {
     }
 
     const result = await runAgent(normalized.params);
+    return c.json(result);
+  } catch (err) {
+    return c.json(
+      { error: err instanceof Error ? err.message : String(err) },
+      500
+    );
+  }
+});
+
+// POST /api/agents/:id/compact - summarize and compact a session in place
+api.post("/agents/:id/compact", async (c) => {
+  const agentId = c.req.param("id");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId)) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+
+  try {
+    const body = await c.req.json().catch(() => ({}));
+    const sessionKey =
+      typeof body.sessionKey === "string" && body.sessionKey.trim()
+        ? body.sessionKey
+        : "main";
+    const authContext = await getRequestAuthContext(c);
+    const userId = authContext?.session.userId;
+    const entry = await getSessionEntry(agentId, sessionKey, userId);
+    if (!entry) {
+      return c.json({ error: "Session not found" }, 404);
+    }
+
+    const result = await compactAgentSession({
+      agentId,
+      sessionKey,
+      sessionId: entry.sessionId,
+      userId,
+      extensionRuntime: getExtensionRuntime(),
+      context: authContext?.user.name
+        ? { kind: "web", name: authContext.user.name }
+        : undefined,
+    });
     return c.json(result);
   } catch (err) {
     return c.json(

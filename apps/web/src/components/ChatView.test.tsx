@@ -17,6 +17,7 @@ const {
   fetchCapabilitiesMock,
   getSessionKeyMock,
   postAbortMock,
+  postCompactMock,
   streamMessageMock,
   subscribeToSessionMock,
   subscribeToRealtimeMock,
@@ -30,6 +31,7 @@ const {
   fetchCapabilitiesMock: vi.fn(),
   getSessionKeyMock: vi.fn(),
   postAbortMock: vi.fn(),
+  postCompactMock: vi.fn(),
   streamMessageMock: vi.fn(),
   subscribeToSessionMock: vi.fn(),
   subscribeToRealtimeMock: vi.fn(),
@@ -51,6 +53,7 @@ vi.mock("../api", () => ({
   fetchCapabilities: fetchCapabilitiesMock,
   getSessionKey: getSessionKeyMock,
   postAbort: postAbortMock,
+  postCompact: postCompactMock,
   streamMessage: streamMessageMock,
   subscribeToSession: subscribeToSessionMock,
   subscribeToRealtime: subscribeToRealtimeMock,
@@ -131,6 +134,7 @@ describe("ChatView abort handling", () => {
     setCapabilitiesForTests({ multiUser: false });
     getSessionKeyMock.mockReturnValue("main");
     postAbortMock.mockResolvedValue(undefined);
+    postCompactMock.mockResolvedValue(undefined);
     streamMessageMock.mockImplementation(() => () => {});
     subscribeToSessionMock.mockImplementation(() => () => {});
     subscribeToRealtimeMock.mockImplementation(() => () => {});
@@ -178,6 +182,54 @@ describe("ChatView abort handling", () => {
     await tick();
 
     expect(container.textContent).toContain("private chain summary");
+
+    dispose();
+  });
+
+  it("shows context usage even before any model usage is available", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".context-usage")?.textContent).toContain(
+      "0% context used"
+    );
+
+    dispose();
+  });
+
+  it("shows cached input tokens in full model metadata", async () => {
+    routeState.view = "full";
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "answer" }],
+          timestamp: 123,
+          meta: {
+            model: "gpt-5",
+            usage: {
+              input: 1023,
+              output: 8,
+              cacheRead: 3456,
+              cacheWrite: 0,
+              totalTokens: 4487,
+            },
+          },
+        },
+      ],
+      thinkingLevel: undefined,
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".model-meta")?.textContent).toContain(
+      "1023+3456 cache→8 tok"
+    );
 
     dispose();
   });
@@ -271,6 +323,258 @@ describe("ChatView abort handling", () => {
 
     expect(container.textContent).toContain("partial answer");
     expect(container.textContent).toContain("Interrupted");
+
+    dispose();
+  });
+
+  it("runs manual compaction without sending a chat message", async () => {
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat textarea");
+    }
+    textarea.value = "/compact";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) {
+      throw new Error("Expected send button");
+    }
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
+    sendBtn.click();
+    await tick();
+    await tick();
+
+    expect(postCompactMock).toHaveBeenCalledWith("agent-1", "main");
+    expect(streamMessageMock).not.toHaveBeenCalled();
+    expect(container.textContent).toContain("Context compacted.");
+
+    dispose();
+  });
+
+  it("auto-compacts before sending at eighty percent context usage", async () => {
+    fetchFullHistoryMock
+      .mockResolvedValueOnce({
+        messages: [
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "large context" }],
+            timestamp: 123,
+            meta: {
+              model: "gpt-5",
+              usage: { input: 320000, output: 1, totalTokens: 320001 },
+            },
+          },
+        ],
+        thinkingLevel: undefined,
+        isStreaming: false,
+        activeTurn: null,
+      })
+      .mockResolvedValue({
+        messages: [
+          {
+            role: "system",
+            content: [
+              {
+                type: "text",
+                text: "[COMPACTED CONTEXT SUMMARY]\nsummary",
+              },
+            ],
+            timestamp: 124,
+          },
+        ],
+        thinkingLevel: undefined,
+        isStreaming: false,
+        activeTurn: null,
+      });
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat textarea");
+    }
+    textarea.value = "hello";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) {
+      throw new Error("Expected send button");
+    }
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
+    sendBtn.click();
+    await tick();
+    await tick();
+
+    expect(postCompactMock).toHaveBeenCalledWith("agent-1", "main");
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      "agent-1",
+      "hello",
+      "main",
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Object),
+      expect.any(Object)
+    );
+    await waitFor(() =>
+      expect(container.querySelector(".context-usage")?.textContent).toContain(
+        "0% context used"
+      )
+    );
+    expect(container.querySelector(".context-usage")?.className).not.toContain(
+      "danger"
+    );
+    expect(container.textContent).toContain("Context compacted.");
+
+    dispose();
+  });
+
+  it("does not auto-compact reset commands above eighty percent context usage", async () => {
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant",
+          content: [{ type: "text", text: "large context" }],
+          timestamp: 123,
+          meta: {
+            model: "gpt-5",
+            usage: { input: 320000, output: 1, totalTokens: 320001 },
+          },
+        },
+      ],
+      thinkingLevel: undefined,
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat textarea");
+    }
+    textarea.value = "/new";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) {
+      throw new Error("Expected send button");
+    }
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
+    sendBtn.click();
+    await tick();
+
+    expect(postCompactMock).not.toHaveBeenCalled();
+    expect(streamMessageMock).toHaveBeenCalledWith(
+      "agent-1",
+      "/new",
+      "main",
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Function),
+      expect.any(Object),
+      expect.any(Object)
+    );
+
+    dispose();
+  });
+
+  it("refreshes context usage after a local turn without reloading visible history", async () => {
+    let onText: ((chunk: string) => void) | undefined;
+    let onDone: (() => void) | undefined;
+    let subscriptionCallbacks:
+      | {
+          onHistoryUpdated?: () => void;
+        }
+      | undefined;
+
+    fetchFullHistoryMock
+      .mockResolvedValueOnce({
+        messages: [],
+        thinkingLevel: undefined,
+        isStreaming: false,
+        activeTurn: null,
+      })
+      .mockResolvedValueOnce({
+        messages: [
+          {
+            role: "user",
+            content: [{ type: "text", text: "hello" }],
+            timestamp: 1,
+          },
+          {
+            role: "assistant",
+            content: [{ type: "text", text: "answer" }],
+            timestamp: 2,
+            meta: {
+              model: "gpt-5.2",
+              usage: { input: 102400, output: 1, totalTokens: 102401 },
+            },
+          },
+        ],
+        thinkingLevel: undefined,
+        isStreaming: false,
+        activeTurn: null,
+      });
+    subscribeToSessionMock.mockImplementation(
+      (_agentId: string, _sessionKey: string, callbacksArg) => {
+        subscriptionCallbacks = callbacksArg;
+        return vi.fn();
+      }
+    );
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        nextOnText: (chunk: string) => void,
+        nextOnDone: () => void
+      ) => {
+        onText = nextOnText;
+        onDone = nextOnDone;
+        return vi.fn();
+      }
+    );
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) {
+      throw new Error("Expected chat textarea");
+    }
+    textarea.value = "hello";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) {
+      throw new Error("Expected send button");
+    }
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
+    sendBtn.click();
+    await tick();
+
+    onText?.("answer");
+    onDone?.();
+    subscriptionCallbacks?.onHistoryUpdated?.();
+    await waitFor(() =>
+      expect(container.querySelector(".context-usage")?.textContent).toContain(
+        "~80% context used"
+      )
+    );
 
     dispose();
   });
@@ -376,7 +680,7 @@ describe("ChatView abort handling", () => {
     expect(container.textContent).toContain("tool output");
     subscriptionCallbacks?.onHistoryUpdated?.();
     await tick();
-    expect(fetchFullHistoryMock.mock.calls.length).toBe(fetchesBeforeDone);
+    expect(fetchFullHistoryMock.mock.calls.length).toBe(fetchesBeforeDone + 1);
 
     dispose();
   });
