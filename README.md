@@ -1104,7 +1104,7 @@ Add custom providers via `$AIHUB_HOME/models.json` (default: `~/.aihub/models.js
 
 Synced to Pi SDK's agent dir on each run.
 
-`pnpm update-models` includes models declared here when refreshing web context usage data. If a model has `contextWindow` in `models.json`, that value is used; otherwise the script tries OpenRouter first, then falls back to `https://models.dev/api.json`.
+`pnpm update-models` includes models declared here and in v3 `agent.yaml` files when refreshing web context usage data. If a model has `contextWindow` in `models.json`, that value is used; otherwise the script tries OpenRouter first, then falls back to `https://models.dev/api.json`.
 
 ## Skills
 

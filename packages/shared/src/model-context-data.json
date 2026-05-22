@@ -1,9 +1,11 @@
 {
-  "qwen/qwen3.6-35b-a3b": 262144,
   "deepseek/deepseek-v4-flash": 1048576,
-  "novita/minimax/minimax-m2.7": 204800,
-  "minimaxi/MiniMax-M2.7": 204800,
   "fireworks/kimi-k2.5": 262144,
+  "fireworks/qwen3.6-plus": 1000000,
+  "glm-5.1": 204800,
   "inceptron/kimi-k2.6": 262144,
-  "fireworks/qwen3.6-plus": 1000000
+  "minimaxi/MiniMax-M2.7": 204800,
+  "mistralai/mistral-small-24b-instruct-2501": 32800,
+  "novita/minimax/minimax-m2.7": 204800,
+  "qwen/qwen3.6-35b-a3b": 262144
 }

@@ -5,6 +5,8 @@ import {
   collectConfiguredModels,
   contextFromModelsConfig,
   contextFromOpenRouter,
+  mergeContextData,
+  readAgentYamlModelConfig,
 } from "./update-models.js";
 
 describe("update-models helpers", () => {
@@ -35,10 +37,18 @@ describe("update-models helpers", () => {
             },
           },
         },
-      }
+      },
+      [
+        {
+          model: { model: "agent-yaml-model" },
+          subagents: [{ model: "agent-yaml-subagent-model" }],
+        },
+      ]
     );
 
     expect([...models].sort()).toEqual([
+      "agent-yaml-model",
+      "agent-yaml-subagent-model",
       "custom-array-model",
       "openrouter-model",
       "override-model",
@@ -61,6 +71,26 @@ describe("update-models helpers", () => {
     ).toEqual({
       "custom-model": 321_000,
       "override-model": 654_000,
+    });
+  });
+
+  it("reads agent and subagent models from agent.yaml content", () => {
+    expect(
+      readAgentYamlModelConfig(`
+id: devagent
+model:
+  provider: zai
+  model: glm-5.1
+subagents:
+  - name: Worker
+    cli: codex
+    model: gpt-5.3-codex
+  - name: Reviewer
+    model: gpt-5.5
+`)
+    ).toEqual({
+      model: { model: "glm-5.1" },
+      subagents: [{ model: "gpt-5.3-codex" }, { model: "gpt-5.5" }],
     });
   });
 
@@ -107,6 +137,25 @@ describe("update-models helpers", () => {
       "fallback-model": 789_000,
       "openrouter-model": 123_000,
       "router/kimi-k2.5": 262_000,
+    });
+  });
+
+  it("merges discovered models over existing context data", () => {
+    expect(
+      mergeContextData(
+        {
+          "existing-model": 111_000,
+          "updated-model": 222_000,
+        },
+        {
+          "updated-model": 333_000,
+          "new-model": 444_000,
+        }
+      )
+    ).toEqual({
+      "existing-model": 111_000,
+      "new-model": 444_000,
+      "updated-model": 333_000,
     });
   });
 });

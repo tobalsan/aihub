@@ -1,5 +1,5 @@
-import { readFileSync, writeFileSync } from "node:fs";
-import { resolve } from "node:path";
+import { existsSync, readdirSync, readFileSync, writeFileSync } from "node:fs";
+import { dirname, isAbsolute, join, resolve } from "node:path";
 
 const args = process.argv.slice(2);
 const fetchAll = args.includes("--all");
@@ -17,30 +17,43 @@ function getAihubConfigPath(): string {
   return process.env.AIHUB_CONFIG ?? resolve(getAihubHome(), "aihub.json");
 }
 
-export function collectConfiguredModels(config: unknown, modelsConfig?: unknown): Set<string> {
-  const configuredModels = new Set<string>();
+function addModelsFromAgents(
+  configuredModels: Set<string>,
+  agents: unknown
+): void {
+  if (!Array.isArray(agents)) return;
+  for (const agent of agents) {
+    if (!agent || typeof agent !== "object") continue;
+    const model = (agent as { model?: { model?: unknown } }).model?.model;
+    if (typeof model === "string" && model) configuredModels.add(model);
 
-  if (config && typeof config === "object") {
-    const agents = (config as { agents?: unknown }).agents;
-    if (Array.isArray(agents)) {
-      for (const agent of agents) {
-        if (!agent || typeof agent !== "object") continue;
-        const model = (agent as { model?: { model?: unknown } }).model?.model;
-        if (typeof model === "string" && model) configuredModels.add(model);
-
-        const subagents = (agent as { subagents?: unknown }).subagents;
-        if (Array.isArray(subagents)) {
-          for (const sub of subagents) {
-            if (!sub || typeof sub !== "object") continue;
-            const subModel = (sub as { model?: unknown }).model;
-            if (typeof subModel === "string" && subModel) {
-              configuredModels.add(subModel);
-            }
-          }
+    const subagents = (agent as { subagents?: unknown }).subagents;
+    if (Array.isArray(subagents)) {
+      for (const sub of subagents) {
+        if (!sub || typeof sub !== "object") continue;
+        const subModel = (sub as { model?: unknown }).model;
+        if (typeof subModel === "string" && subModel) {
+          configuredModels.add(subModel);
         }
       }
     }
   }
+}
+
+export function collectConfiguredModels(
+  config: unknown,
+  modelsConfig?: unknown,
+  agentConfigs?: unknown[]
+): Set<string> {
+  const configuredModels = new Set<string>();
+
+  if (config && typeof config === "object") {
+    addModelsFromAgents(
+      configuredModels,
+      (config as { agents?: unknown }).agents
+    );
+  }
+  addModelsFromAgents(configuredModels, agentConfigs);
 
   if (modelsConfig && typeof modelsConfig === "object") {
     const providers = (modelsConfig as { providers?: unknown }).providers;
@@ -57,7 +70,8 @@ export function collectConfiguredModels(config: unknown, modelsConfig?: unknown)
           }
         }
 
-        const modelOverrides = (provider as { modelOverrides?: unknown }).modelOverrides;
+        const modelOverrides = (provider as { modelOverrides?: unknown })
+          .modelOverrides;
         if (modelOverrides && typeof modelOverrides === "object") {
           for (const key of Object.keys(modelOverrides)) {
             if (key) configuredModels.add(key);
@@ -70,7 +84,102 @@ export function collectConfiguredModels(config: unknown, modelsConfig?: unknown)
   return configuredModels;
 }
 
-export function contextFromModelsConfig(modelsConfig: unknown): Record<string, number> {
+function resolveAgentPath(pattern: string, configDir: string): string {
+  const expanded = pattern.replace(/^\$AIHUB_HOME(?=\/|$)/, getAihubHome());
+  return isAbsolute(expanded) ? expanded : resolve(configDir, expanded);
+}
+
+function resolveAgentDirs(pattern: string, configDir: string): string[] {
+  const resolved = resolveAgentPath(pattern, configDir);
+  if (!pattern.includes("*")) return [resolved];
+  if (!resolved.endsWith("*")) return [];
+  const parent = dirname(resolved);
+  if (!existsSync(parent)) return [];
+  return readdirSync(parent, { withFileTypes: true })
+    .filter((entry) => entry.isDirectory())
+    .map((entry) => join(parent, entry.name));
+}
+
+function parseScalar(value: string): string {
+  return value.trim().replace(/^["']|["']$/g, "");
+}
+
+export function readAgentYamlModelConfig(content: string): unknown {
+  const lines = content.split(/\r?\n/);
+  let inModelBlock = false;
+  let inSubagentsBlock = false;
+  let inSubagentItem = false;
+  let model: string | undefined;
+  const subagents: Array<{ model: string }> = [];
+
+  for (const line of lines) {
+    const trimmed = line.trim();
+    if (!trimmed || trimmed.startsWith("#")) continue;
+    const indent = line.match(/^\s*/)?.[0].length ?? 0;
+
+    if (indent === 0) {
+      inModelBlock = trimmed === "model:";
+      inSubagentsBlock = trimmed === "subagents:";
+      inSubagentItem = false;
+      const inlineSubagentModel = trimmed.match(/^-\s*model:\s*(.+)$/);
+      if (inlineSubagentModel) {
+        subagents.push({ model: parseScalar(inlineSubagentModel[1] ?? "") });
+      }
+      continue;
+    }
+
+    if (inModelBlock && indent > 0) {
+      const match = trimmed.match(/^model:\s*(.+)$/);
+      if (match) model = parseScalar(match[1] ?? "");
+      continue;
+    }
+
+    if (inSubagentsBlock && trimmed.startsWith("-")) {
+      inSubagentItem = true;
+    }
+
+    const subagentModel = trimmed.match(/^-\s*model:\s*(.+)$/);
+    if (subagentModel) {
+      subagents.push({ model: parseScalar(subagentModel[1] ?? "") });
+      continue;
+    }
+
+    if (inSubagentsBlock && inSubagentItem) {
+      const nestedSubagentModel = trimmed.match(/^model:\s*(.+)$/);
+      if (nestedSubagentModel) {
+        subagents.push({ model: parseScalar(nestedSubagentModel[1] ?? "") });
+      }
+    }
+  }
+
+  return { model: model ? { model } : undefined, subagents };
+}
+
+function readAgentYamlConfigs(config: unknown, configPath: string): unknown[] {
+  if (!config || typeof config !== "object") return [];
+  const agents = (config as { agents?: unknown }).agents;
+  if (!Array.isArray(agents)) return [];
+  const configDir = dirname(configPath);
+  const result: unknown[] = [];
+
+  for (const agent of agents) {
+    if (typeof agent !== "string" || !agent) continue;
+    if (agent.includes("?") || agent.includes("[")) {
+      continue;
+    }
+    for (const agentDir of resolveAgentDirs(agent, configDir)) {
+      const agentPath = join(agentDir, "agent.yaml");
+      if (!existsSync(agentPath)) continue;
+      result.push(readAgentYamlModelConfig(readFileSync(agentPath, "utf-8")));
+    }
+  }
+
+  return result;
+}
+
+export function contextFromModelsConfig(
+  modelsConfig: unknown
+): Record<string, number> {
   const result: Record<string, number> = {};
   if (!modelsConfig || typeof modelsConfig !== "object") return result;
 
@@ -85,7 +194,8 @@ export function contextFromModelsConfig(modelsConfig: unknown): Record<string, n
       for (const model of models) {
         if (!model || typeof model !== "object") continue;
         const id = (model as { id?: unknown }).id;
-        const contextWindow = (model as { contextWindow?: unknown }).contextWindow;
+        const contextWindow = (model as { contextWindow?: unknown })
+          .contextWindow;
         if (
           typeof id === "string" &&
           id &&
@@ -97,11 +207,13 @@ export function contextFromModelsConfig(modelsConfig: unknown): Record<string, n
       }
     }
 
-    const modelOverrides = (provider as { modelOverrides?: unknown }).modelOverrides;
+    const modelOverrides = (provider as { modelOverrides?: unknown })
+      .modelOverrides;
     if (modelOverrides && typeof modelOverrides === "object") {
       for (const [id, override] of Object.entries(modelOverrides)) {
         if (!override || typeof override !== "object") continue;
-        const contextWindow = (override as { contextWindow?: unknown }).contextWindow;
+        const contextWindow = (override as { contextWindow?: unknown })
+          .contextWindow;
         if (id && typeof contextWindow === "number" && contextWindow > 0) {
           result[id] = contextWindow;
         }
@@ -141,12 +253,20 @@ export function addMissingFromModelsDev(
       const id = model.id ?? key;
       const context = model.limit?.context;
       if (!id || typeof context !== "number" || context <= 0) continue;
-      fallbackContexts.set(id, Math.max(fallbackContexts.get(id) ?? 0, context));
-      fallbackContexts.set(key, Math.max(fallbackContexts.get(key) ?? 0, context));
+      fallbackContexts.set(
+        id,
+        Math.max(fallbackContexts.get(id) ?? 0, context)
+      );
+      fallbackContexts.set(
+        key,
+        Math.max(fallbackContexts.get(key) ?? 0, context)
+      );
     }
   }
 
-  const targetIds = includeAll ? [...fallbackContexts.keys()] : [...configuredModels];
+  const targetIds = includeAll
+    ? [...fallbackContexts.keys()]
+    : [...configuredModels];
   for (const id of targetIds) {
     if (next[id] != null) continue;
     const suffix = id.split("/").at(-1) ?? id;
@@ -164,6 +284,17 @@ export function addMissingFromModelsDev(
 
 function readJsonFile(path: string): unknown {
   return JSON.parse(readFileSync(path, "utf-8"));
+}
+
+export function mergeContextData(
+  existing: Record<string, number>,
+  discovered: Record<string, number>
+): Record<string, number> {
+  return Object.fromEntries(
+    Object.entries({ ...existing, ...discovered }).sort(([left], [right]) =>
+      left.localeCompare(right)
+    )
+  );
 }
 
 async function fetchJson<T>(url: string): Promise<T> {
@@ -188,9 +319,16 @@ async function main() {
 
   if (!fetchAll) {
     try {
-      configuredModels = collectConfiguredModels(readJsonFile(configPath), modelsConfig);
+      const config = readJsonFile(configPath);
+      configuredModels = collectConfiguredModels(
+        config,
+        modelsConfig,
+        readAgentYamlConfigs(config, configPath)
+      );
     } catch {
-      console.error("Could not read aihub.json. Use --all to fetch all models.");
+      console.error(
+        "Could not read aihub.json. Use --all to fetch all models."
+      );
       process.exit(1);
     }
   }
@@ -216,7 +354,12 @@ async function main() {
     const modelsDevData = await fetchJson<Record<string, ModelsDevProvider>>(
       "https://models.dev/api.json"
     );
-    result = addMissingFromModelsDev(result, modelsDevData, configuredModels, fetchAll);
+    result = addMissingFromModelsDev(
+      result,
+      modelsDevData,
+      configuredModels,
+      fetchAll
+    );
   }
 
   const outPath = resolve(
@@ -227,11 +370,21 @@ async function main() {
     "src",
     "model-context-data.json"
   );
+  let existingContextData: Record<string, number> = {};
+  try {
+    existingContextData = readJsonFile(outPath) as Record<string, number>;
+  } catch {
+    existingContextData = {};
+  }
+  result = mergeContextData(existingContextData, result);
   writeFileSync(outPath, JSON.stringify(result, null, 2) + "\n");
   console.log(`Wrote ${Object.keys(result).length} models to ${outPath}`);
 }
 
-if (process.argv[1] && import.meta.url === new URL(process.argv[1], "file:").href) {
+if (
+  process.argv[1] &&
+  import.meta.url === new URL(process.argv[1], "file:").href
+) {
   main().catch((err) => {
     console.error(err);
     process.exit(1);
