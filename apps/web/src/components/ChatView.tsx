@@ -3595,11 +3595,13 @@ export function ChatView() {
         .context-usage {
           width: min(100%, var(--transcript-width));
           box-sizing: border-box;
-          margin: 0 auto;
-          text-align: right;
-          color: var(--text-muted);
-          font-size: 11px;
-          padding: 0 18px 8px;
+          margin: 0 auto 4px;
+          text-align: left;
+          color: color-mix(in srgb, var(--text-primary) 70%, var(--text-muted));
+          font-size: 12px;
+          font-weight: 500;
+          line-height: 1.35;
+          padding: 2px 18px 8px 72px;
         }
 
         .context-usage.unavailable {
@@ -3656,6 +3658,10 @@ export function ChatView() {
 
           .input-area {
             padding: 10px 12px 14px;
+          }
+
+          .context-usage {
+            padding-left: 64px;
           }
 
           .attach-btn,
