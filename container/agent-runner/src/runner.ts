@@ -1,7 +1,7 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
 import {
   AuthStorage,
   DefaultResourceLoader,
@@ -11,7 +11,7 @@ import {
   createAgentSession,
   type AgentSession,
   type ToolDefinition,
-} from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-coding-agent";
 import {
   ContainerFileOutputRequestSchema,
   claimAgentToolName,

@@ -58,7 +58,7 @@ const piMock = vi.hoisted(() => {
   };
 });
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
+vi.mock("@earendil-works/pi-coding-agent", () => ({
   AuthStorage: {
     inMemory: vi.fn(() => ({
       setRuntimeApiKey: piMock.setRuntimeApiKey,

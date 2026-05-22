@@ -39,11 +39,11 @@ vi.mock("../../../extensions/tools.js", () => ({
   getExtensionAgentTools: mockGetExtensionAgentTools,
 }));
 
-vi.mock("@mariozechner/pi-ai", () => ({
+vi.mock("@earendil-works/pi-ai", () => ({
   getEnvApiKey: mockGetEnvApiKey,
 }));
 
-vi.mock("@mariozechner/pi-coding-agent", () => ({
+vi.mock("@earendil-works/pi-coding-agent", () => ({
   createAgentSession: mockCreateAgentSession,
   SessionManager: {
     open: vi.fn(() => ({ close: vi.fn() })),

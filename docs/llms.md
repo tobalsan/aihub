@@ -29,7 +29,7 @@ Core TypeScript/Node.js application. Exports:
   - `src/server/run-request.ts` normalizes REST/WebSocket agent run inputs before `runAgent()`: validation, session key defaults/resolution, multi-user user IDs/context, inbound attachment paths, and empty reset-trigger intro responses.
   - `src/server/ws-broker.ts` owns the `/ws` broker: WebSocket auth attach, per-session subscriptions with active-turn replay, status subscribers, project file/agent fanout, subagent change fanout, and web-origin run dispatch through `normalizeRunRequest()`.
 - **Media** (`src/media/`): local upload/download support under `$AIHUB_HOME/media`, with inbound/outbound metadata, `GET /api/media/download/:id`, 25MB server-side upload cap, image/document MIME allowlist, and document text extraction helpers for PDF/docx/xls/xlsx/csv/txt/md
-- **Agent Runtime** (`src/agents/`): Pi SDK integration (Pi packages pinned at `^0.73.0`; built-in coding tools are enabled by name via `createAgentSession({ tools: ["read", "bash", "edit", "write"] })`), session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
+- **Agent Runtime** (`src/agents/`): Pi SDK integration (Pi packages pinned at `^0.75.4` under the `@earendil-works` scope; built-in coding tools are enabled by name via `createAgentSession({ tools: ["read", "bash", "edit", "write"] })`), session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
   - `src/agents/run-lifecycle.ts` owns gateway session run state transitions behind `SessionRunLifecycle`: active streaming/abort state, adapter handles, queue vs interrupt joins, pending follow-up messages, turn buffering, history event emission, and final turn flushing. `runAgent()` still resolves agents/sessions, handles `/abort` and `/think`, selects adapters, invokes SDKs, and drains non-native queued runs.
 - **Scheduler** (`packages/extensions/scheduler/`): Interval/daily job execution. Scheduled fires default to unique sessions (`scheduler:<jobId>:<runId>`) unless `payload.sessionId` explicitly overrides the target. See `packages/extensions/scheduler/README.md`.
 - **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
@@ -924,7 +924,7 @@ You can set environment variables directly in `aihub.json` using the `env` field
 
 ## Key Dependencies
 
-- **Pi SDK** (`@mariozechner/pi-coding-agent`): Agent runtime, tools, skills, model registry
+- **Pi SDK** (`@earendil-works/pi-coding-agent`): Agent runtime, tools, skills, model registry
 - **Claude Agent SDK** (`@anthropic-ai/claude-agent-sdk`): Claude SDK integration
 - **Hono**: HTTP server framework
 - **Carbon** (`@buape/carbon`): Discord bot integration (Gateway + REST)

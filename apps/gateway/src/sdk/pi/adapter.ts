@@ -1,10 +1,10 @@
 import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
-import type { AgentMessage } from "@mariozechner/pi-agent-core";
-import type { AgentTool } from "@mariozechner/pi-agent-core";
-import type { AssistantMessage, ImageContent } from "@mariozechner/pi-ai";
-import type { AgentSession as PiAgentSession } from "@mariozechner/pi-coding-agent";
+import type { AgentMessage } from "@earendil-works/pi-agent-core";
+import type { AgentTool } from "@earendil-works/pi-agent-core";
+import type { AssistantMessage, ImageContent } from "@earendil-works/pi-ai";
+import type { AgentSession as PiAgentSession } from "@earendil-works/pi-coding-agent";
 import type { AgentConfig } from "@aihub/shared";
 import { claimAgentToolName, renderAgentContext } from "@aihub/shared";
 import type {
@@ -176,8 +176,8 @@ export const piAdapter: SdkAdapter = {
         AuthStorage,
         ModelRegistry,
         DefaultResourceLoader,
-      } = await import("@mariozechner/pi-coding-agent");
-      const { getEnvApiKey } = await import("@mariozechner/pi-ai");
+      } = await import("@earendil-works/pi-coding-agent");
+      const { getEnvApiKey } = await import("@earendil-works/pi-ai");
 
       // Resolve model
       await fs.mkdir(CONFIG_DIR, { recursive: true });

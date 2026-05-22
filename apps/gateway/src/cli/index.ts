@@ -492,7 +492,7 @@ authCmd
   )
   .action(async (provider?: string) => {
     try {
-      const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
       const authStorage = AuthStorage.create(
         path.join(CONFIG_DIR, "auth.json")
       );
@@ -575,7 +575,7 @@ authCmd
   .description("Show authentication status")
   .action(async () => {
     try {
-      const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
       const authStorage = AuthStorage.create(
         path.join(CONFIG_DIR, "auth.json")
       );
@@ -613,7 +613,7 @@ authCmd
   .description("Logout from a provider")
   .action(async (provider: string) => {
     try {
-      const { AuthStorage } = await import("@mariozechner/pi-coding-agent");
+      const { AuthStorage } = await import("@earendil-works/pi-coding-agent");
       const authStorage = AuthStorage.create(
         path.join(CONFIG_DIR, "auth.json")
       );

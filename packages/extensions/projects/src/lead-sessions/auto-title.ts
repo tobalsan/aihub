@@ -4,9 +4,9 @@ import type {
   AssistantMessage,
   Context,
   Model,
-} from "@mariozechner/pi-ai";
-import { completeSimple as defaultCompleteSimple } from "@mariozechner/pi-ai";
-import { AuthStorage, ModelRegistry } from "@mariozechner/pi-coding-agent";
+} from "@earendil-works/pi-ai";
+import { completeSimple as defaultCompleteSimple } from "@earendil-works/pi-ai";
+import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { GatewayConfig, LeadSession } from "@aihub/shared";
 import { getProjectsContext } from "../context.js";
 import { findLeadSession, updateLeadSessionInProject } from "./store.js";
