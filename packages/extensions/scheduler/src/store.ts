@@ -3,7 +3,7 @@ import fsSync from "node:fs";
 import os from "node:os";
 import path from "node:path";
 import lockfile from "proper-lockfile";
-import type { AgentConfig, ScheduleJob, ScheduleJobFile } from "@aihub/shared";
+import type { AgentConfig, ScheduleJob } from "@aihub/shared";
 import { ScheduleJobFileSchema } from "@aihub/shared";
 import { z } from "zod";
 
@@ -63,9 +63,9 @@ export class PerAgentScheduleStore {
     });
     try {
       const diskJobs = jobs.map((job) => {
-        const { agentId: _agentId, state: _state, ...diskJob } = job as ScheduleJob & {
-          state?: unknown;
-        };
+        const diskJob: Record<string, unknown> = { ...job };
+        delete diskJob.agentId;
+        delete diskJob.state;
         return diskJob;
       });
       const content = `${JSON.stringify({ version: 1, jobs: diskJobs }, null, 2)}\n`;

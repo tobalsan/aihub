@@ -94,7 +94,9 @@ async function detectSystemFiles(workspaceDir: string): Promise<string[]> {
 }
 
 function migrateAgentYaml(agent: LegacyAgent, systemFiles: string[]): Record<string, unknown> {
-  const { workspace: _workspace, workspaceDir: _workspaceDir, ...yamlAgent } = agent;
+  const yamlAgent = { ...agent };
+  delete yamlAgent.workspace;
+  delete yamlAgent.workspaceDir;
   if (systemFiles.length > 0) {
     yamlAgent.system_files = systemFiles;
   }
@@ -180,7 +182,9 @@ function migratePayload(payload: unknown): Record<string, unknown> {
 }
 
 function migrateScheduleJob(job: LegacyScheduleJob, defaultTz: string): Record<string, unknown> {
-  const { agentId: _agentId, state: _state, ...rest } = job;
+  const rest = { ...job };
+  delete rest.agentId;
+  delete rest.state;
   return {
     ...rest,
     schedule: toCronSchedule(job.schedule, defaultTz),
@@ -325,7 +329,8 @@ export async function migrateAgentsConfig(configPath = resolveConfigPath()): Pro
     agents.push({ id: agent.id, workspaceDir, yamlPath });
   }
 
-  const { agents: _agents, ...globalConfig } = rawConfig;
+  const globalConfig = { ...rawConfig };
+  delete globalConfig.agents;
   const v3Config = {
     ...globalConfig,
     version: 3,

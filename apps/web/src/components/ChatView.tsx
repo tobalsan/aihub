@@ -1227,7 +1227,7 @@ export function ChatView() {
     simpleMessages();
     fullMessages();
     streamingText();
-    streamingBlocks().length;
+    void streamingBlocks().length;
     streamingFiles();
     activeTools();
     scrollToBottom();

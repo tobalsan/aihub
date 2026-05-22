@@ -75,7 +75,8 @@ export function compactAssistantMeta(
   meta: ModelMeta | undefined
 ): Omit<ModelMeta, "usage"> | undefined {
   if (!meta) return undefined;
-  const { usage: _usage, ...rest } = meta;
+  const rest = { ...meta };
+  delete rest.usage;
   return rest;
 }
 

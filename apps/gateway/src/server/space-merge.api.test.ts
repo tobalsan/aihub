@@ -6,15 +6,20 @@ import { writeTestV3Config } from "../test-utils/v3-config.js";
 import { execFile } from "node:child_process";
 import { promisify } from "node:util";
 import type { GatewayConfig } from "@aihub/shared";
+import type {
+  ensureProjectSpace as ensureProjectSpaceType,
+  integrateProjectSpaceQueue as integrateProjectSpaceQueueType,
+  recordWorkerDelivery as recordWorkerDeliveryType,
+} from "@aihub/extension-projects";
 const projectsExtensionSpecifier = "@aihub/extension-projects";
 const {
   ensureProjectSpace,
   recordWorkerDelivery,
   integrateProjectSpaceQueue,
 } = (await import(projectsExtensionSpecifier)) as {
-  ensureProjectSpace: (...args: any[]) => Promise<any>;
-  recordWorkerDelivery: (...args: any[]) => Promise<any>;
-  integrateProjectSpaceQueue: (...args: any[]) => Promise<any>;
+  ensureProjectSpace: typeof ensureProjectSpaceType;
+  recordWorkerDelivery: typeof recordWorkerDeliveryType;
+  integrateProjectSpaceQueue: typeof integrateProjectSpaceQueueType;
 };
 
 const execFileAsync = promisify(execFile);
