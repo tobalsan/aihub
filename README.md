@@ -516,9 +516,9 @@ AIHUB_URL=http://127.0.0.1:4000 pnpm aihub projects list
 # Dev launchers (`pnpm dev`, `pnpm dev:web`, gateway config loading) honor AIHUB_HOME too.
 
 # Install the `aihub` command globally via pnpm link
+# From repo root:
 pnpm --filter @aihub/gateway build
-cd apps/gateway
-pnpm link --global
+pnpm link --global ./apps/gateway
 
 # OAuth authentication (Pi SDK agents)
 pnpm aihub auth login           # Interactive provider selection
