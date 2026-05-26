@@ -9,3 +9,5 @@ allowBuilds:
   esbuild: true
   koffi: true
   protobufjs: true
+overrides:
+  minimatch: ^9.0.5
