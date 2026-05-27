@@ -547,6 +547,19 @@ authCmd
             if (info.instructions) console.log(info.instructions);
             console.log();
           },
+          onDeviceCode: (info: {
+            userCode: string;
+            verificationUri: string;
+            intervalSeconds?: number;
+            expiresInSeconds?: number;
+          }) => {
+            console.log(`\nOpen this URL in your browser:\n${info.verificationUri}`);
+            console.log(`Enter code: ${info.userCode}`);
+            if (info.expiresInSeconds) {
+              console.log(`Code expires in ${info.expiresInSeconds} seconds.`);
+            }
+            console.log();
+          },
           onPrompt: async (prompt: {
             message: string;
             placeholder?: string;
@@ -557,6 +570,20 @@ authCmd
                 resolve
               )
             );
+          },
+          onSelect: async (prompt: {
+            message: string;
+            options: Array<{ id: string; label: string }>;
+          }) => {
+            console.log(`\n${prompt.message}`);
+            prompt.options.forEach((option, i) => {
+              console.log(`  ${i + 1}. ${option.label}`);
+            });
+            const choice = await new Promise<string>((resolve) =>
+              rl.question("Enter number: ", resolve)
+            );
+            const index = parseInt(choice, 10) - 1;
+            return prompt.options[index]?.id;
           },
           onProgress: (msg: string) => console.log(msg),
         }
