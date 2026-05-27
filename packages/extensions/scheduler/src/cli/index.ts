@@ -18,6 +18,8 @@ type AddOpts = ScheduleInputOpts & {
   message: string;
   name?: string;
   session?: string;
+  provider?: string;
+  model?: string;
   disabled?: boolean;
   json?: boolean;
 };
@@ -28,6 +30,8 @@ type UpdateOpts = ScheduleInputOpts & {
   disable?: boolean;
   message?: string;
   session?: string;
+  provider?: string;
+  model?: string;
   json?: boolean;
 };
 
@@ -57,6 +61,16 @@ function printJobs(jobs: JobWithState[], json: boolean | undefined): void {
   console.log(renderJobsTable(jobs));
 }
 
+function buildModelOverride(opts: { provider?: string; model?: string }) {
+  const provider = opts.provider?.trim();
+  const model = opts.model?.trim();
+  if (!provider && !model) return undefined;
+  if (!provider || !model) {
+    throw new Error("Both --provider and --model are required for model override.");
+  }
+  return { provider, model };
+}
+
 async function confirmDelete(agentId: string, id: string): Promise<boolean> {
   if (process.stdin.isTTY !== true) return false;
   const rl = createInterface({ input: process.stdin, output: process.stdout });
@@ -75,7 +89,8 @@ export function buildCreateBody(
   const name = opts.name?.trim() || defaultJobName(agentId, schedule);
   const payload: CreateScheduleRequest["payload"] = { message: opts.message };
   if (opts.session) payload.sessionId = opts.session;
-  return { name, agentId, schedule, payload };
+  const model = buildModelOverride(opts);
+  return { name, agentId, schedule, ...(model ? { model } : {}), payload };
 }
 
 export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
@@ -90,6 +105,9 @@ export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
   const hasScheduleOpt = Boolean(opts.cron) || Boolean(opts.tz) || Boolean(opts.startAt);
   if (hasScheduleOpt) body.schedule = buildScheduleFromOpts(opts);
 
+  const model = buildModelOverride(opts);
+  if (model) body.model = model;
+
   if (opts.message !== undefined || opts.session !== undefined) {
     if (opts.message === undefined) {
       throw new Error("--session also requires -m <message> (server replaces payload).");
@@ -102,7 +120,7 @@ export function buildUpdateBody(opts: UpdateOpts): UpdateScheduleRequest {
   }
 
   if (Object.keys(body).length === 0) {
-    throw new Error("Nothing to update. Pass --name/--enable/--disable/--cron/-m.");
+    throw new Error("Nothing to update. Pass --name/--enable/--disable/--cron/-m/--model.");
   }
   return body;
 }
@@ -133,6 +151,8 @@ export function registerSchedulerCommands(program: Command): Command {
     .option("--name <name>", "Schedule name (default: <agent>-<cron>)")
     .option("--start-at <iso>", "ISO 8601 anchor")
     .option("--session <id>", "Session id override")
+    .option("--provider <provider>", "Model provider override")
+    .option("--model <model>", "Model name override")
     .option("--disabled", "Create disabled")
     .option("-j, --json", "JSON output")
     .action(async (agentId: string, opts: AddOpts) => {
@@ -164,6 +184,8 @@ export function registerSchedulerCommands(program: Command): Command {
     .option("--start-at <iso>", "Anchor")
     .option("-m, --message <text>", "Replace payload message")
     .option("--session <id>", "Replace payload session id (requires -m)")
+    .option("--provider <provider>", "Model provider override (requires --model)")
+    .option("--model <model>", "Model name override (requires --provider)")
     .option("-j, --json", "JSON output")
     .action(async (agentId: string, id: string, opts: UpdateOpts) => {
       try {

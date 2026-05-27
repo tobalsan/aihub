@@ -6,6 +6,7 @@ export type CronRunOutputInput = {
   jobId: string;
   agentId: string;
   sessionId: string;
+  model?: { provider: string; model: string };
   runType: "cron" | "heartbeat";
   name: string;
   prompt: string;
@@ -43,11 +44,19 @@ export function renderCronRunOutput(input: CronRunOutputInput): string {
     `duration_ms: ${input.durationMs}`,
   ];
   if (input.schedule) lines.push(`schedule: ${yamlString(input.schedule)}`);
+  if (input.model) {
+    lines.push("model:");
+    lines.push(`  provider: ${yamlString(input.model.provider)}`);
+    lines.push(`  name: ${yamlString(input.model.model)}`);
+  }
   if (input.resultStatus) lines.push(`result_status: ${input.resultStatus}`);
   lines.push("---", "", `# ${title}`, "");
   lines.push(`**Job ID:** ${input.jobId}`);
   lines.push(`**Run Time:** ${formatDisplayTimestamp(input.firedAt)}`);
   if (input.schedule) lines.push(`**Schedule:** ${input.schedule}`);
+  if (input.model) {
+    lines.push(`**Model:** ${input.model.provider}/${input.model.model}`);
+  }
   lines.push("", "## Prompt", "", input.prompt, "");
   if (input.status === "ok") {
     lines.push("## Response", "", input.response?.trim() || "[no response]");

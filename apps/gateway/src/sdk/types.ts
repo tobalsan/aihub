@@ -5,6 +5,7 @@ import type {
   AgentContext,
   FileAttachment,
   HistoryEvent,
+  RequiredModelConfig,
 } from "@aihub/shared";
 import type { ExtensionRuntime } from "../extensions/runtime.js";
 
@@ -32,6 +33,7 @@ export type SdkRunParams = {
   attachments?: FileAttachment[]; // file attachments (paths from upload)
   workspaceDir: string;
   thinkLevel?: ThinkLevel;
+  model?: RequiredModelConfig;
   context?: AgentContext; // Structured context (Discord metadata, etc.)
   extensionRuntime?: ExtensionRuntime;
   onEvent: (event: StreamEvent) => void;

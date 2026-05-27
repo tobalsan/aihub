@@ -64,8 +64,8 @@ export class ContainerInputBuilder {
       sdkConfig: {
         sdk: params.agent.sdk ?? getDefaultSdkId(),
         model: {
-          provider: params.agent.model.provider,
-          model: params.agent.model.model,
+          provider: params.model?.provider ?? params.agent.model.provider,
+          model: params.model?.model ?? params.agent.model.model,
         },
       },
     };

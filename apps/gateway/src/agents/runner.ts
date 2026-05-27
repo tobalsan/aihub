@@ -324,6 +324,7 @@ export async function runAgent(
       message,
       attachments: params.attachments,
       workspaceDir,
+      model: params.model,
       context: params.context,
       extensionRuntime,
       onEvent: (event: StreamEvent) => {

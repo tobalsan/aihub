@@ -109,6 +109,7 @@ export class SchedulerService {
       agentId,
       enabled: true,
       schedule: input.schedule,
+      model: input.model,
       payload: input.payload,
       createdAt: new Date().toISOString(),
       state: {},
@@ -134,6 +135,7 @@ export class SchedulerService {
     if (patch.name !== undefined) job.name = patch.name;
     if (patch.enabled !== undefined) job.enabled = patch.enabled;
     if (patch.schedule) job.schedule = patch.schedule;
+    if (patch.model) job.model = patch.model;
     if (patch.payload) job.payload = patch.payload;
 
     if (job.enabled) {
@@ -267,6 +269,7 @@ export class SchedulerService {
         agentId: job.agentId,
         message: job.payload.message,
         sessionId,
+        model: job.model,
         source: "scheduler",
       });
 
@@ -278,6 +281,10 @@ export class SchedulerService {
         jobId: job.id,
         agentId: job.agentId,
         sessionId: result.meta.sessionId,
+        model: job.model ?? {
+          provider: agent.model.provider ?? "",
+          model: agent.model.model,
+        },
         runType: "cron",
         name: job.name,
         prompt: job.payload.message,
@@ -298,6 +305,10 @@ export class SchedulerService {
         jobId: job.id,
         agentId: job.agentId,
         sessionId,
+        model: job.model ?? {
+          provider: agent.model.provider ?? "",
+          model: agent.model.model,
+        },
         runType: "cron",
         name: job.name,
         prompt: job.payload.message,

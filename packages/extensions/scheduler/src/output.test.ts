@@ -17,6 +17,7 @@ describe("cron output", () => {
       jobId: "morning-digest",
       agentId: "devagent",
       sessionId: "scheduler:morning-digest:1",
+      model: { provider: "anthropic", model: "claude-sonnet-4" },
       runType: "cron",
       name: "Morning digest",
       prompt: "Summarize overnight events.",
@@ -30,7 +31,9 @@ describe("cron output", () => {
 
     expect(content).toContain("---\njob_id: \"morning-digest\"");
     expect(content).toContain("run_type: cron");
+    expect(content).toContain("model:\n  provider: \"anthropic\"\n  name: \"claude-sonnet-4\"");
     expect(content).toContain("# Cron Job: Morning digest");
+    expect(content).toContain("**Model:** anthropic/claude-sonnet-4");
     expect(content).toContain("## Prompt\n\nSummarize overnight events.");
     expect(content).toContain("## Response\n\nDone.");
   });

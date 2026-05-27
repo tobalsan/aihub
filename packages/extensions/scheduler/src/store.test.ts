@@ -68,6 +68,65 @@ describe("PerAgentScheduleStore", () => {
     expect(warn).toHaveBeenCalled();
   });
 
+  it("loads job model overrides", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-scheduler-store-"));
+    const a = agent("alpha", path.join(tmpDir, "alpha"));
+    await fs.mkdir(path.join(a.workspace, "cron"), { recursive: true });
+    await fs.writeFile(
+      path.join(a.workspace, "cron/jobs.json"),
+      JSON.stringify({
+        version: 1,
+        jobs: [
+          {
+            id: "job-1",
+            name: "Digest",
+            enabled: true,
+            schedule: { cron: "0 8 * * *", tz: "UTC" },
+            model: { provider: "anthropic", model: "claude-sonnet-4" },
+            payload: { message: "Run" },
+          },
+        ],
+      })
+    );
+
+    const store = new PerAgentScheduleStore([a], (candidate) => candidate.workspace);
+    const loaded = await store.load();
+
+    expect(loaded.jobs[0]?.model).toEqual({
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
+  });
+
+  it("rejects partial job model overrides", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-scheduler-store-"));
+    const a = agent("alpha", path.join(tmpDir, "alpha"));
+    await fs.mkdir(path.join(a.workspace, "cron"), { recursive: true });
+    await fs.writeFile(
+      path.join(a.workspace, "cron/jobs.json"),
+      JSON.stringify({
+        version: 1,
+        jobs: [
+          {
+            id: "job-1",
+            name: "Digest",
+            enabled: true,
+            schedule: { cron: "0 8 * * *", tz: "UTC" },
+            model: { provider: "anthropic" },
+            payload: { message: "Run" },
+          },
+        ],
+      })
+    );
+    const warn = vi.fn();
+
+    const store = new PerAgentScheduleStore([a], (candidate) => candidate.workspace, tmpDir, warn);
+    const loaded = await store.load();
+
+    expect(loaded.jobs).toEqual([]);
+    expect(warn).toHaveBeenCalled();
+  });
+
   it("writes only target agent jobs", async () => {
     tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-scheduler-store-"));
     const a = agent("alpha", path.join(tmpDir, "alpha"));

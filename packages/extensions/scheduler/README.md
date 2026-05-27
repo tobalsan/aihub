@@ -42,12 +42,15 @@ Disk shape omits `agentId`; it is implied by the workspace:
         "tz": "Europe/Paris",
         "startAt": "2026-05-19T07:00:00.000Z"
       },
+      "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
       "payload": { "message": "Summarize overnight events." },
       "createdAt": "2026-05-19T07:00:00.000Z"
     }
   ]
 }
 ```
+
+`model` is optional. When present, both `provider` and `model` are required and the scheduled run uses that model instead of the agent default. Jobs without `model` keep using the agent default.
 
 Malformed `cron/jobs.json` logs one warning and is treated as empty for that
 agent. In phase 1, job files are loaded at gateway start; restart after manual
@@ -87,6 +90,7 @@ curl -X POST localhost:4000/api/schedules \
     "agentId": "devagent",
     "name": "Morning digest",
     "schedule": { "cron": "0 8 * * *", "tz": "Europe/Paris" },
+    "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
     "payload": { "message": "Summarize overnight events." }
   }'
 ```
@@ -99,8 +103,10 @@ are gone.
 
 ```bash
 aihub scheduler add <agent-id> --cron "0 8 * * *" --tz Europe/Paris -m "..."
+aihub scheduler add <agent-id> --cron "0 8 * * *" --tz Europe/Paris -m "..." --provider anthropic --model claude-sonnet-4
 aihub scheduler list [--agent <agent-id>]
 aihub scheduler update <agent-id> <job-id> --cron "*/30 * * * *" --tz UTC
+aihub scheduler update <agent-id> <job-id> --provider openai --model gpt-5
 aihub scheduler rm <agent-id> <job-id>
 aihub scheduler tail <agent-id> <job-id>
 ```

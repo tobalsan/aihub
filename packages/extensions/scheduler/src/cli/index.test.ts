@@ -26,6 +26,29 @@ describe("buildCreateBody", () => {
     expect(body.name).toBe("Hourly Check");
   });
 
+  it("passes through model override", () => {
+    const body = buildCreateBody("ops", {
+      message: "run check",
+      cron: "0 9 * * *",
+      tz: "UTC",
+      provider: "anthropic",
+      model: "claude-sonnet-4",
+    });
+
+    expect(body.model).toEqual({ provider: "anthropic", model: "claude-sonnet-4" });
+  });
+
+  it("rejects partial model override", () => {
+    expect(() =>
+      buildCreateBody("ops", {
+        message: "run check",
+        cron: "0 9 * * *",
+        tz: "UTC",
+        provider: "anthropic",
+      })
+    ).toThrow(/Both --provider and --model/);
+  });
+
   it("passes through --session", () => {
     const body = buildCreateBody("ops", {
       message: "run check",
@@ -61,6 +84,18 @@ describe("buildUpdateBody", () => {
 
   it("rejects partial schedule update", () => {
     expect(() => buildUpdateBody({ tz: "UTC" })).toThrow(/--cron/);
+  });
+
+  it("maps model override", () => {
+    expect(buildUpdateBody({ provider: "openai", model: "gpt-5" })).toEqual({
+      model: { provider: "openai", model: "gpt-5" },
+    });
+  });
+
+  it("rejects partial model update", () => {
+    expect(() => buildUpdateBody({ model: "gpt-5" })).toThrow(
+      /Both --provider and --model/
+    );
   });
 
   it("rejects empty patch", () => {

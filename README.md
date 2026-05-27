@@ -811,16 +811,17 @@ Create via CLI:
 aihub scheduler add my-agent --cron "0 * * * *" --tz UTC \
   -m "Run hourly check"
 
-# Daily at 9am New York time
+# Daily at 9am New York time, pinned to a model
 aihub scheduler add my-agent --cron "0 9 * * *" --tz America/New_York \
-  -m "Generate standup summary"
+  -m "Generate standup summary" \
+  --provider anthropic --model claude-sonnet-4
 
 aihub scheduler list --agent my-agent
 aihub scheduler rm my-agent <job-id> -y
 aihub scheduler tail my-agent <job-id>
 ```
 
-Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`.
+Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`. Optional job-level `model: { provider, model }` overrides the agent default for scheduled fires.
 
 Or directly via the HTTP API:
 
@@ -829,6 +830,7 @@ curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d
   "name": "Hourly check",
   "agentId": "my-agent",
   "schedule": { "cron": "0 * * * *", "tz": "UTC" },
+  "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
   "payload": { "message": "Run hourly check" }
 }'
 ```

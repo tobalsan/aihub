@@ -27,6 +27,12 @@ export const AgentModelConfigSchema = z.object({
 });
 export type AgentModelConfig = z.infer<typeof AgentModelConfigSchema>;
 
+export const RequiredModelConfigSchema = z.object({
+  provider: z.string().min(1),
+  model: z.string().min(1),
+});
+export type RequiredModelConfig = z.infer<typeof RequiredModelConfigSchema>;
+
 // Discord config
 export const DiscordConfigSchema = z.object({
   token: z.string(),
@@ -267,6 +273,7 @@ export const ScheduleJobFileSchema = z.object({
   name: z.string(),
   enabled: z.boolean().optional().default(true),
   schedule: ScheduleSchema,
+  model: RequiredModelConfigSchema.optional(),
   payload: SchedulePayloadSchema,
   createdAt: z.string().optional(),
 });
@@ -776,6 +783,7 @@ export type RunAgentParams = {
   sessionId?: string;
   sessionKey?: string;
   thinkLevel?: ThinkLevel;
+  model?: RequiredModelConfig;
   context?: AgentContext;
   source?: string;
   trace?: AgentTraceContext;
@@ -1169,6 +1177,7 @@ export const CreateScheduleRequestSchema = z.object({
   name: z.string(),
   agentId: z.string().optional(),
   schedule: ScheduleSchema,
+  model: RequiredModelConfigSchema.optional(),
   payload: SchedulePayloadSchema,
 });
 export type CreateScheduleRequest = z.infer<typeof CreateScheduleRequestSchema>;
@@ -1177,6 +1186,7 @@ export const UpdateScheduleRequestSchema = z.object({
   name: z.string().optional(),
   enabled: z.boolean().optional(),
   schedule: ScheduleSchema.optional(),
+  model: RequiredModelConfigSchema.optional(),
   payload: SchedulePayloadSchema.optional(),
 });
 export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;

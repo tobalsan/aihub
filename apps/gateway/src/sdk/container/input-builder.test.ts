@@ -78,6 +78,33 @@ describe("container input builder", () => {
     expect(input.sdkConfig.model.auth_token).toBeUndefined();
   });
 
+  it("uses run model override for container sdk config", async () => {
+    const workspaceDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-container-input-")
+    );
+    await fs.writeFile(path.join(workspaceDir, "SOUL.md"), "soul");
+    const builder = new ContainerInputBuilder({
+      buildSystemPrompts: async () => [],
+      buildTools: async () => [],
+    });
+    const params = {
+      agentId: "cloud",
+      sessionId: "session-1",
+      message: "hello",
+      workspaceDir,
+      model: { provider: "openai", model: "gpt-5" },
+      agent: {
+        id: "cloud",
+        model: { provider: "anthropic", model: "claude-sonnet" },
+      },
+    } as SdkRunParams;
+    const config = { agents: [params.agent], extensions: {} } as GatewayConfig;
+
+    const input = await builder.build(params, config, "token-1");
+
+    expect(input.sdkConfig.model).toEqual({ provider: "openai", model: "gpt-5" });
+  });
+
   it("prepends first-run bootstrap prompt", async () => {
     const workspaceDir = await fs.mkdtemp(
       path.join(os.tmpdir(), "aihub-container-input-")
