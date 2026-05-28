@@ -91,7 +91,7 @@ describe("buildVolumeMounts", () => {
         },
         { source: shared, target: "/shared", readonly: false },
         {
-          source: path.join(aihubHome, "users", "user-1"),
+          source: path.join(aihubHome, "sessions", "users", "user-1"),
           target: "/users/user-1",
           readonly: false,
         },

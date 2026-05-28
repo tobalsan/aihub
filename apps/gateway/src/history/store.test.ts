@@ -64,7 +64,7 @@ describe("history store isolation", () => {
     );
 
     expect(vi.mocked(fs.appendFile)).toHaveBeenCalledWith(
-      "/tmp/aihub-test/users/user-123/history/1970-01-01T00-00-00-000Z_agent-1-session-1.jsonl",
+      "/tmp/aihub-test/sessions/users/user-123/history/1970-01-01T00-00-00-000Z_agent-1-session-1.jsonl",
       expect.any(String),
       "utf-8"
     );

@@ -19,13 +19,13 @@ describe("multi-user isolation paths", () => {
       await import("./isolation.js");
 
     expect(getUserDataDir("user-123", "/tmp/aihub-test")).toBe(
-      "/tmp/aihub-test/users/user-123"
+      "/tmp/aihub-test/sessions/users/user-123"
     );
     expect(getUserSessionsPath("user-123", "/tmp/aihub-test")).toBe(
-      "/tmp/aihub-test/users/user-123/sessions.json"
+      "/tmp/aihub-test/sessions/users/user-123/sessions.json"
     );
     expect(getUserHistoryDir("user-123", "/tmp/aihub-test")).toBe(
-      "/tmp/aihub-test/users/user-123/history"
+      "/tmp/aihub-test/sessions/users/user-123/history"
     );
   });
 });

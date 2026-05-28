@@ -194,8 +194,10 @@ describe("session store isolation", () => {
     });
 
     expect(vi.mocked(fs.rename)).toHaveBeenCalledWith(
-      expect.stringContaining("/tmp/aihub-test/users/user-123/sessions.json."),
-      "/tmp/aihub-test/users/user-123/sessions.json"
+      expect.stringContaining(
+        "/tmp/aihub-test/sessions/users/user-123/sessions.json."
+      ),
+      "/tmp/aihub-test/sessions/users/user-123/sessions.json"
     );
   });
 

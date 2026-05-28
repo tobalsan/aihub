@@ -213,7 +213,7 @@ export function buildVolumeMounts(
   if (userId) {
     addMount(
       mounts,
-      path.join(home, "users", userId),
+      path.join(home, "sessions", "users", userId),
       `/users/${userId}`,
       false
     );

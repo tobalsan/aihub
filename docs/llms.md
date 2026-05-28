@@ -224,9 +224,9 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `sessions.json` - Session key -> sessionId mapping with timestamps
 - `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
 - `auth.db` - Better Auth + multi-user SQLite database; only created when `multiUser.enabled: true`
-- `users/<userId>/sessions.json` - Per-user session mapping file when multi-user mode is enabled
-- `users/<userId>/claude-sessions.json` - Per-user Claude session map when multi-user mode is enabled
-- `users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled
+- `sessions/users/<userId>/sessions.json` - Per-user session mapping file when multi-user mode is enabled
+- `sessions/users/<userId>/claude-sessions.json` - Per-user Claude session map when multi-user mode is enabled
+- `sessions/users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled
 - `sessions/subagents/runs/<runId>/` - Project-agnostic CLI subagent run data (`config.json`, `state.json`, `progress.json`, `logs.jsonl`, `history.jsonl`)
 - (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
@@ -355,11 +355,12 @@ OneCLI notes:
 $AIHUB_HOME/
 ├── auth.db
 ├── aihub.json
-└── users/
-    └── <userId>/
-        ├── sessions.json
-        ├── claude-sessions.json
-        └── history/
+└── sessions/
+    └── users/
+        └── <userId>/
+            ├── sessions.json
+            ├── claude-sessions.json
+            └── history/
 ```
 
 - Web UI changes in multi-user mode:

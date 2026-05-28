@@ -22,7 +22,7 @@ config with `enabled: true`, OAuth client credentials, and a session secret.
 - The `createAuthMiddleware` mounted on `/api/*`, plus `requireAdmin` and
   `requireAgentAccess` middleware used by other extensions.
 - Bearer-token API auth via the `@better-auth/api-key` plugin (see below).
-- Per-user data directories under `$AIHUB_HOME/users/<userId>/` for sessions,
+- Per-user data directories under `$AIHUB_HOME/sessions/users/<userId>/` for sessions,
   Claude session maps, and conversation history.
 
 The extension does not own agent execution, conversation storage, or routing —
@@ -34,10 +34,12 @@ it only owns auth, authorization, and the per-user data namespace.
 $AIHUB_HOME/
 ├── auth.db                # Better Auth tables: user, session, account,
 │                          # verification, apikey, plus agent_assignments
-└── users/<userId>/
-    ├── sessions.json
-    ├── claude-sessions.json
-    └── history/
+└── sessions/
+    └── users/
+        └── <userId>/
+            ├── sessions.json
+            ├── claude-sessions.json
+            └── history/
 ```
 
 `auth.db` uses WAL mode with foreign keys on. All Better Auth tables (including
@@ -155,7 +157,7 @@ supported but discouraged.
 ## Per-User Isolation
 
 When multi-user is enabled, every agent run is rewritten to read and write
-under `$AIHUB_HOME/users/<userId>/`:
+under `$AIHUB_HOME/sessions/users/<userId>/`:
 
 - `sessions.json` — pi/Claude session id → conversation id mapping.
 - `claude-sessions.json` — same shape, narrowed to Claude.

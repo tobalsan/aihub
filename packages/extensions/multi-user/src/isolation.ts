@@ -1,7 +1,7 @@
 import path from "node:path";
 
 export function getUserDataDir(userId: string, dataDir: string): string {
-  return path.join(dataDir, "users", userId);
+  return path.join(dataDir, "sessions", "users", userId);
 }
 
 export function getUserSessionsPath(

@@ -245,7 +245,7 @@ Notes:
 
 - Multi-user mode adds `/login`, `/api/me`, `/api/admin/users`, and `/api/admin/agents`.
 - Gateway initializes the Better Auth runtime before opening the HTTP listener, so `/api/auth/*` is live as soon as the server starts.
-- Sessions/history move to per-user paths under `$AIHUB_HOME/users/<userId>/`.
+- Sessions/history move to per-user paths under `$AIHUB_HOME/sessions/users/<userId>/`.
 - Headless callers (curl, CI, scripts) can use `aihub user token create|list|revoke` to mint bearer API keys and call `/api/*` with `Authorization: Bearer <token>` instead of a browser cookie.
 - There is no migration for existing single-user session/history data. Treat enablement as a fresh start.
 
