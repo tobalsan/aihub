@@ -17,6 +17,7 @@ import {
   logComponentSummary,
   resolveStartupConfig,
 } from "../config/validate.js";
+import { startGatewayHotReload } from "../config/hot-reload.js";
 
 export type GatewayCommandOptions = {
   port?: string;
@@ -83,6 +84,13 @@ export async function startGatewayCommand(
   }
 
   startServer(port, opts.host, extensionRuntime);
+  startGatewayHotReload(runtimeConfig, {
+    onError(error) {
+      console.warn(
+        `[hot-reload] Reload failed; keeping last good config: ${error instanceof Error ? error.message : String(error)}`
+      );
+    },
+  });
 
   return {
     actualPort,

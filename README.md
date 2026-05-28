@@ -821,7 +821,7 @@ aihub scheduler rm my-agent <job-id> -y
 aihub scheduler tail my-agent <job-id>
 ```
 
-Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`. Optional job-level `model: { provider, model }` overrides the agent default for scheduled fires.
+Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`. Optional job-level `model: { provider, model }` overrides the agent default for scheduled fires. When scheduler is enabled, agents also get self-only scheduler tools to create/list/update/delete jobs and read latest output. Gateway polls config, agent YAML, and cron job files every 5 seconds for hot reload.
 
 Or directly via the HTTP API:
 

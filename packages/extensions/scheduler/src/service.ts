@@ -39,6 +39,10 @@ function uuidv7(): string {
   return `${hex.slice(0, 8)}-${hex.slice(8, 12)}-${hex.slice(12, 16)}-${hex.slice(16, 20)}-${hex.slice(20)}`;
 }
 
+export function hasSchedulerContext(): boolean {
+  return schedulerCtx !== null;
+}
+
 export function getSchedulerContext(): ExtensionContext {
   if (!schedulerCtx) {
     throw new Error("Scheduler context not initialized");
@@ -91,6 +95,20 @@ export class SchedulerService {
       this.timer = null;
     }
     console.log("[scheduler] Stopped");
+  }
+
+  async refreshFromDisk() {
+    const ctx = getSchedulerContext();
+    this.jobStore = new PerAgentScheduleStore(
+      ctx.getAgents(),
+      (agent) => ctx.resolveWorkspaceDir(agent),
+      ctx.getDataDir(),
+      (message) => ctx.logger.warn(message)
+    );
+    this.store = await this.jobStore.load();
+    this.loaded = true;
+    this.recomputeNextRuns();
+    this.armTimer();
   }
 
   async list(agentId?: string): Promise<ScheduleJob[]> {

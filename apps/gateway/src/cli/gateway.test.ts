@@ -11,6 +11,7 @@ const createExtensionContext = vi.fn();
 const prepareStartupConfig = vi.fn();
 const logComponentSummary = vi.fn();
 const resolveStartupConfig = vi.fn();
+const startGatewayHotReload = vi.fn();
 
 vi.mock("../config/index.js", () => ({
   loadConfig,
@@ -40,6 +41,10 @@ vi.mock("../config/validate.js", () => ({
   prepareStartupConfig,
   logComponentSummary,
   resolveStartupConfig,
+}));
+
+vi.mock("../config/hot-reload.js", () => ({
+  startGatewayHotReload,
 }));
 
 describe("startGatewayCommand", () => {

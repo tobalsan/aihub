@@ -3,20 +3,220 @@ import {
   SchedulerExtensionConfigSchema,
   UpdateScheduleRequestSchema,
   type Extension,
+  type ExtensionAgentTool,
   type ExtensionContext,
 } from "@aihub/shared";
+import { z } from "zod";
 import type { Hono } from "hono";
 import {
   SchedulerService,
   clearSchedulerContext,
   getScheduler,
   getSchedulerContext,
+  hasSchedulerContext,
   setSchedulerContext,
   startScheduler,
   stopScheduler,
 } from "./service.js";
 import { computeNextRunAtMs } from "./schedule.js";
-import { readLatestOutputFile } from "./store.js";
+import { getAgentJobsPath, readLatestOutputFile } from "./store.js";
+
+const scheduleInputSchema = z.object({
+  cron: z.string().min(1),
+  tz: z.string().min(1),
+  startAt: z.string().optional(),
+});
+
+const createJobToolSchema = z.object({
+  name: z.string().min(1),
+  cron: z.string().min(1),
+  tz: z.string().min(1),
+  startAt: z.string().optional(),
+  message: z.string().min(1),
+  sessionId: z.string().optional(),
+});
+
+const updateJobToolSchema = z.object({
+  jobId: z.string().min(1),
+  name: z.string().min(1).optional(),
+  enabled: z.boolean().optional(),
+  schedule: scheduleInputSchema.optional(),
+  message: z.string().min(1).optional(),
+  sessionId: z.string().nullable().optional(),
+});
+
+const jobIdToolSchema = z.object({ jobId: z.string().min(1) });
+
+const latestOutputToolSchema = z.object({
+  jobId: z.string().min(1),
+  maxChars: z.number().int().positive().max(20_000).optional(),
+});
+
+function toolError(error: unknown) {
+  return { ok: false, error: error instanceof Error ? error.message : String(error) };
+}
+
+function schedulerAgentTools(): ExtensionAgentTool[] {
+  return [
+    {
+      name: "scheduler.list_jobs",
+      description: "List this agent's scheduler cron jobs",
+      parameters: { type: "object", properties: {}, additionalProperties: false },
+      async execute(_args, { agent }) {
+        try {
+          return { ok: true, jobs: await getScheduler().list(agent.id) };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+    {
+      name: "scheduler.create_job",
+      description: "Create an enabled scheduler cron job for this agent",
+      parameters: {
+        type: "object",
+        properties: {
+          name: { type: "string" },
+          cron: { type: "string" },
+          tz: { type: "string" },
+          startAt: { type: "string" },
+          message: { type: "string" },
+          sessionId: { type: "string" },
+        },
+        required: ["name", "cron", "tz", "message"],
+      },
+      async execute(args, { agent }) {
+        try {
+          const input = createJobToolSchema.parse(args);
+          const parsed = CreateScheduleRequestSchema.parse({
+            agentId: agent.id,
+            name: input.name,
+            schedule: {
+              cron: input.cron,
+              tz: input.tz,
+              startAt: input.startAt,
+            },
+            payload: { message: input.message, sessionId: input.sessionId },
+          });
+          const { agentId, ...body } = parsed;
+          return { ok: true, job: await getScheduler().add(agentId!, body) };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+    {
+      name: "scheduler.update_job",
+      description: "Update this agent's scheduler cron job",
+      parameters: {
+        type: "object",
+        properties: {
+          jobId: { type: "string" },
+          name: { type: "string" },
+          enabled: { type: "boolean" },
+          schedule: {
+            type: "object",
+            properties: {
+              cron: { type: "string" },
+              tz: { type: "string" },
+              startAt: { type: "string" },
+            },
+            required: ["cron", "tz"],
+          },
+          message: { type: "string" },
+          sessionId: { type: ["string", "null"] },
+        },
+        required: ["jobId"],
+      },
+      async execute(args, { agent }) {
+        try {
+          const input = updateJobToolSchema.parse(args);
+          const [existing] = (await getScheduler().list(agent.id)).filter(
+            (job) => job.id === input.jobId
+          );
+          if (!existing) return { ok: false, error: "Schedule not found" };
+          const payload =
+            input.message !== undefined || input.sessionId !== undefined
+              ? {
+                  message: input.message ?? existing.payload.message,
+                  sessionId:
+                    input.sessionId === null
+                      ? undefined
+                      : (input.sessionId ?? existing.payload.sessionId),
+                }
+              : undefined;
+          const patch = UpdateScheduleRequestSchema.parse({
+            name: input.name,
+            enabled: input.enabled,
+            schedule: input.schedule,
+            payload,
+          });
+          return {
+            ok: true,
+            job: await getScheduler().update(agent.id, input.jobId, patch),
+          };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+    {
+      name: "scheduler.delete_job",
+      description: "Delete this agent's scheduler cron job by id",
+      parameters: {
+        type: "object",
+        properties: { jobId: { type: "string" } },
+        required: ["jobId"],
+      },
+      async execute(args, { agent }) {
+        try {
+          const input = jobIdToolSchema.parse(args);
+          const result = await getScheduler().remove(agent.id, input.jobId);
+          return result.removed
+            ? { ok: true }
+            : { ok: false, error: "Schedule not found" };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+    {
+      name: "scheduler.get_latest_output",
+      description: "Get a bounded preview of this agent's latest scheduler job output",
+      parameters: {
+        type: "object",
+        properties: {
+          jobId: { type: "string" },
+          maxChars: { type: "number", minimum: 1, maximum: 20000 },
+        },
+        required: ["jobId"],
+      },
+      async execute(args, { agent }) {
+        try {
+          const input = latestOutputToolSchema.parse(args);
+          const ctx = getSchedulerContext();
+          const latest = await readLatestOutputFile(
+            ctx.resolveWorkspaceDir(agent),
+            input.jobId
+          );
+          if (!latest) return { ok: false, error: "Output not found" };
+          const maxChars = input.maxChars ?? 4000;
+          return {
+            ok: true,
+            path: latest.path,
+            content:
+              latest.content.length > maxChars
+                ? latest.content.slice(0, maxChars)
+                : latest.content,
+            truncated: latest.content.length > maxChars,
+          };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+  ];
+}
 
 const schedulerExtension: Extension = {
   id: "scheduler",
@@ -31,6 +231,10 @@ const schedulerExtension: Extension = {
       valid: result.success,
       errors: result.success ? [] : result.error.issues.map((issue) => issue.message),
     };
+  },
+  getAgentTools(_agent, context) {
+    if (context?.config.extensions?.scheduler?.enabled === false) return [];
+    return schedulerAgentTools();
   },
   registerRoutes(app: Hono) {
     app.get("/schedules", async (c) => {
@@ -124,6 +328,8 @@ export {
   startScheduler,
   stopScheduler,
   computeNextRunAtMs,
+  getAgentJobsPath,
+  hasSchedulerContext,
 };
 export { latestAssistantText, writeCronRunOutput } from "./output.js";
 

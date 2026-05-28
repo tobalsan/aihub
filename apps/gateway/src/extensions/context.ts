@@ -10,6 +10,7 @@ import type {
 } from "@aihub/shared";
 import {
   CONFIG_DIR,
+  loadConfig,
   getAgent,
   getActiveAgents as getAgents,
   isAgentActive,
@@ -36,7 +37,7 @@ export function createExtensionContext(
   resolvedConfig: GatewayConfig
 ): Parameters<Extension["start"]>[0] {
   return {
-    getConfig: () => resolvedConfig,
+    getConfig: () => loadConfig(),
     getDataDir: () => CONFIG_DIR,
     getAgent,
     getAgents,

@@ -113,6 +113,22 @@ aihub scheduler tail <agent-id> <job-id>
 
 CLI can edit files while scheduler runtime is disabled.
 
+## Agent tools
+
+When `extensions.scheduler.enabled` is not `false`, agents receive scheduler tools for their own jobs only:
+
+- `scheduler.list_jobs`
+- `scheduler.create_job`
+- `scheduler.update_job`
+- `scheduler.delete_job`
+- `scheduler.get_latest_output`
+
+Tools use raw cron + timezone input, generate job ids server-side, create enabled jobs by default, and support optional `sessionId`. They do not expose model overrides.
+
+## Hot reload
+
+Gateway polls config, agent YAML files, and agent `cron/jobs.json` files every 5 seconds. Manual cron file edits refresh scheduler state without restart.
+
 ## Output files
 
 Each run writes hybrid frontmatter + readable markdown:
