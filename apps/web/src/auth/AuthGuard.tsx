@@ -1,6 +1,7 @@
 import { useNavigate } from "@solidjs/router";
 import { Show, createEffect, createMemo, type JSX } from "solid-js";
 import { useSession } from "./client";
+import { usePendingApprovalRefresh } from "./approval";
 import { capabilities } from "../lib/capabilities";
 
 type SessionUser = {
@@ -115,6 +116,10 @@ export default function AuthGuard(props: { children?: JSX.Element }) {
   const user = createMemo(
     () => (sessionState().data?.user ?? null) as SessionUser | null
   );
+  const approvedFromMe = usePendingApprovalRefresh(user);
+  const hasAccess = createMemo(
+    () => user()?.approved !== false || approvedFromMe()
+  );
 
   createEffect(() => {
     if (!capabilities.multiUser) return;
@@ -129,7 +134,7 @@ export default function AuthGuard(props: { children?: JSX.Element }) {
     <Show when={!capabilities.multiUser} fallback={
       <Show when={!sessionState().isPending} fallback={<GuardSplash message="Checking session…" />}>
         <Show when={sessionState().data} fallback={<GuardSplash message="Redirecting to login…" />}>
-          <Show when={user()?.approved !== false} fallback={<PendingApproval />}>
+          <Show when={hasAccess()} fallback={<PendingApproval />}>
             {props.children}
           </Show>
         </Show>

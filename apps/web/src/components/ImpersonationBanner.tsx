@@ -1,4 +1,4 @@
-import { Show, createSignal, onMount } from "solid-js";
+import { Show, createMemo, createSignal, onMount } from "solid-js";
 import {
   endImpersonation,
   fetchImpersonationStatus,
@@ -16,7 +16,14 @@ export async function refetchImpersonationStatus(): Promise<void> {
   }
 }
 
+type ActiveImpersonationStatus = Extract<ImpersonationStatus, { active: true }>;
+
 export function ImpersonationBanner() {
+  const activeStatus = createMemo<ActiveImpersonationStatus | null>(() => {
+    const status = impersonationStatus();
+    return status?.active ? status : null;
+  });
+
   onMount(() => {
     void refetchImpersonationStatus();
   });
@@ -28,7 +35,7 @@ export function ImpersonationBanner() {
   }
 
   return (
-    <Show when={impersonationStatus()?.active ? impersonationStatus() : null}>
+    <Show when={activeStatus()}>
       {(status) => (
         <div class="impersonation-banner" role="status">
           <span>

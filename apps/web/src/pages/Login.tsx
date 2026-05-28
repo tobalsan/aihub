@@ -1,9 +1,11 @@
 import { useNavigate } from "@solidjs/router";
 import { Show, createEffect, createMemo, createSignal } from "solid-js";
 import { capabilities } from "../lib/capabilities";
+import { usePendingApprovalRefresh } from "../auth/approval";
 import { signIn, useSession } from "../auth/client";
 
 type SessionUser = {
+  id?: string;
   approved?: boolean | null;
 };
 
@@ -15,13 +17,17 @@ export default function LoginPage() {
   const user = createMemo(
     () => (session().data?.user ?? null) as SessionUser | null
   );
+  const approvedFromMe = usePendingApprovalRefresh(user);
+  const hasAccess = createMemo(
+    () => session().data && (user()?.approved !== false || approvedFromMe())
+  );
 
   createEffect(() => {
     if (!capabilities.multiUser) {
       void navigate("/", { replace: true });
       return;
     }
-    if (session().data) {
+    if (hasAccess()) {
       void navigate("/", { replace: true });
     }
   });
@@ -83,7 +89,7 @@ export default function LoginPage() {
             </span>
             <span>{isSubmitting() ? "Redirecting…" : "Continue with Google"}</span>
           </button>
-          <Show when={user()?.approved === false}>
+          <Show when={session().data && user()?.approved === false && !approvedFromMe()}>
             <p class="login-note">
               Signed in already. Your account is waiting for admin approval.
             </p>
