@@ -50,16 +50,17 @@ export function startGatewayHotReload(
     if (running) return;
     running = true;
     try {
+      const currentSignature = signature(lastConfig);
+      if (currentSignature === lastSignature) return;
+
       const nextConfig = reloadConfig();
       const nextSignature = signature(nextConfig);
-      if (nextSignature !== lastSignature) {
-        lastConfig = nextConfig;
-        lastSignature = nextSignature;
-        if (nextConfig.extensions?.scheduler && hasSchedulerContext()) {
-          await getScheduler().refreshFromDisk();
-        }
-        await options.onReload?.(nextConfig);
+      lastConfig = nextConfig;
+      lastSignature = nextSignature;
+      if (nextConfig.extensions?.scheduler && hasSchedulerContext()) {
+        await getScheduler().refreshFromDisk();
       }
+      await options.onReload?.(nextConfig);
     } catch (error) {
       setLoadedConfig(lastConfig);
       options.onError?.(error);
