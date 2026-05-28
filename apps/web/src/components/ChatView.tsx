@@ -639,7 +639,7 @@ export function ChatView() {
   const [autoScrollPinned, setAutoScrollPinned] = createSignal(true);
   const SCROLL_THRESHOLD = 40;
   let autoScrollFrame: number | undefined;
-  let autoScrollSettleTimer: number | undefined;
+  let programmaticScrollUntil = 0;
 
   const checkIsAtBottom = () => {
     if (!messagesContainerRef) return true;
@@ -648,41 +648,27 @@ export function ChatView() {
   };
 
   const handleScroll = () => {
-    const atBottom = checkIsAtBottom();
-    setAutoScrollPinned(atBottom);
+    if (performance.now() < programmaticScrollUntil) return;
+    setAutoScrollPinned(checkIsAtBottom());
+  };
+
+  const handleUserScrollIntent = () => {
+    programmaticScrollUntil = 0;
+    if (!checkIsAtBottom()) setAutoScrollPinned(false);
   };
 
   const scrollToBottom = (force = false) => {
     if (!messagesContainerRef) return;
     if (force) setAutoScrollPinned(true);
-    if (force || autoScrollPinned()) {
-      if (autoScrollFrame !== undefined) {
-        cancelAnimationFrame(autoScrollFrame);
-      }
-      if (autoScrollSettleTimer !== undefined) {
-        clearTimeout(autoScrollSettleTimer);
-      }
-      autoScrollFrame = requestAnimationFrame(() => {
-        if (!messagesContainerRef) return;
-        if (typeof messagesContainerRef.scrollTo === "function") {
-          messagesContainerRef.scrollTo({
-            top: messagesContainerRef.scrollHeight,
-            behavior: "smooth",
-          });
-        } else {
-          messagesContainerRef.scrollTop = messagesContainerRef.scrollHeight;
-        }
-        autoScrollFrame = undefined;
-        autoScrollSettleTimer = window.setTimeout(() => {
-          if (!messagesContainerRef) return;
-          if (autoScrollPinned() && !checkIsAtBottom()) {
-            messagesContainerRef.scrollTop = messagesContainerRef.scrollHeight;
-          }
-          setAutoScrollPinned(true);
-          autoScrollSettleTimer = undefined;
-        }, 320);
-      });
-    }
+    if (!(force || autoScrollPinned())) return;
+    if (autoScrollFrame !== undefined) cancelAnimationFrame(autoScrollFrame);
+    autoScrollFrame = requestAnimationFrame(() => {
+      autoScrollFrame = undefined;
+      if (!messagesContainerRef) return;
+      if (!(force || autoScrollPinned())) return;
+      programmaticScrollUntil = performance.now() + 100;
+      messagesContainerRef.scrollTop = messagesContainerRef.scrollHeight;
+    });
   };
 
   const canAttachFiles = () =>
@@ -1235,8 +1221,6 @@ export function ChatView() {
 
   onCleanup(() => {
     if (autoScrollFrame !== undefined) cancelAnimationFrame(autoScrollFrame);
-    if (autoScrollSettleTimer !== undefined)
-      clearTimeout(autoScrollSettleTimer);
     cleanup?.();
     subscriptionCleanup?.();
     statusCleanup?.();
@@ -2108,6 +2092,20 @@ export function ChatView() {
         class="messages"
         ref={messagesContainerRef}
         onScroll={handleScroll}
+        onWheel={handleUserScrollIntent}
+        onTouchMove={handleUserScrollIntent}
+        onKeyDown={(e) => {
+          if (
+            e.key === "PageUp" ||
+            e.key === "PageDown" ||
+            e.key === "ArrowUp" ||
+            e.key === "ArrowDown" ||
+            e.key === "Home" ||
+            e.key === "End"
+          ) {
+            handleUserScrollIntent();
+          }
+        }}
         classList={{
           "drop-target": isFileDragActive() && activeDropZone() === "history",
         }}
