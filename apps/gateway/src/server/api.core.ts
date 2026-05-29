@@ -48,10 +48,7 @@ import { normalizeRunRequest } from "./run-request.js";
 import { compactAgentSession } from "../agents/compact.js";
 import { CONFIG_DIR } from "../config/index.js";
 import { getUserHistoryDir } from "@aihub/extension-multi-user/isolation";
-import {
-  appendSessionMeta,
-  invalidateResolvedHistoryFile,
-} from "../history/store.js";
+import { invalidateResolvedHistoryFile } from "../history/store.js";
 import { resolveSessionDataFile } from "../sessions/files.js";
 
 const api = new Hono();
@@ -312,6 +309,25 @@ async function summarizeSessionFile(params: {
   };
 }
 
+async function resolveExistingSessionHistoryFile(params: {
+  userId?: string;
+  agentId: string;
+  sessionId: string;
+}): Promise<string | null> {
+  const dirs = [getUserHistoryDir(params.userId, CONFIG_DIR)];
+  if (!params.userId) dirs.push(path.join(CONFIG_DIR, "history"));
+  for (const dir of dirs) {
+    const filePath = await resolveSessionDataFile({
+      dir,
+      agentId: params.agentId,
+      sessionId: params.sessionId,
+      createIfMissing: false,
+    });
+    if (filePath) return filePath;
+  }
+  return null;
+}
+
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", async (c) => {
   const agents = await getVisibleAgents(c);
@@ -406,12 +422,10 @@ api.delete("/agents/:agentId/sessions/:sessionId", async (c) => {
     return c.json({ error: "Agent not found" }, 404);
   }
   const userId = await getRequestUserId(c);
-  const historyDir = getUserHistoryDir(userId, CONFIG_DIR);
-  const filePath = await resolveSessionDataFile({
-    dir: historyDir,
+  const filePath = await resolveExistingSessionHistoryFile({
+    userId,
     agentId,
     sessionId,
-    createIfMissing: false,
   });
   if (!filePath) return c.json({ error: "Session not found" }, 404);
   await fs.unlink(filePath);
@@ -432,17 +446,23 @@ api.patch("/agents/:agentId/sessions/:sessionId", async (c) => {
     return c.json({ error: "Agent not found" }, 404);
   }
   const userId = await getRequestUserId(c);
-  const historyDir = getUserHistoryDir(userId, CONFIG_DIR);
-  const filePath = await resolveSessionDataFile({
-    dir: historyDir,
+  const filePath = await resolveExistingSessionHistoryFile({
+    userId,
     agentId,
     sessionId,
-    createIfMissing: false,
   });
   if (!filePath) return c.json({ error: "Session not found" }, 404);
   const body = await c.req.json().catch(() => ({}));
   const title = typeof body.title === "string" ? body.title.trim() : "";
-  await appendSessionMeta(agentId, sessionId, "title", title, userId);
+  const line =
+    JSON.stringify({
+      type: "meta",
+      key: "title",
+      value: title,
+      timestamp: Date.now(),
+    }) + "\n";
+  await fs.appendFile(filePath, line, "utf-8");
+  invalidateResolvedHistoryFile(agentId, sessionId, userId);
   return c.json({ ok: true, title });
 });
 

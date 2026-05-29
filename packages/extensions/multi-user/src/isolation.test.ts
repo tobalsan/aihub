@@ -10,7 +10,7 @@ describe("multi-user isolation paths", () => {
       "/tmp/aihub-test/sessions.json"
     );
     expect(getUserHistoryDir(undefined, "/tmp/aihub-test")).toBe(
-      "/tmp/aihub-test/history"
+      "/tmp/aihub-test/sessions"
     );
   });
 
