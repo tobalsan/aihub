@@ -42,6 +42,24 @@ describe("normalizeRunRequest", () => {
     });
   });
 
+  it("rejects unsafe explicit session ids", async () => {
+    const { normalizeRunRequest } = await import("./run-request.js");
+
+    const result = await normalizeRunRequest({
+      agent,
+      input: { agentId: "alpha", message: "hello", sessionId: "foo:..:bar" },
+      authContext: null,
+      extensionRuntime,
+      source: "web",
+    });
+
+    expect(result).toEqual({
+      type: "validation_error",
+      message: "Invalid session id",
+    });
+    expect(resolveSessionId).not.toHaveBeenCalled();
+  });
+
   it("resolves keyed sessions once and returns runAgent params", async () => {
     const { normalizeRunRequest } = await import("./run-request.js");
 

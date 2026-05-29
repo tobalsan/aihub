@@ -1,6 +1,7 @@
 import type {
   FileAttachment,
   SendMessageResponse,
+  SessionSummary,
   ThinkLevel,
 } from "./types";
 import { API_BASE, apiFetch as fetch } from "./core";
@@ -42,6 +43,7 @@ export type StreamCallbacks = {
 export type StreamMessageOptions = {
   attachments?: FileAttachment[];
   thinkLevel?: ThinkLevel;
+  sessionId?: string;
 };
 
 export async function sendMessage(
@@ -60,23 +62,54 @@ export async function sendMessage(
 
 export async function postAbort(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  sessionId?: string
 ): Promise<void> {
   await fetch(`${API_BASE}/agents/${agentId}/messages`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ message: "/abort", sessionKey }),
+    body: JSON.stringify({ message: "/abort", sessionKey, sessionId }),
   });
+}
+
+export async function fetchAgentSessions(): Promise<{ items: SessionSummary[] }> {
+  const res = await fetch(`${API_BASE}/agents/sessions`);
+  if (!res.ok) return { items: [] };
+  return res.json();
+}
+
+export async function deleteAgentSession(
+  agentId: string,
+  sessionId: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}`, {
+    method: "DELETE",
+  });
+  if (!res.ok) throw new Error("Failed to delete session");
+}
+
+export async function renameAgentSession(
+  agentId: string,
+  sessionId: string,
+  title: string
+): Promise<void> {
+  const res = await fetch(`${API_BASE}/agents/${agentId}/sessions/${sessionId}`, {
+    method: "PATCH",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ title }),
+  });
+  if (!res.ok) throw new Error("Failed to rename session");
 }
 
 export async function postCompact(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  sessionId?: string
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/agents/${agentId}/compact`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionKey }),
+    body: JSON.stringify({ sessionKey, ...(sessionId ? { sessionId } : {}) }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as
@@ -118,6 +151,7 @@ export function streamMessage(
       sessionKey,
       message,
     };
+    if (options?.sessionId) payload.sessionId = options.sessionId;
     if (options?.attachments && options.attachments.length > 0) {
       payload.attachments = options.attachments;
     }

@@ -40,7 +40,7 @@ describe("history store isolation", () => {
     vi.clearAllMocks();
   });
 
-  it("keeps canonical history in the root dir by default", async () => {
+  it("keeps canonical history in the history dir by default", async () => {
     const { appendSessionMeta } = await import("./store.js");
 
     await appendSessionMeta("agent-1", "session-1", "thinkingLevel", "high");

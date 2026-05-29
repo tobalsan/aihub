@@ -2,7 +2,7 @@ import type { LeadSessionChangedEvent, SubagentRunStatus } from "@aihub/shared/t
 import { getWsUrl, type WsStreamEvent } from "./ws";
 
 export type RealtimeInterest =
-  | { type: "session"; agentId: string; sessionKey: string }
+  | { type: "session"; agentId: string; sessionKey: string; sessionId?: string }
   | { type: "status" }
   | { type: "project"; projectId?: string }
   | { type: "subagents" };
@@ -103,6 +103,7 @@ export function subscribeToRealtime({
             type: "subscribe",
             agentId: interest.agentId,
             sessionKey: interest.sessionKey,
+            ...(interest.sessionId ? { sessionId: interest.sessionId } : {}),
           })
         );
       } else if (interest.type === "status") {

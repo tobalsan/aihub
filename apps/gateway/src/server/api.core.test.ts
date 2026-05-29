@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const getAgent = vi.fn();
 const getActiveAgents = vi.fn();
@@ -238,6 +240,87 @@ describe("api core session resolution", () => {
     ]);
   });
 
+  it("does not sort renamed sessions by file mtime", async () => {
+    const sessionsDir = "/tmp/aihub-test/history";
+    await fs.rm("/tmp/aihub-test", { recursive: true, force: true });
+    await fs.mkdir(sessionsDir, { recursive: true });
+    getActiveAgents.mockReturnValue([
+      { id: "alpha", name: "Alpha", avatar: "🦊" },
+    ]);
+    getSessionEntry.mockResolvedValue(null);
+    await fs.writeFile(
+      path.join(sessionsDir, "2026-05-29T10-00-00-000Z_alpha-old.jsonl"),
+      [
+        JSON.stringify({
+          type: "history",
+          role: "user",
+          content: [{ type: "text", text: "old" }],
+          timestamp: 1000,
+        }),
+        JSON.stringify({
+          type: "meta",
+          key: "title",
+          value: "renamed",
+          timestamp: 3000,
+        }),
+      ].join("\n") + "\n"
+    );
+    await fs.writeFile(
+      path.join(sessionsDir, "2026-05-29T10-01-00-000Z_alpha-new.jsonl"),
+      JSON.stringify({
+        type: "history",
+        role: "user",
+        content: [{ type: "text", text: "new" }],
+        timestamp: 2000,
+      }) + "\n"
+    );
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/agents/sessions"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.items.map((item: { sessionId: string }) => item.sessionId)).toEqual([
+      "new",
+      "old",
+    ]);
+    expect(body.items[1]).toMatchObject({ title: "renamed", avatar: "🦊" });
+  });
+
+  it("rejects unsafe explicit session ids", async () => {
+    const { api } = await import("./api.core.js");
+
+    const historyResponse = await api.request(
+      new Request("http://localhost/agents/alpha/history?sessionId=../bad")
+    );
+    const compactResponse = await api.request(
+      new Request("http://localhost/agents/alpha/compact", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: "../bad" }),
+      })
+    );
+    const dotDotResponse = await api.request(
+      new Request("http://localhost/agents/alpha/history?sessionId=..")
+    );
+    const delimitedDotDotResponse = await api.request(
+      new Request("http://localhost/agents/alpha/history?sessionId=foo:..:bar")
+    );
+    const renameResponse = await api.request(
+      new Request("http://localhost/agents/alpha/sessions/..%2Fbad", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "bad" }),
+      })
+    );
+
+    expect(historyResponse.status).toBe(400);
+    expect(dotDotResponse.status).toBe(400);
+    expect(delimitedDotDotResponse.status).toBe(400);
+    expect(compactResponse.status).toBe(400);
+    expect(renameResponse.status).toBe(400);
+  });
+
   it("passes a resolved session through to runAgent", async () => {
     const { api } = await import("./api.core.js");
 
@@ -300,6 +383,29 @@ describe("api core session resolution", () => {
         source: "web",
       })
     );
+  });
+
+  it("compacts an explicit web session without resolving main", async () => {
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(
+      new Request("http://localhost/agents/alpha/compact", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionKey: "main", sessionId: "past-1" }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(getSessionEntry).not.toHaveBeenCalled();
+    expect(compactAgentSession).toHaveBeenCalledWith({
+      agentId: "alpha",
+      sessionKey: "main",
+      sessionId: "past-1",
+      userId: undefined,
+      extensionRuntime: expect.any(Object),
+      context: undefined,
+    });
   });
 
   it("compacts the resolved web session", async () => {

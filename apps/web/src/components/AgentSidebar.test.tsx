@@ -8,9 +8,14 @@ window.matchMedia = vi.fn().mockReturnValue({ matches: false });
 
 const [pathname, setPathname] = createSignal("/projects");
 const fetchProjectsMock = vi.fn<() => Promise<unknown[]>>();
+const fetchAgentSessionsMock = vi.fn(async () => ({ items: [] as unknown[] }));
+const navigateMock = vi.fn();
 
 vi.mock("../api", () => ({
   fetchProjects: fetchProjectsMock,
+  fetchAgentSessions: fetchAgentSessionsMock,
+  deleteAgentSession: vi.fn(),
+  renameAgentSession: vi.fn(),
 }));
 
 vi.mock("@solidjs/router", () => ({
@@ -19,7 +24,9 @@ vi.mock("@solidjs/router", () => ({
     get pathname() {
       return pathname();
     },
+    search: "",
   }),
+  useNavigate: () => navigateMock,
 }));
 
 const { AgentSidebar } = await import("./AgentSidebar");
@@ -149,6 +156,43 @@ describe("AgentSidebar", () => {
       localStorage.getItem("aihub:recent-project-views") ?? "[]"
     );
     expect(stored[0]?.id).toBe("PRO-1");
+
+    dispose();
+  });
+
+  it("renders session avatar from configured session data and no new button", async () => {
+    fetchAgentSessionsMock.mockResolvedValue({
+      items: [
+        {
+          agentId: "alpha",
+          sessionId: "s1",
+          createdAt: Date.now(),
+          lastActivity: Date.now(),
+          messageCount: 1,
+          firstUserMessage: "Hello",
+          avatar: "🦊",
+          isMain: true,
+        },
+      ],
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [collapsed] = createSignal(false);
+
+    const dispose = render(
+      () => (
+        <AgentSidebar
+          collapsed={collapsed}
+          onToggleCollapse={() => {}}
+        />
+      ),
+      container
+    );
+
+    await new Promise((resolve) => setTimeout(resolve, 10));
+
+    expect(container.textContent).toContain("🦊");
+    expect(container.textContent).not.toContain("+ New");
 
     dispose();
   });

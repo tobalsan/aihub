@@ -65,12 +65,24 @@ export type HistoryResponse<T> = {
   activeTurn?: ActiveTurn | null;
 };
 
+function historyQuery(
+  view: "simple" | "full",
+  sessionKey: string,
+  sessionId?: string
+): string {
+  const params = new URLSearchParams({ view });
+  if (sessionId) params.set("sessionId", sessionId);
+  else params.set("sessionKey", sessionKey);
+  return params.toString();
+}
+
 export async function fetchSimpleHistory(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  sessionId?: string
 ): Promise<HistoryResponse<SimpleHistoryMessage>> {
   const res = await fetch(
-    `${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=simple`
+    `${API_BASE}/agents/${agentId}/history?${historyQuery("simple", sessionKey, sessionId)}`
   );
   if (!res.ok) return { messages: [] };
   const data = await res.json();
@@ -84,10 +96,11 @@ export async function fetchSimpleHistory(
 
 export async function fetchFullHistory(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  sessionId?: string
 ): Promise<HistoryResponse<FullHistoryMessage>> {
   const res = await fetch(
-    `${API_BASE}/agents/${agentId}/history?sessionKey=${encodeURIComponent(sessionKey)}&view=full`
+    `${API_BASE}/agents/${agentId}/history?${historyQuery("full", sessionKey, sessionId)}`
   );
   if (!res.ok) return { messages: [] };
   const data = await res.json();

@@ -1271,6 +1271,7 @@ export type WsSubscribeMessage = {
   type: "subscribe";
   agentId: string;
   sessionKey: string;
+  sessionId?: string;
 };
 
 export type WsUnsubscribeMessage = {

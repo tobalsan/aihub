@@ -100,6 +100,7 @@ Features:
 - Fresh project-detail lead-agent launches now show an immediate pending spinner and render subscribed text/tool activity live while the run is in progress, instead of waiting for final history reload
 - Project-detail lead-agent rows support reset/remove actions: remove clears the project `sessionKeys` entry, and reset clears the bound session state then reuses the canonical `project:<id>:<agentId>` key
 - Lead-agent reset immediately clears visible chat history without a page reload because lead chat identity now keys on `agentId + sessionKey + sessionNonce`
+- Global agent chat can browse/resume past lead-agent sessions: `GET /api/agents/sessions` enumerates user-scoped history JSONL files, sidebar lists recency-grouped sessions across agents, `/chat/:agentId?session=<sessionId>` fetches/subscribes/sends by explicit `sessionId`, and resumed sessions do not move the `main` pointer.
 - Project-detail left-panel lead status dots now reflect real runtime state via `fetchAgentStatuses()` + `subscribeToStatus()` instead of a hardcoded online indicator
 - Lead-agent spawn form hides the irrelevant CLI command preview; only custom subagent spawns show CLI preview
 - Theme: CSS custom properties on `:root` with `[data-theme="light"]` override. Toggle in sidebar footer. Persisted to `localStorage('aihub-theme')`, falls back to `prefers-color-scheme`. Flash-prevention inline `<script>` in `index.html`. Signal in `src/theme.ts`.
@@ -226,7 +227,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `auth.db` - Better Auth + multi-user SQLite database; only created when `multiUser.enabled: true`
 - `sessions/users/<userId>/sessions.json` - Per-user session mapping file when multi-user mode is enabled
 - `sessions/users/<userId>/claude-sessions.json` - Per-user Claude session map when multi-user mode is enabled
-- `sessions/users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled
+- `sessions/users/<userId>/history/` - Per-user conversation history directory when multi-user mode is enabled; single-user history files live in `sessions/*.jsonl` beside `sessions.json`
 - `sessions/subagents/runs/<runId>/` - Project-agnostic CLI subagent run data (`config.json`, `state.json`, `progress.json`, `logs.jsonl`, `history.jsonl`)
 - (Pi SDK) auth/settings files under `AIHUB_HOME` (created after a successful agent run)
   - `aihub.json` itself is required and is **not** auto-created
@@ -499,11 +500,16 @@ Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`
 
 Store format: `{agentId}:{sessionKey}` -> `{ sessionId, updatedAt }`
 
-Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation or `/compact` to summarize older context while keeping the last 8 turns.
+Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation or `/compact` to summarize older context while keeping the last 8 turns. Left sidebar lists interactive canonical history sessions from `$AIHUB_HOME/history`, uses configured agent avatars, and polls every 3s/on focus so `/new` and idle-session rotations appear without refresh.
 
-### Session Transcript Format
+### Chat History And Runtime Sessions
 
-Sessions stored as JSONL in `AIHUB_HOME/sessions/{agentId}-{sessionId}.jsonl`:
+AIHub keeps two chat-related stores:
+
+- `AIHUB_HOME/history/{timestamp}_{agentId}-{sessionId}.jsonl` is the canonical AIHub transcript. API/UI/Langfuse/compaction/system-context/media rows read this normalized store.
+- `AIHUB_HOME/sessions/{timestamp}_{agentId}-{sessionId}.jsonl` is Pi SDK runtime state opened by `SessionManager`. It is not the primary product transcript.
+
+Pi session files use the SDK-native message shape:
 
 ```jsonl
 {"type":"session","id":"...","timestamp":"...","cwd":"..."}
