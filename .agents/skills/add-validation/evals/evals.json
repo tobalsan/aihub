@@ -1,0 +1,26 @@
+{
+  "skill_name": "add-validation",
+  "evals": [
+    {
+      "id": 0,
+      "name": "ui-agent-tab",
+      "prompt": "I just finished the agent tab session chat feature. Add an E2E validation section to docs/specs/agent-tab-session-chat-prd.md.",
+      "expected_output": "The spec file gains a '## E2E Validation' section with concrete UI scenarios, a browser-drive block naming playwright-cli OR claude-in-chrome MCP, conditional worktree+seed, scoped unit tests, launch preview, and artifacts under validation/. No THREAD log, no sign-off gate, no teardown.",
+      "files": []
+    },
+    {
+      "id": 1,
+      "name": "backend-scheduler",
+      "prompt": "add validation steps to docs/specs/scheduler-agent-tools-prd.md",
+      "expected_output": "A '## E2E Validation' section detecting a backend/CLI surface: CLI-driven steps (pnpm aihub:dev scheduler ...), hot-reload assertion, scoped gateway tests. No browser block (no UI surface). Concrete assertions.",
+      "files": []
+    },
+    {
+      "id": 2,
+      "name": "nopath-shaping",
+      "prompt": "write the validation section for the project shaping repo guard PRD I just implemented",
+      "expected_output": "Skill resolves the target by searching docs/prp + docs/specs (project-shaping-repo-prd.md), then appends a '## E2E Validation' section. Backend move-guard assertions (block move to shaping when repo unset; re-fetch to confirm) plus any project-creation UI/CLI steps.",
+      "files": []
+    }
+  ]
+}
