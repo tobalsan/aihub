@@ -245,7 +245,7 @@ function isSafeSessionId(sessionId: string): boolean {
     sessionId.length <= 200 &&
     !sessionId.includes("/") &&
     !sessionId.includes("\\") &&
-    !sessionId.split(/[.:_-]/).includes("..") &&
+    !/(^|[._:-])\.\.($|[._:-])/.test(sessionId) &&
     !/[\u0000-\u001f\u007f]/.test(sessionId)
   );
 }

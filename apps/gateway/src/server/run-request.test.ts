@@ -47,7 +47,7 @@ describe("normalizeRunRequest", () => {
 
     const result = await normalizeRunRequest({
       agent,
-      input: { agentId: "alpha", message: "hello", sessionId: "../bad" },
+      input: { agentId: "alpha", message: "hello", sessionId: "foo:..:bar" },
       authContext: null,
       extensionRuntime,
       source: "web",

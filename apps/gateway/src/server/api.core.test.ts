@@ -300,6 +300,12 @@ describe("api core session resolution", () => {
         body: JSON.stringify({ sessionId: "../bad" }),
       })
     );
+    const dotDotResponse = await api.request(
+      new Request("http://localhost/agents/alpha/history?sessionId=..")
+    );
+    const delimitedDotDotResponse = await api.request(
+      new Request("http://localhost/agents/alpha/history?sessionId=foo:..:bar")
+    );
     const renameResponse = await api.request(
       new Request("http://localhost/agents/alpha/sessions/..%2Fbad", {
         method: "PATCH",
@@ -309,6 +315,8 @@ describe("api core session resolution", () => {
     );
 
     expect(historyResponse.status).toBe(400);
+    expect(dotDotResponse.status).toBe(400);
+    expect(delimitedDotDotResponse.status).toBe(400);
     expect(compactResponse.status).toBe(400);
     expect(renameResponse.status).toBe(400);
   });
