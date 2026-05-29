@@ -1191,4 +1191,6 @@ pnpm aihub gateway  # no --dev flag
 - Auth: `$AIHUB_HOME/auth.json` (OAuth/API key credentials)
 - Models: `$AIHUB_HOME/models.json` (optional)
 - Schedules: `<agent-workspace>/cron/jobs.json` and outputs under `<agent-workspace>/cron/output/`
-- Sessions: `$AIHUB_HOME/sessions/*.jsonl`
+- Session map: `$AIHUB_HOME/sessions.json` maps logical session keys to runtime session IDs.
+- Canonical chat history: `$AIHUB_HOME/history/*.jsonl`. This is the normalized transcript used by the API, web UI, tracing, compaction, system context rows, and media/file blocks.
+- Pi runtime sessions: `$AIHUB_HOME/sessions/*.jsonl`. These are SDK-owned resume/session files; AIHub may backfill canonical history from them for legacy sessions or use them as a streaming fallback.

@@ -222,8 +222,9 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
 - `webhook-secrets.json` - Generated per-agent webhook URL secrets
 - `agents/<id>/cron/jobs.json` - Per-agent schedule jobs; run outputs in `agents/<id>/cron/output/`
 - `projects.json` - Project ID counter (`{ lastId }`)
-- `sessions.json` - Session key -> sessionId mapping with timestamps
-- `sessions/*.jsonl` - Agent conversation history (Pi SDK transcripts, JSONL format)
+- `sessions.json` - Logical session key -> runtime sessionId mapping with timestamps
+- `history/*.jsonl` - AIHub canonical chat transcripts. The history API, web UI, Langfuse, compaction, system context rows, attachment/file blocks, and gateway-owned metadata read this normalized store.
+- `sessions/*.jsonl` - Pi SDK runtime session files. These are SDK-owned resume/session state, not the primary UI/API transcript source. AIHub may backfill `history/` from these files for old sessions or fall back to them when a Pi turn is still streaming and canonical history has not flushed yet.
 - `auth.db` - Better Auth + multi-user SQLite database; only created when `multiUser.enabled: true`
 - `sessions/users/<userId>/sessions.json` - Per-user session mapping file when multi-user mode is enabled
 - `sessions/users/<userId>/claude-sessions.json` - Per-user Claude session map when multi-user mode is enabled
@@ -524,7 +525,9 @@ Content block types:
 - `thinking`: Model reasoning (with thinkingSignature)
 - `toolCall`: Tool invocation with id, name, arguments
 
-The history API parses this into `SimpleHistoryMessage` (text-only) or `FullHistoryMessage` (all blocks + metadata) based on `view` param.
+Canonical history stores normalized `type: "history"` rows with roles like `user`, `assistant`, `toolResult`, and `system`.
+
+The history API parses canonical history into `SimpleHistoryMessage` (text-only) or `FullHistoryMessage` (all blocks + metadata) based on `view` param.
 `FullHistoryMessage` can now also include `role: "system"` entries for injected channel context, and the web full/log views surface those rows as `System Context`.
 
 ## Services
