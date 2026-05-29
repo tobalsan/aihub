@@ -287,6 +287,32 @@ describe("api core session resolution", () => {
     expect(body.items[1]).toMatchObject({ title: "renamed", avatar: "🦊" });
   });
 
+  it("rejects unsafe explicit session ids", async () => {
+    const { api } = await import("./api.core.js");
+
+    const historyResponse = await api.request(
+      new Request("http://localhost/agents/alpha/history?sessionId=../bad")
+    );
+    const compactResponse = await api.request(
+      new Request("http://localhost/agents/alpha/compact", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionId: "../bad" }),
+      })
+    );
+    const renameResponse = await api.request(
+      new Request("http://localhost/agents/alpha/sessions/..%2Fbad", {
+        method: "PATCH",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ title: "bad" }),
+      })
+    );
+
+    expect(historyResponse.status).toBe(400);
+    expect(compactResponse.status).toBe(400);
+    expect(renameResponse.status).toBe(400);
+  });
+
   it("passes a resolved session through to runAgent", async () => {
     const { api } = await import("./api.core.js");
 

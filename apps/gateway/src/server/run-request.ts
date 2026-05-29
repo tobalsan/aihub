@@ -56,6 +56,17 @@ function parseAttachments(value: unknown): FileAttachment[] | undefined {
   return undefined;
 }
 
+function isSafeSessionId(sessionId: string): boolean {
+  return (
+    sessionId.length > 0 &&
+    sessionId.length <= 200 &&
+    !sessionId.includes("/") &&
+    !sessionId.includes("\\") &&
+    !sessionId.split(/[.:_-]/).includes("..") &&
+    !/[\u0000-\u001f\u007f]/.test(sessionId)
+  );
+}
+
 function userContext(
   authContext: RunRequestAuthContext
 ): AgentContext | undefined {
@@ -103,6 +114,9 @@ export async function normalizeRunRequest({
   }
 
   const data = parsed.data;
+  if (data.sessionId && !isSafeSessionId(data.sessionId)) {
+    return { type: "validation_error", message: "Invalid session id" };
+  }
   const userId = authContext?.session.userId;
   const attachments = await normalizeInboundAttachments(
     parseAttachments(input.attachments)

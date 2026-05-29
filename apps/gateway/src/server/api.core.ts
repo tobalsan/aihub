@@ -239,10 +239,22 @@ function parseSessionFileName(
   return { agentId, sessionId, createdAt: Number.isFinite(createdAt) ? createdAt : 0 };
 }
 
-function sessionIdIsInteractive(sessionId: string): boolean {
-  return !/^(scheduler:|scheduler-|bench-|slack:|slack-|webhook:|webhook-|default$)/.test(
-    sessionId
+function isSafeSessionId(sessionId: string): boolean {
+  return (
+    sessionId.length > 0 &&
+    sessionId.length <= 200 &&
+    !sessionId.includes("/") &&
+    !sessionId.includes("\\") &&
+    !sessionId.split(/[.:_-]/).includes("..") &&
+    !/[\u0000-\u001f\u007f]/.test(sessionId)
   );
+}
+
+function sessionIdIsInteractive(sessionId: string): boolean {
+  return isSafeSessionId(sessionId) &&
+    !/^(scheduler:|scheduler-|bench-|slack:|slack-|webhook:|webhook-|default$)/.test(
+      sessionId
+    );
 }
 
 function textFromContent(content: unknown): string {
@@ -402,6 +414,9 @@ api.get("/agents/sessions", async (c) => {
 api.delete("/agents/:agentId/sessions/:sessionId", async (c) => {
   const agentId = c.req.param("agentId");
   const sessionId = c.req.param("sessionId");
+  if (!isSafeSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
   const agent = getAgent(agentId);
   if (!agent || !isAgentActive(agentId)) {
     return c.json({ error: "Agent not found" }, 404);
@@ -426,6 +441,9 @@ api.delete("/agents/:agentId/sessions/:sessionId", async (c) => {
 api.patch("/agents/:agentId/sessions/:sessionId", async (c) => {
   const agentId = c.req.param("agentId");
   const sessionId = c.req.param("sessionId");
+  if (!isSafeSessionId(sessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
   const agent = getAgent(agentId);
   if (!agent || !isAgentActive(agentId)) {
     return c.json({ error: "Agent not found" }, 404);
@@ -585,6 +603,9 @@ api.post("/agents/:id/compact", async (c) => {
       typeof body.sessionId === "string" && body.sessionId.trim()
         ? body.sessionId.trim()
         : undefined;
+    if (sessionId && !isSafeSessionId(sessionId)) {
+      return c.json({ error: "Invalid session id" }, 400);
+    }
     const entry = sessionId
       ? { sessionId }
       : await getSessionEntry(agentId, sessionKey, userId);
@@ -622,6 +643,9 @@ api.get("/agents/:id/history", async (c) => {
 
   const sessionKey = c.req.query("sessionKey") ?? "main";
   const explicitSessionId = c.req.query("sessionId");
+  if (explicitSessionId && !isSafeSessionId(explicitSessionId)) {
+    return c.json({ error: "Invalid session id" }, 400);
+  }
   const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
   const userId = await getRequestUserId(c);
   const entry = explicitSessionId
