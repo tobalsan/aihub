@@ -351,9 +351,36 @@ describe("ChatView abort handling", () => {
     await tick();
     await tick();
 
-    expect(postCompactMock).toHaveBeenCalledWith("agent-1", "main");
+    expect(postCompactMock).toHaveBeenCalledWith("agent-1", "main", undefined);
     expect(streamMessageMock).not.toHaveBeenCalled();
     expect(container.textContent).toContain("Context compacted.");
+
+    dispose();
+  });
+
+  it("compacts explicit past session when present", async () => {
+    routeState.session = "past-session";
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("Expected chat textarea");
+    textarea.value = "/compact";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) throw new Error("Expected send button");
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
+    sendBtn.click();
+    await tick();
+
+    expect(postCompactMock).toHaveBeenCalledWith(
+      "agent-1",
+      "main",
+      "past-session"
+    );
 
     dispose();
   });
@@ -415,7 +442,7 @@ describe("ChatView abort handling", () => {
     await tick();
     await tick();
 
-    expect(postCompactMock).toHaveBeenCalledWith("agent-1", "main");
+    expect(postCompactMock).toHaveBeenCalledWith("agent-1", "main", undefined);
     expect(streamMessageMock).toHaveBeenCalledWith(
       "agent-1",
       "hello",

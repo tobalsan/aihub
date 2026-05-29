@@ -103,12 +103,13 @@ export async function renameAgentSession(
 
 export async function postCompact(
   agentId: string,
-  sessionKey: string
+  sessionKey: string,
+  sessionId?: string
 ): Promise<void> {
   const res = await fetch(`${API_BASE}/agents/${agentId}/compact`, {
     method: "POST",
     headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ sessionKey }),
+    body: JSON.stringify({ sessionKey, ...(sessionId ? { sessionId } : {}) }),
   });
   if (!res.ok) {
     const body = (await res.json().catch(() => null)) as

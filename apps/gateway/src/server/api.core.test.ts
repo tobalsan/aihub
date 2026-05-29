@@ -351,6 +351,29 @@ describe("api core session resolution", () => {
     );
   });
 
+  it("compacts an explicit web session without resolving main", async () => {
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(
+      new Request("http://localhost/agents/alpha/compact", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ sessionKey: "main", sessionId: "past-1" }),
+      })
+    );
+
+    expect(response.status).toBe(200);
+    expect(getSessionEntry).not.toHaveBeenCalled();
+    expect(compactAgentSession).toHaveBeenCalledWith({
+      agentId: "alpha",
+      sessionKey: "main",
+      sessionId: "past-1",
+      userId: undefined,
+      extensionRuntime: expect.any(Object),
+      context: undefined,
+    });
+  });
+
   it("compacts the resolved web session", async () => {
     getSessionEntry.mockResolvedValue({
       sessionId: "resolved-1",

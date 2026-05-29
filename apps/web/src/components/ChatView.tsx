@@ -818,7 +818,7 @@ export function ChatView() {
     setCompactStatus({ state: "running", text: "Compacting context..." });
     scrollToBottom(true);
     try {
-      await postCompact(params.agentId, sessionKey());
+      await postCompact(params.agentId, sessionKey(), explicitSessionId());
       await loadHistory(viewMode());
       setCompactStatus({ state: "done", text: "Context compacted." });
       scrollToBottom(true);

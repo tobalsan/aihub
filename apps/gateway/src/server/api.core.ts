@@ -351,20 +351,33 @@ api.get("/agents/sessions", async (c) => {
   const historyDir = getUserHistoryDir(userId, CONFIG_DIR);
   const agents = await getVisibleAgents(c);
   const agentIds = agents.map((agent) => agent.id);
-  let files: string[] = [];
+  let entries: Array<{ dir: string; file: string }> = [];
   try {
-    files = await fs.readdir(historyDir);
+    entries = (await fs.readdir(historyDir)).map((file) => ({
+      dir: historyDir,
+      file,
+    }));
   } catch {
-    return c.json({ items: [] });
+    entries = [];
+  }
+  if (!userId) {
+    const legacyDir = path.join(CONFIG_DIR, "history");
+    try {
+      entries.push(
+        ...(await fs.readdir(legacyDir)).map((file) => ({ dir: legacyDir, file }))
+      );
+    } catch {
+      // Ignore missing legacy history dir.
+    }
   }
 
   const items = await Promise.all(
-    files.map(async (file) => {
+    entries.map(async ({ dir, file }) => {
       const parsed = parseSessionFileName(file, agentIds);
       if (!parsed || !sessionIdIsInteractive(parsed.sessionId)) return null;
       const agent = agents.find((item) => item.id === parsed.agentId);
       const summary = await summarizeSessionFile({
-        filePath: path.join(historyDir, file),
+        filePath: path.join(dir, file),
         ...parsed,
         userId,
       });
@@ -563,7 +576,13 @@ api.post("/agents/:id/compact", async (c) => {
         : "main";
     const authContext = await getRequestAuthContext(c);
     const userId = authContext?.session.userId;
-    const entry = await getSessionEntry(agentId, sessionKey, userId);
+    const sessionId =
+      typeof body.sessionId === "string" && body.sessionId.trim()
+        ? body.sessionId.trim()
+        : undefined;
+    const entry = sessionId
+      ? { sessionId }
+      : await getSessionEntry(agentId, sessionKey, userId);
     if (!entry) {
       return c.json({ error: "Session not found" }, 404);
     }

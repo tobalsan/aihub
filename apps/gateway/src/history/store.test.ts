@@ -52,6 +52,24 @@ describe("history store isolation", () => {
     );
   });
 
+  it("falls back to legacy single-user history files", async () => {
+    const { resolveSessionDataFile } = await import("../sessions/files.js");
+    vi.mocked(resolveSessionDataFile)
+      .mockResolvedValueOnce(null)
+      .mockResolvedValueOnce(
+        "/tmp/aihub-test/history/1970-01-01T00-00-00-000Z_agent-1-session-1.jsonl"
+      );
+    const { appendSessionMeta } = await import("./store.js");
+
+    await appendSessionMeta("agent-1", "session-1", "thinkingLevel", "high");
+
+    expect(vi.mocked(fs.appendFile)).toHaveBeenCalledWith(
+      "/tmp/aihub-test/history/1970-01-01T00-00-00-000Z_agent-1-session-1.jsonl",
+      expect.any(String),
+      "utf-8"
+    );
+  });
+
   it("routes canonical history into the user dir when userId is provided", async () => {
     const { appendSessionMeta } = await import("./store.js");
 
