@@ -1,21 +1,6 @@
 {
-  "version": 2,
-  "agents": [
-    {
-      "id": "devagent",
-      "name": "DevAgent",
-      "description": "Test Agent for development",
-      "avatar": "🤖",
-      "workspace": "agents/devagent",
-      "sdk": "pi",
-      "model": {
-        "provider": "zai",
-        "model": "glm-5.1"
-      },
-      "reasoning": "medium",
-      "queueMode": "queue"
-    }
-  ],
+  "version": 3,
+  "agents": ["agents/*"],
   "extensions": {
     "board": {},
     "subagents": {

@@ -1,0 +1,13 @@
+id: devagent
+name: DevAgent
+description: Test Agent for development
+avatar: 🤖
+sdk: pi
+model:
+  provider: zai
+  model: glm-5.1
+reasoning: medium
+queueMode: queue
+system_files:
+  - IDENTITY.md
+  - USER.md
