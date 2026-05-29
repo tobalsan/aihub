@@ -35,10 +35,11 @@ export type SubscriptionCallbacks = {
 export function subscribeToSession(
   agentId: string,
   sessionKey: string,
-  callbacks: SubscriptionCallbacks
+  callbacks: SubscriptionCallbacks,
+  sessionId?: string
 ): () => void {
   return subscribeToRealtime({
-    interests: [{ type: "session", agentId, sessionKey }],
+    interests: [{ type: "session", agentId, sessionKey, sessionId }],
     reconnect: false,
     onOpen: () => callbacks.onHistoryUpdated?.(),
     onEvent: (event) => {

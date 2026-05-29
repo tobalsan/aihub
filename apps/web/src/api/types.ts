@@ -93,6 +93,18 @@ export type SendMessageResponse = {
   };
 };
 
+export type SessionSummary = {
+  agentId: string;
+  sessionId: string;
+  createdAt: number;
+  lastActivity: number;
+  messageCount: number;
+  firstUserMessage: string;
+  title?: string;
+  avatar?: string;
+  isMain: boolean;
+};
+
 // History view mode
 export type HistoryViewMode = "simple" | "full";
 

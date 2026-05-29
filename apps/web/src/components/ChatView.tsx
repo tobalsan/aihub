@@ -11,7 +11,7 @@ import {
   batch,
 } from "solid-js";
 
-import { useParams, useNavigate, A } from "@solidjs/router";
+import { useParams, useNavigate, useSearchParams, A } from "@solidjs/router";
 import {
   streamMessage,
   uploadFiles,
@@ -551,7 +551,12 @@ export function ChatView() {
   const noAnimIds = new Set<string>();
   const noAnimFullMessageKeys = new Set<string>();
 
+  const [searchParams] = useSearchParams();
   const sessionKey = () => getSessionKey(params.agentId);
+  const explicitSessionId = () =>
+    typeof searchParams.session === "string" && searchParams.session.trim()
+      ? searchParams.session
+      : undefined;
 
   const isOAuth = () => agent()?.authMode === "oauth";
 
@@ -732,7 +737,11 @@ export function ChatView() {
   const loadHistory = async (mode: HistoryViewMode) => {
     setLoading(true);
     if (mode === "full") {
-      const res = await fetchFullHistory(params.agentId, sessionKey());
+      const res = await fetchFullHistory(
+        params.agentId,
+        sessionKey(),
+        explicitSessionId()
+      );
       const baseMessages = [...res.messages];
       if (res.activeTurn?.userText) {
         baseMessages.push({
@@ -760,7 +769,11 @@ export function ChatView() {
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
       applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     } else {
-      const res = await fetchFullHistory(params.agentId, sessionKey());
+      const res = await fetchFullHistory(
+        params.agentId,
+        sessionKey(),
+        explicitSessionId()
+      );
       setContextFullMessages(res.messages);
       const base = fullMessagesToSimpleView(res.messages);
       if (res.activeTurn?.userText) {
@@ -793,7 +806,11 @@ export function ChatView() {
   };
 
   const refreshContextUsage = async () => {
-    const res = await fetchFullHistory(params.agentId, sessionKey());
+    const res = await fetchFullHistory(
+      params.agentId,
+      sessionKey(),
+      explicitSessionId()
+    );
     setContextFullMessages(res.messages);
   };
 
@@ -1012,7 +1029,7 @@ export function ChatView() {
   // Do not track isStreaming here: reloading on stream end can wipe optimistic
   // user/error messages for failed runs before history is persisted.
   createEffect(
-    on([agent, viewMode], ([currentAgent, mode]) => {
+    on([agent, viewMode, explicitSessionId], ([currentAgent, mode]) => {
       if (currentAgent) void loadHistory(mode);
     })
   );
@@ -1132,7 +1149,7 @@ export function ChatView() {
           loadHistory(viewMode());
         }
       },
-    });
+    }, explicitSessionId());
   });
 
   // On mount, check if the agent is already running (e.g. after page refresh)
@@ -1510,6 +1527,17 @@ export function ChatView() {
     const streamOptions = {
       ...(attachments?.length ? { attachments } : {}),
       ...(levelToSend ? { thinkLevel: levelToSend } : {}),
+      ...(!isResetCommand && explicitSessionId()
+        ? { sessionId: explicitSessionId() }
+        : {}),
+    };
+
+    const handleSessionReset = (sessionId: string) => {
+      setSimpleMessages([]);
+      setFullMessages([]);
+      setPendingQueuedMessages([]);
+      clearPendingFiles();
+      navigate(`/chat/${encodeURIComponent(params.agentId)}?session=${encodeURIComponent(sessionId)}`);
     };
 
     // Add user message to both views
@@ -1746,13 +1774,10 @@ export function ChatView() {
             queuedFiles.push(fileBlock);
             queuedBlocks.push(fileBlock);
           },
-          onSessionReset: () => {
+          onSessionReset: (sessionId) => {
             // Queued /new or /reset triggered - clear messages and streaming state
-            setSimpleMessages([]);
-            setFullMessages([]);
+            handleSessionReset(sessionId);
             resetStreamingState();
-            setPendingQueuedMessages([]);
-            clearPendingFiles();
             if (cleanup) {
               cleanup();
               cleanup = null;
@@ -1934,12 +1959,9 @@ export function ChatView() {
           setStreamingFiles((prev) => [...prev, fileBlock]);
           appendStreamingFileBlock(fileBlock);
         },
-        onSessionReset: () => {
+        onSessionReset: (sessionId) => {
           // Clear messages when session resets (e.g., /new command)
-          setSimpleMessages([]);
-          setFullMessages([]);
-          setPendingQueuedMessages([]);
-          clearPendingFiles();
+          handleSessionReset(sessionId);
         },
       },
       streamOptions
@@ -1959,7 +1981,9 @@ export function ChatView() {
     aborted = true;
 
     try {
-      await postAbort(params.agentId, sessionKey());
+      const sessionId = explicitSessionId();
+      if (sessionId) await postAbort(params.agentId, sessionKey(), sessionId);
+      else await postAbort(params.agentId, sessionKey());
     } catch (error) {
       aborted = false;
       setUploadError(

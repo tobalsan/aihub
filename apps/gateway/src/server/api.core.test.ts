@@ -1,4 +1,6 @@
 import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import path from "node:path";
 
 const getAgent = vi.fn();
 const getActiveAgents = vi.fn();
@@ -236,6 +238,53 @@ describe("api core session resolution", () => {
         workspace: "/tmp/alpha",
       }),
     ]);
+  });
+
+  it("does not sort renamed sessions by file mtime", async () => {
+    const sessionsDir = "/tmp/aihub-test/sessions";
+    await fs.rm("/tmp/aihub-test", { recursive: true, force: true });
+    await fs.mkdir(sessionsDir, { recursive: true });
+    getActiveAgents.mockReturnValue([
+      { id: "alpha", name: "Alpha", avatar: "🦊" },
+    ]);
+    getSessionEntry.mockResolvedValue(null);
+    await fs.writeFile(
+      path.join(sessionsDir, "2026-05-29T10-00-00-000Z_alpha-old.jsonl"),
+      [
+        JSON.stringify({
+          type: "history",
+          role: "user",
+          content: [{ type: "text", text: "old" }],
+          timestamp: 1000,
+        }),
+        JSON.stringify({
+          type: "meta",
+          key: "title",
+          value: "renamed",
+          timestamp: 3000,
+        }),
+      ].join("\n") + "\n"
+    );
+    await fs.writeFile(
+      path.join(sessionsDir, "2026-05-29T10-01-00-000Z_alpha-new.jsonl"),
+      JSON.stringify({
+        type: "history",
+        role: "user",
+        content: [{ type: "text", text: "new" }],
+        timestamp: 2000,
+      }) + "\n"
+    );
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/agents/sessions"));
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(body.items.map((item: { sessionId: string }) => item.sessionId)).toEqual([
+      "new",
+      "old",
+    ]);
+    expect(body.items[1]).toMatchObject({ title: "renamed", avatar: "🦊" });
   });
 
   it("passes a resolved session through to runAgent", async () => {

@@ -27,7 +27,11 @@ import {
   isStreaming,
 } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
-import { getSessionEntry, getSessionThinkLevel } from "../sessions/index.js";
+import {
+  clearSessionEntry,
+  getSessionEntry,
+  getSessionThinkLevel,
+} from "../sessions/index.js";
 import {
   saveUploadedFile,
   resolveUploadMimeType,
@@ -42,6 +46,13 @@ import {
 } from "../media/metadata.js";
 import { normalizeRunRequest } from "./run-request.js";
 import { compactAgentSession } from "../agents/compact.js";
+import { CONFIG_DIR } from "../config/index.js";
+import { getUserHistoryDir } from "@aihub/extension-multi-user/isolation";
+import {
+  appendSessionMeta,
+  invalidateResolvedHistoryFile,
+} from "../history/store.js";
+import { resolveSessionDataFile } from "../sessions/files.js";
 
 const api = new Hono();
 const UUID_RE =
@@ -195,6 +206,112 @@ function resolveAvatarForApi(
   return `/api/agents/${agentId}/avatar`;
 }
 
+type SessionSummary = {
+  agentId: string;
+  sessionId: string;
+  createdAt: number;
+  lastActivity: number;
+  messageCount: number;
+  firstUserMessage: string;
+  title?: string;
+  avatar?: string;
+  isMain: boolean;
+};
+
+function parseSessionFileName(
+  file: string,
+  agentIds: string[]
+): { agentId: string; sessionId: string; createdAt: number } | null {
+  if (!file.endsWith(".jsonl")) return null;
+  const base = file.slice(0, -".jsonl".length);
+  const timestampMatch = base.match(
+    /^(\d{4}-\d{2}-\d{2}T\d{2})-(\d{2})-(\d{2})-(\d{3}Z)_(.+)$/
+  );
+  const name = timestampMatch ? timestampMatch[5] : base;
+  const createdAt = timestampMatch
+    ? Date.parse(
+        `${timestampMatch[1]}:${timestampMatch[2]}:${timestampMatch[3]}.${timestampMatch[4]}`
+      )
+    : 0;
+  const agentId = [...agentIds]
+    .sort((a, b) => b.length - a.length)
+    .find((id) => name.startsWith(`${id}-`));
+  if (!agentId) return null;
+  const sessionId = name.slice(agentId.length + 1);
+  if (!sessionId) return null;
+  return { agentId, sessionId, createdAt: Number.isFinite(createdAt) ? createdAt : 0 };
+}
+
+function sessionIdIsInteractive(sessionId: string): boolean {
+  return !/^(scheduler:|scheduler-|bench-|slack:|slack-|webhook:|webhook-|default$)/.test(
+    sessionId
+  );
+}
+
+function textFromContent(content: unknown): string {
+  if (!Array.isArray(content)) return "";
+  return content
+    .map((block) => {
+      if (!block || typeof block !== "object") return "";
+      const obj = block as Record<string, unknown>;
+      return obj.type === "text" && typeof obj.text === "string" ? obj.text : "";
+    })
+    .filter(Boolean)
+    .join("\n")
+    .trim();
+}
+
+async function summarizeSessionFile(params: {
+  filePath: string;
+  agentId: string;
+  sessionId: string;
+  createdAt: number;
+  userId?: string;
+}): Promise<SessionSummary | null> {
+  const [raw, stat] = await Promise.all([
+    fs.readFile(params.filePath, "utf8"),
+    fs.stat(params.filePath),
+  ]);
+  let firstUserMessage = "";
+  let title: string | undefined;
+  let messageCount = 0;
+  let lastActivity = params.createdAt || stat.birthtimeMs;
+
+  for (const line of raw.split(/\r?\n/)) {
+    if (!line.trim()) continue;
+    try {
+      const entry = JSON.parse(line) as Record<string, unknown>;
+      const timestamp = typeof entry.timestamp === "number" ? entry.timestamp : undefined;
+      if (entry.type === "meta" && entry.key === "title") {
+        title = typeof entry.value === "string" ? entry.value : undefined;
+        continue;
+      }
+      if (entry.type !== "history") continue;
+      if (entry.role !== "user" && entry.role !== "assistant") continue;
+      const text = textFromContent(entry.content);
+      if (!text) continue;
+      if (timestamp) lastActivity = Math.max(lastActivity, timestamp);
+      messageCount += 1;
+      if (entry.role === "user" && !firstUserMessage) firstUserMessage = text;
+    } catch {
+      // Ignore malformed history lines.
+    }
+  }
+
+  if (messageCount === 0) return null;
+  const main = await getSessionEntry(params.agentId, "main", params.userId);
+  return {
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    createdAt: params.createdAt || stat.birthtimeMs,
+    lastActivity,
+    messageCount,
+    firstUserMessage,
+    ...(title ? { title } : {}),
+    isMain: main?.sessionId === params.sessionId,
+  };
+}
+
 // GET /api/agents - list all agents (respects single-agent mode)
 api.get("/agents", async (c) => {
   const agents = await getVisibleAgents(c);
@@ -226,6 +343,94 @@ api.get("/agents/status", async (c) => {
   const agents = await getVisibleAgents(c);
   const statuses = getAgentStatuses(agents.map((agent) => agent.id));
   return c.json({ statuses });
+});
+
+// GET /api/agents/sessions - list past lead-agent sessions
+api.get("/agents/sessions", async (c) => {
+  const userId = await getRequestUserId(c);
+  const historyDir = getUserHistoryDir(userId, CONFIG_DIR);
+  const agents = await getVisibleAgents(c);
+  const agentIds = agents.map((agent) => agent.id);
+  let files: string[] = [];
+  try {
+    files = await fs.readdir(historyDir);
+  } catch {
+    return c.json({ items: [] });
+  }
+
+  const items = await Promise.all(
+    files.map(async (file) => {
+      const parsed = parseSessionFileName(file, agentIds);
+      if (!parsed || !sessionIdIsInteractive(parsed.sessionId)) return null;
+      const agent = agents.find((item) => item.id === parsed.agentId);
+      const summary = await summarizeSessionFile({
+        filePath: path.join(historyDir, file),
+        ...parsed,
+        userId,
+      });
+      if (!summary) return null;
+      const avatar = resolveAvatarForApi(agent?.avatar, parsed.agentId);
+      return {
+        ...summary,
+        ...(avatar ? { avatar } : {}),
+      };
+    })
+  );
+
+  return c.json({
+    items: items
+      .filter((item): item is SessionSummary => item !== null)
+      .sort((a, b) => b.lastActivity - a.lastActivity),
+  });
+});
+
+// DELETE /api/agents/:agentId/sessions/:sessionId - delete a session history file
+api.delete("/agents/:agentId/sessions/:sessionId", async (c) => {
+  const agentId = c.req.param("agentId");
+  const sessionId = c.req.param("sessionId");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId)) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+  const userId = await getRequestUserId(c);
+  const historyDir = getUserHistoryDir(userId, CONFIG_DIR);
+  const filePath = await resolveSessionDataFile({
+    dir: historyDir,
+    agentId,
+    sessionId,
+    createIfMissing: false,
+  });
+  if (!filePath) return c.json({ error: "Session not found" }, 404);
+  await fs.unlink(filePath);
+  invalidateResolvedHistoryFile(agentId, sessionId, userId);
+  const main = await getSessionEntry(agentId, "main", userId);
+  if (main?.sessionId === sessionId) {
+    await clearSessionEntry(agentId, "main", userId);
+  }
+  return c.json({ ok: true });
+});
+
+// PATCH /api/agents/:agentId/sessions/:sessionId - set session title
+api.patch("/agents/:agentId/sessions/:sessionId", async (c) => {
+  const agentId = c.req.param("agentId");
+  const sessionId = c.req.param("sessionId");
+  const agent = getAgent(agentId);
+  if (!agent || !isAgentActive(agentId)) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+  const userId = await getRequestUserId(c);
+  const historyDir = getUserHistoryDir(userId, CONFIG_DIR);
+  const filePath = await resolveSessionDataFile({
+    dir: historyDir,
+    agentId,
+    sessionId,
+    createIfMissing: false,
+  });
+  if (!filePath) return c.json({ error: "Session not found" }, 404);
+  const body = await c.req.json().catch(() => ({}));
+  const title = typeof body.title === "string" ? body.title.trim() : "";
+  await appendSessionMeta(agentId, sessionId, "title", title, userId);
+  return c.json({ ok: true, title });
 });
 
 // GET /api/agents/:id - get single agent
@@ -383,7 +588,7 @@ api.post("/agents/:id/compact", async (c) => {
 });
 
 // GET /api/agents/:id/history - get session history
-// Query params: sessionKey (default "main"), view ("simple" | "full", default "simple")
+// Query params: sessionId OR sessionKey (default "main"), view ("simple" | "full", default "simple")
 api.get("/agents/:id/history", async (c) => {
   const agentId = c.req.param("id");
   const agent = getAgent(agentId);
@@ -392,18 +597,22 @@ api.get("/agents/:id/history", async (c) => {
   }
 
   const sessionKey = c.req.query("sessionKey") ?? "main";
+  const explicitSessionId = c.req.query("sessionId");
   const view = (c.req.query("view") ?? "simple") as HistoryViewMode;
   const userId = await getRequestUserId(c);
-  const entry = await getSessionEntry(agentId, sessionKey, userId);
+  const entry = explicitSessionId
+    ? null
+    : await getSessionEntry(agentId, sessionKey, userId);
+  const sessionId = explicitSessionId ?? entry?.sessionId;
 
-  if (!entry) {
+  if (!sessionId) {
     return c.json({ messages: [], view });
   }
 
   const messages =
     view === "full"
-      ? await getFullSessionHistory(agentId, entry.sessionId, userId)
-      : await getSessionHistory(agentId, entry.sessionId, userId);
+      ? await getFullSessionHistory(agentId, sessionId, userId)
+      : await getSessionHistory(agentId, sessionId, userId);
 
   // Only include thinkingLevel for OAuth agents
   const thinkingLevel =
@@ -411,10 +620,8 @@ api.get("/agents/:id/history", async (c) => {
       ? await getSessionThinkLevel(agentId, sessionKey, userId)
       : undefined;
 
-  const streaming = isStreaming(agentId, entry.sessionId);
-  const turn = streaming
-    ? getSessionCurrentTurn(agentId, entry.sessionId)
-    : null;
+  const streaming = isStreaming(agentId, sessionId);
+  const turn = streaming ? getSessionCurrentTurn(agentId, sessionId) : null;
   const activeTurn = turn
     ? {
         // Once the user message is persisted to canonical history, omit it
@@ -435,7 +642,7 @@ api.get("/agents/:id/history", async (c) => {
 
   return c.json({
     messages,
-    sessionId: entry.sessionId,
+    sessionId,
     view,
     thinkingLevel,
     isStreaming: streaming,

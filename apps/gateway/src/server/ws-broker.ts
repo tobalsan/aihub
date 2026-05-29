@@ -20,7 +20,7 @@ type WsRequest = IncomingMessage & {
   authContext?: RequestAuthContext | null;
 };
 
-type Subscription = { agentId: string; sessionKey: string };
+type Subscription = { agentId: string; sessionKey: string; sessionId?: string };
 
 export type WsBrokerAuthAdapter = {
   isMultiUserEnabled: () => boolean;
@@ -172,20 +172,24 @@ export class WsBroker {
     this.subscriptions.set(ws, {
       agentId: msg.agentId,
       sessionKey: msg.sessionKey,
+      sessionId: msg.sessionId,
     });
-    const entry = await getSessionEntry(
-      msg.agentId,
-      msg.sessionKey,
-      authContext?.session.userId
-    );
-    if (!entry || !isStreaming(msg.agentId, entry.sessionId)) return;
+    const entry = msg.sessionId
+      ? null
+      : await getSessionEntry(
+          msg.agentId,
+          msg.sessionKey,
+          authContext?.session.userId
+        );
+    const sessionId = msg.sessionId ?? entry?.sessionId;
+    if (!sessionId || !isStreaming(msg.agentId, sessionId)) return;
 
-    const turn = getSessionCurrentTurn(msg.agentId, entry.sessionId);
+    const turn = getSessionCurrentTurn(msg.agentId, sessionId);
     if (!turn) return;
     this.send(ws, {
       type: "active_turn",
       agentId: msg.agentId,
-      sessionId: entry.sessionId,
+      sessionId,
       userText: turn.userFlushed ? null : turn.userText,
       userTimestamp: turn.userTimestamp,
       startedAt: turn.startTimestamp,
@@ -300,17 +304,17 @@ export class WsBroker {
     for (const [ws, sub] of this.subscriptions) {
       if (sub.agentId !== event.agentId) continue;
 
-      const entry = await getSessionEntry(
+      const sessionId = sub.sessionId ?? (await getSessionEntry(
         sub.agentId,
         sub.sessionKey,
         this.authContexts.get(ws)?.session.userId
-      );
-      if (!entry || entry.sessionId !== event.sessionId) continue;
+      ))?.sessionId;
+      if (sessionId !== event.sessionId) continue;
 
-      const { agentId, sessionId, ...streamEvent } = event;
+      const { agentId, sessionId: eventSessionId, ...streamEvent } = event;
       this.send(ws, streamEvent);
       if (event.type === "done") {
-        this.send(ws, { type: "history_updated", agentId, sessionId });
+        this.send(ws, { type: "history_updated", agentId, sessionId: eventSessionId });
       }
     }
   }

@@ -36,13 +36,14 @@ const {
   subscribeToSessionMock: vi.fn(),
   subscribeToRealtimeMock: vi.fn(),
   uploadFilesMock: vi.fn(),
-  routeState: { view: undefined as string | undefined },
+  routeState: { view: undefined as string | undefined, session: undefined as string | undefined },
 }));
 
 vi.mock("@solidjs/router", () => ({
   A: (props: Record<string, unknown>) => <a {...props} />,
   useNavigate: () => navigateMock,
   useParams: () => ({ agentId: "agent-1", view: routeState.view }),
+  useSearchParams: () => [{ get session() { return routeState.session; } }, vi.fn()],
 }));
 
 vi.mock("../api", () => ({
@@ -140,6 +141,7 @@ describe("ChatView abort handling", () => {
     subscribeToRealtimeMock.mockImplementation(() => () => {});
     uploadFilesMock.mockResolvedValue([]);
     routeState.view = undefined;
+    routeState.session = undefined;
   });
 
   afterEach(() => {
@@ -486,6 +488,49 @@ describe("ChatView abort handling", () => {
       expect.any(Object),
       expect.any(Object)
     );
+
+    dispose();
+  });
+
+  it("sends /new through session key and navigates when viewing past session", async () => {
+    routeState.session = "past-session";
+    let resetHandler: ((sessionId: string) => void) | undefined;
+    streamMessageMock.mockImplementation(
+      (
+        _agentId: string,
+        _message: string,
+        _sessionKey: string,
+        _onText: (chunk: string) => void,
+        _onDone: () => void,
+        _onError: (error: string) => void,
+        callbacks?: { onSessionReset?: (sessionId: string) => void }
+      ) => {
+        resetHandler = callbacks?.onSessionReset;
+        return vi.fn();
+      }
+    );
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    const textarea = container.querySelector("textarea");
+    if (!(textarea instanceof HTMLTextAreaElement)) throw new Error("Expected chat textarea");
+    textarea.value = "/new";
+    textarea.dispatchEvent(new Event("input", { bubbles: true }));
+    await tick();
+
+    const sendBtn = container.querySelector(".send-btn");
+    if (!(sendBtn instanceof HTMLButtonElement)) throw new Error("Expected send button");
+    await waitFor(() => expect(sendBtn.disabled).toBe(false));
+    sendBtn.click();
+    await tick();
+
+    const options = streamMessageMock.mock.calls[0]?.[7];
+    expect(options).not.toHaveProperty("sessionId");
+
+    resetHandler?.("fresh-session");
+    expect(navigateMock).toHaveBeenCalledWith("/chat/agent-1?session=fresh-session");
 
     dispose();
   });

@@ -1,12 +1,22 @@
 import {
   Accessor,
+  For,
   Suspense,
   Show,
+  createEffect,
+  createSignal,
+  onCleanup,
   lazy,
 } from "solid-js";
-import { A, useLocation } from "@solidjs/router";
+import { A, useLocation, useNavigate } from "@solidjs/router";
 import { theme, toggleTheme } from "../theme";
 import { capabilities, isExtensionEnabled } from "../lib/capabilities";
+import {
+  deleteAgentSession,
+  fetchAgentSessions,
+  renameAgentSession,
+} from "../api";
+import type { SessionSummary } from "../api/types";
 
 type AgentSidebarProps = {
   collapsed: Accessor<boolean>;
@@ -32,8 +42,86 @@ function stripBase(pathname: string): string {
   return pathname;
 }
 
+function relativeTime(timestamp: number): string {
+  const diff = Math.max(0, Date.now() - timestamp);
+  const mins = Math.floor(diff / 60000);
+  if (mins < 1) return "now";
+  if (mins < 60) return `${mins}m`;
+  const hours = Math.floor(mins / 60);
+  if (hours < 24) return `${hours}h`;
+  const days = Math.floor(hours / 24);
+  return `${days}d`;
+}
+
+function groupLabel(timestamp: number): string {
+  const date = new Date(timestamp);
+  const now = new Date();
+  const startToday = new Date(now.getFullYear(), now.getMonth(), now.getDate()).getTime();
+  const startYesterday = startToday - 86400000;
+  if (timestamp >= startToday) return "Today";
+  if (timestamp >= startYesterday) return "Yesterday";
+  if (timestamp >= startToday - 6 * 86400000) return "Earlier this week";
+  if (date.getFullYear() === now.getFullYear() && date.getMonth() === now.getMonth()) {
+    return "Earlier this month";
+  }
+  return date.toLocaleString(undefined, { month: "long", year: "numeric" });
+}
+
+function chatRouteSession(pathname: string, search: string): { agentId?: string; sessionId?: string } {
+  const match = stripBase(pathname).match(/^\/chat\/([^/?]+)/);
+  const params = new URLSearchParams(search);
+  return {
+    agentId: match ? decodeURIComponent(match[1]) : undefined,
+    sessionId: params.get("session") ?? undefined,
+  };
+}
+
 export function AgentSidebar(props: AgentSidebarProps) {
   const location = useLocation();
+  const navigate = useNavigate();
+  const [sessions, setSessions] = createSignal<SessionSummary[]>([]);
+  const [search, setSearch] = createSignal("");
+  const [searchOpen, setSearchOpen] = createSignal(false);
+
+  const refreshSessions = () => {
+    void fetchAgentSessions().then((res) => setSessions(res.items));
+  };
+
+  createEffect(refreshSessions);
+  const poll = window.setInterval(refreshSessions, 3000);
+  window.addEventListener("focus", refreshSessions);
+  onCleanup(() => {
+    window.clearInterval(poll);
+    window.removeEventListener("focus", refreshSessions);
+  });
+
+  const visibleSessions = () => {
+    const query = search().trim().toLowerCase();
+    return query
+      ? sessions().filter((item) =>
+          `${item.title ?? ""} ${item.firstUserMessage}`.toLowerCase().includes(query)
+        )
+      : sessions();
+  };
+
+  const groupedSessions = () => {
+    const groups: Array<{ label: string; items: SessionSummary[] }> = [];
+    for (const session of visibleSessions()) {
+      const label = groupLabel(session.lastActivity);
+      let group = groups.find((item) => item.label === label);
+      if (!group) {
+        group = { label, items: [] };
+        groups.push(group);
+      }
+      group.items.push(session);
+    }
+    return groups;
+  };
+
+  const currentChat = () => chatRouteSession(location.pathname, location.search);
+  const selectSession = (session: SessionSummary) => {
+    navigate(`/chat/${encodeURIComponent(session.agentId)}?session=${encodeURIComponent(session.sessionId)}`);
+  };
 
   return (
     <aside class="agent-sidebar" classList={{ collapsed: props.collapsed() }}>
@@ -100,6 +188,107 @@ export function AgentSidebar(props: AgentSidebarProps) {
               </A>
             </Show>
           </nav>
+          <section class="sidebar-sessions" aria-label="Sessions">
+            <div class="sessions-header">
+              <span>Sessions</span>
+              <button
+                type="button"
+                aria-label="Search sessions"
+                aria-pressed={searchOpen()}
+                onClick={() => {
+                  setSearchOpen((open) => !open);
+                  if (searchOpen()) return;
+                  setSearch("");
+                }}
+              >
+                ⌕
+              </button>
+            </div>
+            <Show when={searchOpen()}>
+              <input
+                class="sessions-search"
+                placeholder="Search sessions"
+                value={search()}
+                onInput={(event) => setSearch(event.currentTarget.value)}
+              />
+            </Show>
+            <div class="sessions-list">
+              <For each={groupedSessions()}>
+                {(group) => (
+                  <div class="sessions-group">
+                    <div class="sessions-group-label">{group.label}</div>
+                    <For each={group.items}>
+                      {(session) => {
+                        const selected = () =>
+                          currentChat().agentId === session.agentId &&
+                          currentChat().sessionId === session.sessionId;
+                        const label = () => session.title || session.firstUserMessage || session.sessionId;
+                        return (
+                          <div class="session-row-wrap">
+                            <button
+                              type="button"
+                              class="session-row"
+                              classList={{ active: selected() }}
+                              onClick={() => selectSession(session)}
+                            >
+                              <span class="session-avatar">
+                                <Show
+                                  when={session.avatar}
+                                  fallback={session.agentId[0]?.toUpperCase()}
+                                >
+                                  {(avatar) => (
+                                    <Show
+                                      when={avatar().startsWith("/") || /^https?:\/\//i.test(avatar())}
+                                      fallback={avatar()}
+                                    >
+                                      <img src={avatar()} alt="" />
+                                    </Show>
+                                  )}
+                                </Show>
+                              </span>
+                              <span class="session-main">
+                                <span class="session-title">{label()}</span>
+                                <span class="session-meta">
+                                  {relativeTime(session.lastActivity)} · {session.agentId}
+                                  <Show when={session.isMain}> <b>MAIN</b></Show>
+                                </span>
+                              </span>
+                            </button>
+                            <button
+                              type="button"
+                              class="session-action"
+                              aria-label="Rename session"
+                              onClick={async () => {
+                                const title = prompt("Session title", session.title ?? session.firstUserMessage);
+                                if (title === null) return;
+                                await renameAgentSession(session.agentId, session.sessionId, title);
+                                refreshSessions();
+                              }}
+                            >
+                              ✎
+                            </button>
+                            <button
+                              type="button"
+                              class="session-action danger"
+                              aria-label="Delete session"
+                              onClick={async () => {
+                                if (!confirm("Delete session?")) return;
+                                await deleteAgentSession(session.agentId, session.sessionId);
+                                setSessions((items) => items.filter((item) => item.sessionId !== session.sessionId || item.agentId !== session.agentId));
+                                if (selected()) navigate(`/chat/${encodeURIComponent(session.agentId)}`);
+                              }}
+                            >
+                              ×
+                            </button>
+                          </div>
+                        );
+                      }}
+                    </For>
+                  </div>
+                )}
+              </For>
+            </div>
+          </section>
         </div>
         <div class="sidebar-footer">
           <Show when={capabilities.multiUser}>
@@ -216,6 +405,148 @@ export function AgentSidebar(props: AgentSidebarProps) {
           display: flex;
           flex-direction: column;
           gap: 16px;
+        }
+
+        .sidebar-sessions {
+          min-height: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          overflow: hidden;
+        }
+
+        .sessions-header {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          font-size: 11px;
+          font-weight: 700;
+          color: var(--text-tertiary);
+          text-transform: uppercase;
+          letter-spacing: 0.08em;
+        }
+
+        .sessions-header button,
+        .session-action {
+          border: none;
+          background: transparent;
+          color: var(--text-secondary);
+          cursor: pointer;
+        }
+
+        .sessions-search {
+          width: 100%;
+          box-sizing: border-box;
+          border: 1px solid var(--border-default);
+          border-radius: 8px;
+          background: var(--bg-surface);
+          color: var(--text-primary);
+          padding: 7px 8px;
+          font-size: 12px;
+        }
+
+        .sessions-list {
+          overflow: auto;
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+        }
+
+        .sessions-group-label {
+          margin: 6px 0 4px;
+          font-size: 11px;
+          color: var(--text-tertiary);
+        }
+
+        .session-row-wrap {
+          display: grid;
+          grid-template-columns: 1fr auto auto;
+          align-items: center;
+          gap: 2px;
+        }
+
+        .session-row {
+          min-width: 0;
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          padding: 7px 6px;
+          border: none;
+          border-radius: 8px;
+          background: transparent;
+          color: var(--text-primary);
+          text-align: left;
+          cursor: pointer;
+        }
+
+        .session-row:hover,
+        .session-row.active {
+          background: var(--bg-raised);
+        }
+
+        .session-avatar {
+          width: 22px;
+          height: 22px;
+          border-radius: 999px;
+          display: inline-grid;
+          place-items: center;
+          background: var(--accent-bg, rgba(59, 130, 246, 0.14));
+          color: var(--accent, #3b82f6);
+          font-size: 11px;
+          font-weight: 700;
+          flex-shrink: 0;
+          overflow: hidden;
+        }
+
+        .session-avatar img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .session-main {
+          min-width: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+        }
+
+        .session-title,
+        .session-meta {
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .session-title {
+          font-size: 12px;
+        }
+
+        .session-meta {
+          font-size: 11px;
+          color: var(--text-tertiary);
+        }
+
+        .session-meta b {
+          color: var(--accent, #3b82f6);
+          font-size: 10px;
+        }
+
+        .session-action {
+          opacity: 0;
+          padding: 4px;
+        }
+
+        .session-row-wrap:hover .session-action {
+          opacity: 1;
+        }
+
+        .session-action.danger {
+          color: #ef4444;
+        }
+
+        .agent-sidebar.collapsed:not(:hover) .sidebar-sessions {
+          display: none;
         }
 
         .sidebar-footer {
