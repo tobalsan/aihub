@@ -19,5 +19,5 @@ export function getUserHistoryDir(
 ): string {
   return userId
     ? path.join(getUserDataDir(userId, dataDir), "history")
-    : path.join(dataDir, "sessions");
+    : path.join(dataDir, "history");
 }

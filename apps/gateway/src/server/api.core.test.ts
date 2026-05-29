@@ -241,7 +241,7 @@ describe("api core session resolution", () => {
   });
 
   it("does not sort renamed sessions by file mtime", async () => {
-    const sessionsDir = "/tmp/aihub-test/sessions";
+    const sessionsDir = "/tmp/aihub-test/history";
     await fs.rm("/tmp/aihub-test", { recursive: true, force: true });
     await fs.mkdir(sessionsDir, { recursive: true });
     getActiveAgents.mockReturnValue([
@@ -285,38 +285,6 @@ describe("api core session resolution", () => {
       "old",
     ]);
     expect(body.items[1]).toMatchObject({ title: "renamed", avatar: "🦊" });
-  });
-
-  it("renames legacy single-user history sessions", async () => {
-    await fs.rm("/tmp/aihub-test", { recursive: true, force: true });
-    await fs.mkdir("/tmp/aihub-test/history", { recursive: true });
-    getActiveAgents.mockReturnValue([{ id: "alpha", name: "Alpha" }]);
-    await fs.writeFile(
-      "/tmp/aihub-test/history/2026-05-29T10-00-00-000Z_alpha-legacy.jsonl",
-      JSON.stringify({
-        type: "history",
-        role: "user",
-        content: [{ type: "text", text: "legacy" }],
-        timestamp: 1000,
-      }) + "\n"
-    );
-    const { api } = await import("./api.core.js");
-
-    const response = await api.request(
-      new Request("http://localhost/agents/alpha/sessions/legacy", {
-        method: "PATCH",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ title: "Legacy title" }),
-      })
-    );
-
-    expect(response.status).toBe(200);
-    await expect(
-      fs.readFile(
-        "/tmp/aihub-test/history/2026-05-29T10-00-00-000Z_alpha-legacy.jsonl",
-        "utf8"
-      )
-    ).resolves.toContain("Legacy title");
   });
 
   it("passes a resolved session through to runAgent", async () => {

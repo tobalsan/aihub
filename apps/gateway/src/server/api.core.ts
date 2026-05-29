@@ -314,18 +314,14 @@ async function resolveExistingSessionHistoryFile(params: {
   agentId: string;
   sessionId: string;
 }): Promise<string | null> {
-  const dirs = [getUserHistoryDir(params.userId, CONFIG_DIR)];
-  if (!params.userId) dirs.push(path.join(CONFIG_DIR, "history"));
-  for (const dir of dirs) {
-    const filePath = await resolveSessionDataFile({
-      dir,
-      agentId: params.agentId,
-      sessionId: params.sessionId,
-      createIfMissing: false,
-    });
-    if (filePath) return filePath;
-  }
-  return null;
+  const dir = getUserHistoryDir(params.userId, CONFIG_DIR);
+  const filePath = await resolveSessionDataFile({
+    dir,
+    agentId: params.agentId,
+    sessionId: params.sessionId,
+    createIfMissing: false,
+  });
+  return filePath ?? null;
 }
 
 // GET /api/agents - list all agents (respects single-agent mode)
@@ -376,17 +372,6 @@ api.get("/agents/sessions", async (c) => {
   } catch {
     entries = [];
   }
-  if (!userId) {
-    const legacyDir = path.join(CONFIG_DIR, "history");
-    try {
-      entries.push(
-        ...(await fs.readdir(legacyDir)).map((file) => ({ dir: legacyDir, file }))
-      );
-    } catch {
-      // Ignore missing legacy history dir.
-    }
-  }
-
   const items = await Promise.all(
     entries.map(async ({ dir, file }) => {
       const parsed = parseSessionFileName(file, agentIds);

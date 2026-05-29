@@ -4,7 +4,7 @@ Implemented `docs/specs/lead-agent-session-history-resume-prd.md` core slice.
 
 ## Changed
 
-- Backend lists visible past agent sessions from user-scoped session JSONL files: single-user `$AIHUB_HOME/sessions/*.jsonl`, multi-user `$AIHUB_HOME/sessions/users/<userId>/history/*.jsonl`; endpoint `GET /api/agents/sessions`.
+- Backend lists visible past agent sessions from canonical history JSONL files: single-user `$AIHUB_HOME/history/*.jsonl`, multi-user `$AIHUB_HOME/sessions/users/<userId>/history/*.jsonl`; endpoint `GET /api/agents/sessions`.
 - Backend supports session delete/rename via `DELETE`/`PATCH /api/agents/:agentId/sessions/:sessionId`.
 - History fetch accepts explicit `?sessionId=` and skips `sessions.json` pointer resolution.
 - WebSocket `subscribe` accepts optional `sessionId`; active-turn replay and stream broadcast match explicit session ids directly.

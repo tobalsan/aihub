@@ -54,30 +54,6 @@ async function resolveHistoryFile(
 
   const historyDir = getHistoryDir(userId);
   const createdAt = await getSessionCreatedAt(sessionId, userId);
-  const existing = await resolveSessionDataFile({
-    dir: historyDir,
-    agentId,
-    sessionId,
-    createdAt,
-    createIfMissing: false,
-  });
-  if (existing) {
-    resolvedHistoryFileCache.set(cacheKey, existing);
-    return existing;
-  }
-  if (!userId) {
-    const legacy = await resolveSessionDataFile({
-      dir: path.join(CONFIG_DIR, "history"),
-      agentId,
-      sessionId,
-      createdAt,
-      createIfMissing: false,
-    });
-    if (legacy) {
-      resolvedHistoryFileCache.set(cacheKey, legacy);
-      return legacy;
-    }
-  }
   const resolved = (await resolveSessionDataFile({
     dir: historyDir,
     agentId,

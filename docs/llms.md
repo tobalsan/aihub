@@ -500,11 +500,16 @@ Sessions are managed via `sessionKey` (logical name) rather than raw `sessionId`
 
 Store format: `{agentId}:{sessionKey}` -> `{ sessionId, updatedAt }`
 
-Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation or `/compact` to summarize older context while keeping the last 8 turns. Left sidebar lists interactive sessions from `$AIHUB_HOME/sessions`, uses configured agent avatars, and polls every 3s/on focus so `/new` and idle-session rotations appear without refresh.
+Web UI persists `sessionKey` per agent in localStorage (default "main"). On mount, fetches history via `GET /api/agents/:id/history?sessionKey=main`. Users can type `/new` to start fresh conversation or `/compact` to summarize older context while keeping the last 8 turns. Left sidebar lists interactive canonical history sessions from `$AIHUB_HOME/history`, uses configured agent avatars, and polls every 3s/on focus so `/new` and idle-session rotations appear without refresh.
 
-### Session Transcript Format
+### Chat History And Runtime Sessions
 
-Sessions stored as JSONL in `AIHUB_HOME/sessions/{agentId}-{sessionId}.jsonl`:
+AIHub keeps two chat-related stores:
+
+- `AIHUB_HOME/history/{timestamp}_{agentId}-{sessionId}.jsonl` is the canonical AIHub transcript. API/UI/Langfuse/compaction/system-context/media rows read this normalized store.
+- `AIHUB_HOME/sessions/{timestamp}_{agentId}-{sessionId}.jsonl` is Pi SDK runtime state opened by `SessionManager`. It is not the primary product transcript.
+
+Pi session files use the SDK-native message shape:
 
 ```jsonl
 {"type":"session","id":"...","timestamp":"...","cwd":"..."}
