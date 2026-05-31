@@ -2,9 +2,9 @@ import { Suspense, lazy } from "solid-js";
 import type { Component, JSX } from "solid-js";
 import { LeftNavShell } from "../../components/LeftNavShell";
 
-const LazyBoardLifecycleListPage = lazy(() =>
-  import("../../components/board/BoardLifecycleListPage").then((mod) => ({
-    default: mod.BoardLifecycleListPage,
+const LazyProjectsBoard = lazy(() =>
+  import("../../components/ProjectsBoard").then((mod) => ({
+    default: mod.ProjectsBoard,
   }))
 );
 const LazyBoardView = lazy(() =>
@@ -22,7 +22,7 @@ export function BoardRouteShell(): JSX.Element {
   return (
     <LeftNavShell>
       <Suspense>
-        <LazyBoardLifecycleListPage />
+        <LazyProjectsBoard withSidebar={false} />
       </Suspense>
     </LeftNavShell>
   );

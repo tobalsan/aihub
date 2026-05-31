@@ -8,9 +8,9 @@ const LazyAreasOverview = lazy(() =>
     default: mod.AreasOverview,
   }))
 );
-const LazyBoardLifecycleListPage = lazy(() =>
-  import("../../components/board/BoardLifecycleListPage").then((mod) => ({
-    default: mod.BoardLifecycleListPage,
+const LazyProjectsBoard = lazy(() =>
+  import("../../components/ProjectsBoard").then((mod) => ({
+    default: mod.ProjectsBoard,
   }))
 );
 const LazyProjectsDetailRouteAdapter = lazy(() =>
@@ -40,16 +40,10 @@ export function AreasOverviewRouteShell(): JSX.Element {
 }
 
 export function ProjectsRouteShell(): JSX.Element {
-  const navigate = useNavigate();
-
   return (
     <LeftNavShell>
       <Suspense>
-        <LazyBoardLifecycleListPage
-          onProjectClick={(project) =>
-            navigate(`/projects/${encodeURIComponent(project.id)}`)
-          }
-        />
+        <LazyProjectsBoard withSidebar={false} />
       </Suspense>
     </LeftNavShell>
   );
