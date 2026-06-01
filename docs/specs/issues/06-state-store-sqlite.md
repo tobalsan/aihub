@@ -24,7 +24,7 @@ This slice deliberately does not add new HTTP routes or CLI verbs; the next two 
 - [ ] Dispatch path writes a `runs` row on claim, an append-only `events` row per worker/hook/tool event, and a `claims` row on claim + release.
 - [ ] Daemon writes a `heartbeats` row at startup and updates `last_tick` each tick.
 - [ ] Graceful shutdown sets `process_alive=0` on active runs; ungraceful shutdown leaves them at `1`, and the next startup detects unfinished `process_alive=0` rows is the boundary (the design uses the gap to identify orphans — verify via integration test that a crash-then-restart marks the prior run `outcome=orphaned` on next boot).
-- [ ] Restart mid-run does not double-claim: the next tick sees the issue still in `Ready` / `In Progress` but the claims map starts empty; the orphan sweep prevents re-dispatching until Linear state moves through a terminal state or the operator releases.
+- [ ] Restart mid-run does not double-claim: the next tick sees the issue still in `Todo` / `In Progress` but the claims map starts empty; the orphan sweep prevents re-dispatching until Linear state moves through a terminal state or the operator releases.
 - [ ] `sqlite3 $AIHUB_HOME/orchestrator/state.db "select * from runs order by started_at desc limit 5"` returns sensible rows after a few runs.
 
 ## Blocked by

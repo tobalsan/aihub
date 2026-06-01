@@ -12,7 +12,7 @@ import { ClaimsRegistry } from "./daemon/claims.js";
 import { OrchestratorDaemon } from "./daemon/daemon.js";
 import { exportLinear } from "./exporter/exporter.js";
 import { runHook } from "./hooks/runner.js";
-import { WorkspaceLayout } from "./workspace/layout.js";
+import { WorkspaceLayout, resolveWorkspacesRoot } from "./workspace/layout.js";
 
 let ctx: ExtensionContext | undefined;
 let client: LinearClient | undefined;
@@ -144,7 +144,7 @@ function register(app: Hono) {
           ? { name: repoName, path: repos[repoName] }
           : { name: repoName, ...repos[repoName] }
         : null;
-      await new WorkspaceLayout(config().workspacesRoot ?? path.join(ctx!.getDataDir(), "workspaces")).remove({ identifier, repo: repoConfig }).catch(() => undefined);
+      await new WorkspaceLayout(resolveWorkspacesRoot({ configured: config().workspacesRoot, dataDir: ctx!.getDataDir() })).remove({ identifier, repo: repoConfig }).catch(() => undefined);
     }
     claims.release(String(row?.issue_id ?? id));
     store?.release(String(row?.issue_id ?? id));
@@ -213,7 +213,7 @@ export { registerOrchestratorCommands } from "./cli/index.js";
 export { LinearClient } from "./linear/client.js";
 export { WorkflowLoader } from "./workflow/loader.js";
 export { resolveRepo } from "./repo/resolver.js";
-export { WorkspaceLayout, sanitizeIdentifier } from "./workspace/layout.js";
+export { WorkspaceLayout, resolveWorkspacesRoot, sanitizeIdentifier } from "./workspace/layout.js";
 export { resolveProfile } from "./profile/resolver.js";
 export { ConcurrencyLimiter } from "./concurrency/limiter.js";
 export { ClaimsRegistry } from "./daemon/claims.js";

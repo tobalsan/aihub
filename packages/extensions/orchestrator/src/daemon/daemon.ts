@@ -9,7 +9,7 @@ import { ConcurrencyLimiter } from "../concurrency/limiter.js";
 import { resolveRepo } from "../repo/resolver.js";
 import { resolveProfile } from "../profile/resolver.js";
 import { RetryPolicy } from "../retry/policy.js";
-import { WorkspaceLayout } from "../workspace/layout.js";
+import { WorkspaceLayout, resolveWorkspacesRoot } from "../workspace/layout.js";
 import { WorkflowLoader } from "../workflow/loader.js";
 import { runHook } from "../hooks/runner.js";
 import { createHitlBurstBuffer } from "../notifications/hitl.js";
@@ -39,7 +39,7 @@ type RunMeta = {
 
 function workflowStates(workflow?: WorkflowFrontmatter) {
   return {
-    active: workflow?.tracker?.states?.active ?? ["Ready", "In Progress"],
+    active: workflow?.tracker?.states?.active ?? ["Todo", "In Progress"],
     terminal: workflow?.tracker?.states?.terminal ?? ["Done", "Canceled"],
     needsHuman: workflow?.tracker?.states?.needs_human ?? "Needs Human",
   };
@@ -131,7 +131,7 @@ export class OrchestratorDaemon {
   }
 
   private workspacesRoot(): string {
-    return this.deps.getConfig().workspacesRoot ?? path.join(this.deps.ctx.getDataDir(), "workspaces");
+    return resolveWorkspacesRoot({ configured: this.deps.getConfig().workspacesRoot, dataDir: this.deps.ctx.getDataDir() });
   }
 
   private schedule(): void {
@@ -210,7 +210,7 @@ export class OrchestratorDaemon {
     const states = workflowStates(workflow.frontmatter);
     if (repoResolution.warning) this.deps.ctx.emit("orchestrator.run.event", { issueId: issue.id, type: "warning", message: repoResolution.warning });
 
-    const profile = resolveProfile({ labels: issue.labels, workflow: workflow.frontmatter, profilesConfig: profileList(this.deps.ctx) });
+    const profile = resolveProfile({ workflow: workflow.frontmatter, profilesConfig: profileList(this.deps.ctx) });
     if ("park" in profile) {
       await this.park(issue, states.needsHuman, profile.park.reason);
       return false;

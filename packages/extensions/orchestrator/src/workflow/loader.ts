@@ -7,7 +7,7 @@ import type { LinearIssue, RepoConfig, WorkflowFrontmatter, WorkflowSnapshot } f
 
 const FALLBACK_WORKFLOW_FILE = "WORKFLOW.md";
 
-const DEFAULT = `---\ntracker:\n  states:\n    active: [Ready, In Progress]\n    terminal: [Done, Canceled]\n    needs_human: Needs Human\npolling:\n  interval_ms: 30000\n  jitter_ms: 5000\nagent:\n  default_profile: default\n  max_concurrent: 3\n  stall_timeout_ms: 1800000\nlinear:\n  expose_graphql_tool: true\n---\n# Linear skill\nUse orchestrator.linear_graphql to comment, update status, and inspect Linear. Never ask for LINEAR_API_KEY.\n`;
+const DEFAULT = `---\ntracker:\n  states:\n    active: [Todo, In Progress]\n    terminal: [Done, Canceled]\n    needs_human: Needs Human\npolling:\n  interval_ms: 30000\n  jitter_ms: 5000\nagent:\n  profile: worker\n  max_concurrent: 3\n  stall_timeout_ms: 1800000\nlinear:\n  expose_graphql_tool: true\n---\n# Linear skill\nUse orchestrator.linear_graphql to comment, update status, and inspect Linear. Never ask for LINEAR_API_KEY.\n`;
 
 function merge(a: any, b: any): any {
   if (!b || typeof b !== "object" || Array.isArray(b)) return b ?? a;

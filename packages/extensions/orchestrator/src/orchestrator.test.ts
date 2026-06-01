@@ -3,7 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ClaimsRegistry, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, resolveProfile, resolveRepo, sanitizeIdentifier, StateStore, verifyWebhookSignature } from "./index.js";
+import { ClaimsRegistry, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, resolveProfile, resolveRepo, resolveWorkspacesRoot, sanitizeIdentifier, StateStore, verifyWebhookSignature } from "./index.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
 
@@ -28,10 +28,14 @@ describe("orchestrator pure modules", () => {
     expect(sanitizeIdentifier("ENG-123? Bad!")).toBe("eng-123bad");
   });
 
+  it("resolves relative workspace root against AIHUB_HOME", () => {
+    expect(resolveWorkspacesRoot({ configured: "./.worktrees", dataDir: "/tmp/aihub" })).toBe(path.join("/tmp/aihub", ".worktrees"));
+    expect(resolveWorkspacesRoot({ configured: "$AIHUB_HOME/.worktrees", dataDir: "/tmp/aihub" })).toBe(path.join("/tmp/aihub", ".worktrees"));
+  });
+
   it("resolves profiles or parks", () => {
-    expect(resolveProfile({ labels: [], workflow: { agent: { default_profile: "default" } }, profilesConfig: profiles })).toMatchObject({ profile: { name: "default" } });
-    expect(resolveProfile({ labels: ["agent:claude"], workflow: { agent: { default_profile: "default", label_profiles: { "agent:claude": "claude" } } }, profilesConfig: profiles })).toMatchObject({ profile: { name: "claude" } });
-    expect(resolveProfile({ labels: ["a", "b"], workflow: { agent: { default_profile: "default", label_profiles: { a: "default", b: "claude" } } }, profilesConfig: profiles })).toHaveProperty("park");
+    expect(resolveProfile({ workflow: { agent: { profile: "default" } }, profilesConfig: profiles })).toMatchObject({ profile: { name: "default" } });
+    expect(resolveProfile({ workflow: { agent: { profile: "missing" } }, profilesConfig: profiles })).toHaveProperty("park");
   });
 
   it("backs off independently", () => {
@@ -119,17 +123,17 @@ describe("orchestrator IO modules", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-"));
     const repo = path.join(root, "repo");
     await fs.mkdir(repo);
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nfallback {{issue.identifier}}\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nfallback {{issue.identifier}}\n");
     await fs.writeFile(path.join(repo, "WORKFLOW.md"), "---\nagent:\n  max_turns: 2\n---\nrepo {{issue.title}}\n");
     const loader = new WorkflowLoader(root, { a: { name: "a", path: repo } });
     const snapshot = await loader.resolve({ repo: "a", issue: { id: "1", identifier: "ENG-1", title: "Hello", state: "Ready", labels: [] } });
-    expect(snapshot.frontmatter.agent).toMatchObject({ default_profile: "default", max_turns: 2 });
+    expect(snapshot.frontmatter.agent).toMatchObject({ profile: "default", max_turns: 2 });
     expect(snapshot.body.trim()).toBe("repo Hello");
   });
 
   it("daemon ticks poll, claim, create workspace, start subagent, and release on terminal", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-daemon-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\n  max_concurrent: 1\ntracker:\n  states:\n    active: [Ready]\n    terminal: [Done]\n---\nDo {{issue.identifier}}\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\n  max_concurrent: 1\ntracker:\n  states:\n    active: [Ready]\n    terminal: [Done]\n---\nDo {{issue.identifier}}\n");
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
@@ -165,7 +169,7 @@ describe("orchestrator IO modules", () => {
 
   it("manual claim runs full dispatch path and rejects active claims", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claim-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nManual {{issue.identifier}}\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nManual {{issue.identifier}}\n");
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
@@ -201,7 +205,7 @@ describe("orchestrator IO modules", () => {
     const marker = path.join(root, "hooks.log");
     await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
 agent:
-  default_profile: default
+  profile: default
 tracker:
   states:
     active: [Ready]
@@ -260,7 +264,7 @@ Do work
 
   it("coalesces queued ticks and batches HITL notifications", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-queue-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nDo it\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nDo it\n");
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();

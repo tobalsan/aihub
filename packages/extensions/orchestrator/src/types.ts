@@ -22,9 +22,7 @@ export type WorkflowFrontmatter = {
   polling?: { interval_ms?: number; jitter_ms?: number };
   workspace?: { cleanup_on_terminal?: boolean; reuse?: boolean };
   agent?: {
-    default_profile?: string;
     profile?: string;
-    label_profiles?: Record<string, string>;
     max_turns?: number;
     stall_timeout_ms?: number;
     max_concurrent?: number;

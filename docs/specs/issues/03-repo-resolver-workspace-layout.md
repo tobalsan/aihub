@@ -11,7 +11,7 @@ parent: docs/specs/orchestrator-extension-prd.md
 
 ## What to build
 
-Repo-aware workspaces. `RepoResolver` is a pure function over `(labels, config)` returning `{ name, path, baseBranch }`, `null` (no-repo), or `{ name, warning }` for multi-repo (pick first `repo:*` label alphabetically + emit warning event). `WorkspaceLayout` sanitizes the Linear identifier (strip non-`[A-Za-z0-9_-]`, lowercase), creates a git worktree at `extensions.orchestrator.workspacesRoot` (default `$AIHUB_HOME/workspaces/<sanitized-identifier>/`) on branch `aihub/<sanitized-identifier>` from the resolved `baseBranch`, and tears it down on terminal when `workspace.cleanup_on_terminal=true`. Worktrees survive across runs by default (`workspace.reuse: true`). Issues with no `repo:*` label keep using no-repo mode (plain `mkdir -p`).
+Repo-aware workspaces. `RepoResolver` is a pure function over `(labels, config)` returning `{ name, path, baseBranch }`, `null` (no-repo), or `{ name, warning }` for multi-repo (pick first `repo:*` label alphabetically + emit warning event). `WorkspaceLayout` sanitizes the Linear identifier (strip non-`[A-Za-z0-9_-]`, lowercase), creates a git worktree at `extensions.orchestrator.workspacesRoot` (relative paths resolve under `$AIHUB_HOME`; default `$AIHUB_HOME/workspaces/<sanitized-identifier>/`) on branch `aihub/<sanitized-identifier>` from the resolved `baseBranch`, and tears it down on terminal when `workspace.cleanup_on_terminal=true`. Worktrees survive across runs by default (`workspace.reuse: true`). Issues with no `repo:*` label keep using no-repo mode (plain `mkdir -p`).
 
 The orchestrator dispatch path now: resolve repo → prepare workspace → start the `subagents` run with the workspace path as `cwd`. Concurrent issues against the same repo each get their own worktree on their own branch; no leases needed.
 
@@ -24,7 +24,7 @@ The orchestrator dispatch path now: resolve repo → prepare workspace → start
 - [ ] `WorkspaceLayout.remove({ identifier })` removes the worktree and deletes the branch; succeeds even when the worktree is already gone.
 - [ ] No-repo mode produces a plain directory with no `.git`.
 - [ ] Dispatcher passes the resolved workspace path to the `subagents` run as `cwd`.
-- [ ] Smoke: a Linear issue labeled `repo:aihub` in `Ready` produces a worktree at `$AIHUB_HOME/workspaces/<id>/` checked out on `aihub/<id>`; `git -C ~/code/aihub worktree list` shows it; agent commits land on that branch.
+- [ ] Smoke: a Linear issue labeled `repo:aihub` in `Todo` produces a worktree at the configured workspaces root checked out on `aihub/<id>`; `git -C ~/code/aihub worktree list` shows it; agent commits land on that branch.
 
 ## Blocked by
 

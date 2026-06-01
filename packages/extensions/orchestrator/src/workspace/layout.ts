@@ -16,6 +16,15 @@ function run(command: string, args: string[], cwd?: string): Promise<void> {
   });
 }
 
+export function resolveWorkspacesRoot(input: { configured?: string; dataDir: string }): string {
+  const configured = input.configured?.trim();
+  if (!configured) return path.join(input.dataDir, "workspaces");
+  if (configured.startsWith("$AIHUB_HOME/")) return path.join(input.dataDir, configured.slice("$AIHUB_HOME/".length));
+  if (configured === "$AIHUB_HOME") return input.dataDir;
+  if (configured.startsWith("~")) return path.join(process.env.HOME ?? "", configured.slice(1));
+  return path.isAbsolute(configured) ? configured : path.join(input.dataDir, configured);
+}
+
 export class WorkspaceLayout {
   constructor(private readonly root: string) {}
 

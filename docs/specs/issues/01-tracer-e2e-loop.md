@@ -25,7 +25,7 @@ This slice deliberately ships without WORKFLOW.md, without repo/worktree support
 - [ ] Agent tool `orchestrator.linear_graphql({ query, variables? })` is advertised via `Extension.getAgentTools()` and executes via the daemon-held client; errors are returned verbatim.
 - [ ] Daemon never auto-mutates a Linear issue to a terminal state. When Linear reports the issue in a terminal state, the daemon releases the claim and stops the worker if still running.
 - [ ] `LINEAR_API_KEY` is not present in the spawned subagent process environment (verified by spawn-env snapshot in code review).
-- [ ] Smoke test on Mac Studio: file a Linear issue in `Ready`; within 60 s the agent runs and posts a comment via `linear_graphql`; setting the issue to `Done` releases the claim and prevents re-claim on the next tick.
+- [ ] Smoke test on Mac Studio: file a Linear issue in `Todo`; within 60 s the agent runs and posts a comment via `linear_graphql`; setting the issue to `Done` releases the claim and prevents re-claim on the next tick.
 
 ## Blocked by
 
