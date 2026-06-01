@@ -5,6 +5,8 @@ import path from "node:path";
 import yaml from "js-yaml";
 import type { LinearIssue, RepoConfig, WorkflowFrontmatter, WorkflowSnapshot } from "../types.js";
 
+const FALLBACK_WORKFLOW_FILE = "WORKFLOW.md";
+
 const DEFAULT = `---\ntracker:\n  states:\n    active: [Ready, In Progress]\n    terminal: [Done, Canceled]\n    needs_human: Needs Human\npolling:\n  interval_ms: 30000\n  jitter_ms: 5000\nagent:\n  default_profile: default\n  max_concurrent: 3\n  stall_timeout_ms: 1800000\nlinear:\n  expose_graphql_tool: true\n---\n# Linear skill\nUse orchestrator.linear_graphql to comment, update status, and inspect Linear. Never ask for LINEAR_API_KEY.\n`;
 
 function merge(a: any, b: any): any {
@@ -32,14 +34,14 @@ export class WorkflowLoader {
   constructor(private readonly home: string, private readonly repos: Record<string, RepoConfig> = {}) {}
 
   async ensureDefault(): Promise<string> {
-    const file = path.join(this.home, "workflow.md");
+    const file = path.join(this.home, FALLBACK_WORKFLOW_FILE);
     try { await fs.access(file); } catch { await fs.mkdir(this.home, { recursive: true }); await fs.writeFile(file, DEFAULT); }
     return file;
   }
 
   watch(onChange: (event: { path: string }) => void): { close: () => void } {
     const watchers: fsSync.FSWatcher[] = [];
-    const files = [path.join(this.home, "workflow.md"), ...Object.values(this.repos).map((repo) => path.join(repo.path, "WORKFLOW.md"))];
+    const files = [path.join(this.home, FALLBACK_WORKFLOW_FILE), ...Object.values(this.repos).map((repo) => path.join(repo.path, "WORKFLOW.md"))];
     for (const file of files) {
       try {
         watchers.push(fsSync.watch(file, { persistent: false }, () => onChange({ path: file })));

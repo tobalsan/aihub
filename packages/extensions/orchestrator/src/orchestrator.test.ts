@@ -119,7 +119,7 @@ describe("orchestrator IO modules", () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-"));
     const repo = path.join(root, "repo");
     await fs.mkdir(repo);
-    await fs.writeFile(path.join(root, "workflow.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nfallback {{issue.identifier}}\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nfallback {{issue.identifier}}\n");
     await fs.writeFile(path.join(repo, "WORKFLOW.md"), "---\nagent:\n  max_turns: 2\n---\nrepo {{issue.title}}\n");
     const loader = new WorkflowLoader(root, { a: { name: "a", path: repo } });
     const snapshot = await loader.resolve({ repo: "a", issue: { id: "1", identifier: "ENG-1", title: "Hello", state: "Ready", labels: [] } });
@@ -129,7 +129,7 @@ describe("orchestrator IO modules", () => {
 
   it("daemon ticks poll, claim, create workspace, start subagent, and release on terminal", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-daemon-"));
-    await fs.writeFile(path.join(root, "workflow.md"), "---\nagent:\n  default_profile: default\n  max_concurrent: 1\ntracker:\n  states:\n    active: [Ready]\n    terminal: [Done]\n---\nDo {{issue.identifier}}\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\n  max_concurrent: 1\ntracker:\n  states:\n    active: [Ready]\n    terminal: [Done]\n---\nDo {{issue.identifier}}\n");
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
@@ -165,7 +165,7 @@ describe("orchestrator IO modules", () => {
 
   it("manual claim runs full dispatch path and rejects active claims", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claim-"));
-    await fs.writeFile(path.join(root, "workflow.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nManual {{issue.identifier}}\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nManual {{issue.identifier}}\n");
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
@@ -199,7 +199,7 @@ describe("orchestrator IO modules", () => {
   it("runs hook lifecycle phases and cleans up workspace on terminal", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-hooks-"));
     const marker = path.join(root, "hooks.log");
-    await fs.writeFile(path.join(root, "workflow.md"), `---
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
 agent:
   default_profile: default
 tracker:
@@ -260,7 +260,7 @@ Do work
 
   it("coalesces queued ticks and batches HITL notifications", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-queue-"));
-    await fs.writeFile(path.join(root, "workflow.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nDo it\n");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  default_profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nDo it\n");
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
@@ -299,7 +299,7 @@ Do work
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-db-"));
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
-    store.insertRun({ runId: "r1", issueId: "i1", identifier: "ENG-1", workspace: root, repo: null, branch: null, profileJson: "{}", workflowPath: "workflow.md", workflowSha: "abc", pid: 1, startedAt: new Date().toISOString() });
+    store.insertRun({ runId: "r1", issueId: "i1", identifier: "ENG-1", workspace: root, repo: null, branch: null, profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "abc", pid: 1, startedAt: new Date().toISOString() });
     store.appendEvent("r1", "x", { ok: true });
     expect(store.listRecent(1)).toHaveLength(1);
     expect(store.listEvents("r1")).toHaveLength(1);

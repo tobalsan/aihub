@@ -29,7 +29,7 @@ Replace the extension with a thin orchestrator that follows OpenAI's Symphony pa
 
 - **Linear** becomes the source of truth for issues. The AIHub kanban dies. Mobile capture happens in Linear's iOS app in five seconds; I review and triage from the same app.
 - A new `packages/extensions/orchestrator` runs as a daemon inside the gateway on the Mac Studio. Each tick (~30 s ± jitter) it polls Linear for issues in active states, claims unclaimed work up to the configured concurrency limit, prepares a workspace, and starts an AIHub `subagents` run in it.
-- A per-repo `WORKFLOW.md` defines polling cadence, active/terminal state names, subagent profile selection, hooks, and the prompt body. `$AIHUB_HOME/workflow.md` is a fallback/template for no-repo tasks and repos without their own workflow.
+- A per-repo `WORKFLOW.md` defines polling cadence, active/terminal state names, subagent profile selection, hooks, and the prompt body. `$AIHUB_HOME/WORKFLOW.md` is a fallback/template for no-repo tasks and repos without their own workflow.
 - The agent updates Linear by calling a single tool: `orchestrator.linear_graphql({ query, variables? })`. The `LINEAR_API_KEY` lives only in the gateway process and is never injected into the worker environment. The default/fallback workflow ships with a "linear skill" — prose that teaches the agent how to comment, set status, attach files, etc. via raw GraphQL.
 - Per-issue workspaces are git worktrees at `$AIHUB_HOME/workspaces/<sanitized-identifier>/` on branch `aihub/<sanitized-identifier>`, or a plain directory when the issue has no `repo:*` label.
 - Runtime state (run history, events, claims, heartbeats) goes to local SQLite at `$AIHUB_HOME/orchestrator/state.db` via `better-sqlite3`. Linear stays the issue board; SQLite is the run log; markdown is workflow config and one-way export only.
@@ -42,7 +42,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 
 1. As a solo developer with a phone, I want to file a new task in Linear's iOS app, so that the orchestrator picks it up on the Mac Studio without me touching a laptop.
 2. As a solo developer, I want the orchestrator to only act on Linear issues in states I declare as "active", so that I control exactly which work the agent attempts.
-3. As a solo developer, I want a global `$AIHUB_HOME/workflow.md` fallback to define default polling cadence, subagent profile, and prompt for no-repo tasks, so that non-code work still runs without repo ceremony.
+3. As a solo developer, I want a global `$AIHUB_HOME/WORKFLOW.md` fallback to define default polling cadence, subagent profile, and prompt for no-repo tasks, so that non-code work still runs without repo ceremony.
 4. As a developer working in multiple repos, I want a per-repo `WORKFLOW.md` to be the canonical workflow for repo-bound tasks, so that repo-specific conventions (profile, hooks, prompt) live with the repo's code.
 5. As a developer, I want WORKFLOW.md to support YAML frontmatter for structured config and a markdown body for the prompt template, so that the agent receives a rendered prompt and the daemon receives parseable config in one file.
 6. As a developer, I want WORKFLOW.md changes to be hot-reloaded by the daemon, so that I can iterate on the workflow without restarting the gateway.
@@ -56,7 +56,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 14. As a developer, I want hook stdout and stderr appended to the run's event log, so that I can debug what `pnpm install` printed without scraping shell history.
 15. As an agent author, I want a single GraphQL tool (`orchestrator.linear_graphql`) instead of a fleet of typed helpers, so that I can express anything Linear's API supports without waiting for AIHub to wrap it.
 16. As a security-conscious operator, I want `LINEAR_API_KEY` confined to the gateway process and never injected into the worker environment, so that a compromised agent process cannot steal the key.
-17. As a developer, I want the daemon to teach the agent common Linear ops (comment, set status, attach, label) via prose in the default `workflow.md`, so that I don't need to write a "Linear MCP" or memorize GraphQL myself.
+17. As a developer, I want the daemon to teach the agent common Linear ops (comment, set status, attach, label) via prose in the default `WORKFLOW.md`, so that I don't need to write a "Linear MCP" or memorize GraphQL myself.
 18. As a developer, I want to disable the Linear tool per-workflow (`expose_graphql_tool: false`), so that I can run HITL-only issues where the agent reads but cannot write.
 19. As a developer, I want each issue claim to be exclusive across the daemon, so that concurrent ticks or manual `claim` calls never spawn two workers for the same issue.
 20. As a developer, I want manual `aihub orchestrator claim <id>` and `release <id>` commands, so that I can force-claim outside the poll cadence or release a stuck claim.
@@ -93,7 +93,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 
 - Canonical issue store: **Linear**. AIHub kanban and markdown board are removed.
 - Single work unit: **Linear issue**. No project/slice hierarchy. Linear's "Project" is treated as prompt context (label/string), not a runtime concept.
-- Workflow config: per-repo `WORKFLOW.md` at the repo root is canonical for repo-bound issues. `$AIHUB_HOME/workflow.md` is the fallback for no-repo issues and repos without a local workflow. Per-repo frontmatter overrides fallback frontmatter field-by-field; per-repo body replaces fallback body wholesale.
+- Workflow config: per-repo `WORKFLOW.md` at the repo root is canonical for repo-bound issues. `$AIHUB_HOME/WORKFLOW.md` is the fallback for no-repo issues and repos without a local workflow. Per-repo frontmatter overrides fallback frontmatter field-by-field; per-repo body replaces fallback body wholesale.
 - Active states: `Ready`, `In Progress`. Terminal: `Done`, `Canceled`. HITL park: `Needs Human`. Triage (inbox not dispatched): `Triage`. State names live in `WORKFLOW.md` frontmatter so they're swappable.
 - Default v1 concurrency: `max_concurrent: 3` globally, with room for future per-profile/per-repo limits. One active claim per Linear issue remains mandatory.
 - Runner model: v1 is Symphony-inspired via AIHub CLI subagents, not strict Symphony Codex app-server mode. This keeps Codex/Claude/Pi profile choice available while accepting that continuation/session behavior is mediated by the existing `subagents` runtime.
@@ -107,7 +107,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 
 ### Major modules (deep where marked)
 
-- **WorkflowLoader** (deep): resolves per-repo `WORKFLOW.md` with `$AIHUB_HOME/workflow.md` fallback, merges YAML frontmatter, renders placeholders (`{{issue.*}}`, `{{repo.*}}`, `{{run.*}}`), maintains mtime cache, watches files via `chokidar`, emits `orchestrator.workflow.changed`. Active runs keep their original snapshot via `runs.workflow_path` + `runs.workflow_sha`.
+- **WorkflowLoader** (deep): resolves per-repo `WORKFLOW.md` with `$AIHUB_HOME/WORKFLOW.md` fallback, merges YAML frontmatter, renders placeholders (`{{issue.*}}`, `{{repo.*}}`, `{{run.*}}`), maintains mtime cache, watches files via `chokidar`, emits `orchestrator.workflow.changed`. Active runs keep their original snapshot via `runs.workflow_path` + `runs.workflow_sha`.
 - **LinearClient** (deep): fetch-based GraphQL client, shared token-bucket reading `X-RateLimit-*`, 429 backoff (sleep until reset + 1 s). Auth via `LINEAR_API_KEY` env var; missing key disables the extension and returns 503 from routes.
 - **RepoResolver** (deep, pure): given issue labels + config, returns `{ name, path, baseBranch }` or no-repo. First `repo:*` label alphabetically on multi-repo; emits warning event.
 - **WorkspaceLayout** (deep): sanitizes identifiers, creates and removes git worktrees, handles no-repo `mkdir -p`. v1 supports `worktree` and `no-repo` modes only — the old `none`/`main-run`/`clone` modes are dropped.
@@ -146,7 +146,7 @@ In-memory `claims` map is authoritative; SQLite is append-only log + claim-fairn
 
 ### Agent tool surface (Symphony-faithful)
 
-Single tool `orchestrator.linear_graphql({ query, variables? })`. No domain helpers (`comment`, `update_status`, etc.) — those live as prose in the default `workflow.md` ("linear skill"). Auth lives only in the daemon. `LINEAR_API_KEY` in worker env is **not** supported in v1; a future `linear.expose_api_key_to_agent: true` flag would lift this — rejected as default.
+Single tool `orchestrator.linear_graphql({ query, variables? })`. No domain helpers (`comment`, `update_status`, etc.) — those live as prose in the default `WORKFLOW.md` ("linear skill"). Auth lives only in the daemon. `LINEAR_API_KEY` in worker env is **not** supported in v1; a future `linear.expose_api_key_to_agent: true` flag would lift this — rejected as default.
 
 ### Web UI
 
@@ -159,7 +159,7 @@ Extract only the pieces still needed by the new package, primarily HITL burst no
 ### Phased execution
 
 1. **Phase 1 — thinnest E2E loop** (~1 day): orchestrator skeleton, LinearClient query, poll one team, in-memory claim, global concurrency cap defaulting to 3, no-repo workspace, start an AIHub `subagents` run with the default profile, expose `orchestrator.linear_graphql`, and release the claim only after Linear reaches a terminal state.
-2. **Phase 2 — workflow + repo mode + profile selection**: WORKFLOW.md frontmatter + fallback merge + template substitution; repo discovery via `repo:<name>`; git worktree create/teardown; explicit `agent.label_profiles` mapping from Linear labels to `extensions.subagents.profiles[]`; default `$AIHUB_HOME/workflow.md` ships with the linear-skill prompt section.
+2. **Phase 2 — workflow + repo mode + profile selection**: WORKFLOW.md frontmatter + fallback merge + template substitution; repo discovery via `repo:<name>`; git worktree create/teardown; explicit `agent.label_profiles` mapping from Linear labels to `extensions.subagents.profiles[]`; default `$AIHUB_HOME/WORKFLOW.md` ships with the linear-skill prompt section.
 3. **Phase 3 — persistence + dashboard**: SQLite state + schema + run/event persistence; HTTP routes; `/orchestrator` Solid.js dashboard; CLI `runs`/`events`/`logs --follow`.
 4. **Phase 4 — hooks, retry/backoff, stall, notifications, optional webhook**: lifecycle hooks; stall detection → auto `Needs Human` + notify; backoff trio on failed exits; notifications via existing `notifications.channels` + relocated HITL burst buffer; optional webhook receiver behind flag.
 5. **Phase 5 — cleanup**: extract reusable seams, delete old packages, run migration archive script on Mac Studio, update `docs/llms.md` and `README.md`.
@@ -211,7 +211,7 @@ A good test in this codebase exercises external behavior — what callers see wh
 
 - The `subagents` profile contract and the `WORKFLOW.md` schema are the two extension points where the team should resist scope creep — both are designed to stay stable while implementations swap underneath.
 - The `LINEAR_API_KEY` boundary (daemon-only, never in worker env) is the single most important invariant in this design. Every code review of the worker spawn path should explicitly verify the env diff.
-- The default `$AIHUB_HOME/workflow.md` body is the "linear skill" — it is the primary integration surface the agent reads at dispatch time. Investing in this prompt pays off more than wrapping new typed helpers.
+- The default `$AIHUB_HOME/WORKFLOW.md` body is the "linear skill" — it is the primary integration surface the agent reads at dispatch time. Investing in this prompt pays off more than wrapping new typed helpers.
 - `extensions.projects` config in `aihub.json` should be ignored with a one-line warning post-deletion (Phase 5 acceptance test). Do not crash the gateway on stale config.
 - Documentation updates land in `docs/llms.md` (LLM-facing) and `README.md` (human-facing) per `CLAUDE.md`; this PRD lives alongside other extension specs under `docs/specs/`.
 - Plan source-of-truth for execution: `~/.claude/plans/i-created-the-projects-parallel-sphinx.md` (also kept in sync until Phase 1 lands).
