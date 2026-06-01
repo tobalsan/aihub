@@ -19,6 +19,11 @@ vi.mock("./index.js", () => ({
   setLoadedConfig,
 }));
 
+const resolveStartupConfig = vi.fn();
+vi.mock("./validate.js", () => ({
+  resolveStartupConfig,
+}));
+
 describe("startGatewayHotReload", () => {
   let tmpDir = "";
   let timer: NodeJS.Timeout | undefined;
@@ -26,6 +31,7 @@ describe("startGatewayHotReload", () => {
   beforeEach(() => {
     vi.useFakeTimers();
     vi.clearAllMocks();
+    resolveStartupConfig.mockImplementation(async (config) => config);
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-hot-reload-"));
     configPath = path.join(tmpDir, "aihub.json");
     fs.writeFileSync(configPath, "{}");
@@ -65,7 +71,11 @@ describe("startGatewayHotReload", () => {
     const nextConfig = {
       agents: [{ id: "casey", workspace, workspaceDir: workspace }],
     };
+    const resolvedConfig = {
+      agents: [{ id: "casey", workspace, workspaceDir: workspace }],
+    };
     reloadConfig.mockReturnValue(nextConfig);
+    resolveStartupConfig.mockResolvedValue(resolvedConfig);
     const onReload = vi.fn();
 
     const { startGatewayHotReload } = await import("./hot-reload.js");
@@ -81,6 +91,8 @@ describe("startGatewayHotReload", () => {
     await vi.advanceTimersByTimeAsync(1000);
 
     expect(reloadConfig).toHaveBeenCalledTimes(1);
-    expect(onReload).toHaveBeenCalledWith(nextConfig);
+    expect(resolveStartupConfig).toHaveBeenCalledWith(nextConfig);
+    expect(setLoadedConfig).toHaveBeenCalledWith(resolvedConfig);
+    expect(onReload).toHaveBeenCalledWith(resolvedConfig);
   });
 });
