@@ -5,7 +5,8 @@ export type RealtimeInterest =
   | { type: "session"; agentId: string; sessionKey: string; sessionId?: string }
   | { type: "status" }
   | { type: "project"; projectId?: string }
-  | { type: "subagents" };
+  | { type: "subagents" }
+  | { type: "orchestrator" };
 
 export type RealtimeEvent =
   | { type: "status"; agentId: string; status: "streaming" | "idle" }
@@ -17,6 +18,7 @@ export type RealtimeEvent =
       parent?: { type: string; id: string };
       status: SubagentRunStatus;
     }
+  | { type: `orchestrator.${string}`; [key: string]: unknown }
   | LeadSessionChangedEvent
   | WsStreamEvent;
 
@@ -61,6 +63,9 @@ function shouldDeliver(
   }
   if (event.type === "subagent_changed" || event.type === "lead_session_changed") {
     return hasInterest(interests, "subagents");
+  }
+  if (event.type.startsWith("orchestrator.")) {
+    return hasInterest(interests, "orchestrator");
   }
   if (event.type === "error") return true;
   return hasInterest(interests, "session");

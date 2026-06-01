@@ -613,6 +613,47 @@ export type SessionsExtensionConfig = z.infer<
   typeof SessionsExtensionConfigSchema
 >;
 
+export const OrchestratorExtensionConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  teamKey: z.string().optional(),
+  repos: z
+    .record(
+      z.union([
+        z.string(),
+        z.object({
+          path: z.string(),
+          baseBranch: z.string().optional(),
+        }),
+      ])
+    )
+    .optional()
+    .default({}),
+  defaultRepo: z.string().optional(),
+  poll: z
+    .object({
+      intervalMs: z.number().positive().optional(),
+      jitterMs: z.number().nonnegative().optional(),
+    })
+    .optional()
+    .default({}),
+  notifyChannel: z.string().optional(),
+  linear: z
+    .object({
+      exposeGraphqlTool: z.boolean().optional(),
+    })
+    .optional(),
+  webhook: z
+    .object({
+      enabled: z.boolean().optional(),
+      path: z.string().optional(),
+      secret: z.string().optional(),
+    })
+    .optional(),
+});
+export type OrchestratorExtensionConfig = z.infer<
+  typeof OrchestratorExtensionConfigSchema
+>;
+
 export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   baseUrl: z.string().optional(),
   publicKey: z.string().optional(),
@@ -638,6 +679,7 @@ export const ExtensionsConfigSchema = z
       .optional(),
     heartbeat: HeartbeatExtensionConfigSchema.optional(),
     projects: ProjectsExtensionConfigSchema.optional(),
+    orchestrator: OrchestratorExtensionConfigSchema.optional(),
     subagents: SubagentsExtensionConfigSchema.optional(),
     sessions: SessionsExtensionConfigSchema.optional(),
     langfuse: LangfuseExtensionConfigSchema.optional(),

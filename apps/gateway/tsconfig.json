@@ -16,6 +16,7 @@
     { "path": "../../packages/extensions/slack" },
     { "path": "../../packages/extensions/webhooks" },
     { "path": "../../packages/extensions/projects" },
-    { "path": "../../packages/extensions/board" }
+    { "path": "../../packages/extensions/board" },
+    { "path": "../../packages/extensions/orchestrator" }
   ]
 }

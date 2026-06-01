@@ -20,6 +20,7 @@ import { registerNotifyCommand } from "./notify.js";
 import { registerAgentsMigrateCommands } from "./agents-migrate.js";
 import { registerGatewayServiceCommands } from "./service.js";
 import { registerSchedulerCommands } from "@aihub/extension-scheduler";
+import { registerOrchestratorCommands } from "@aihub/extension-orchestrator";
 import { registerEvalCommands } from "../evals/cli.js";
 import { resolveBindHost, type Extension, type UiConfig } from "@aihub/shared";
 import {
@@ -476,6 +477,12 @@ registerSchedulerCommands(
   program
     .command("scheduler")
     .description("Manage AIHub schedules")
+    .version("0.1.0")
+);
+registerOrchestratorCommands(
+  program
+    .command("orchestrator")
+    .description("Manage AIHub orchestrator")
     .version("0.1.0")
 );
 registerEvalCommands(program);
