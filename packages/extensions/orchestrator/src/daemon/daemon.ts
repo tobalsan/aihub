@@ -72,6 +72,17 @@ function subagentTerminalStatus(status: unknown): { exitCode?: number } | undefi
   return { exitCode };
 }
 
+function subagentIsActive(status: unknown): boolean {
+  if (!status || typeof status !== "object") return false;
+  const value = (status as Record<string, unknown>).status;
+  return value === "running" || value === "queued" || value === "starting";
+}
+
+function readString(row: Record<string, unknown>, key: string): string | undefined {
+  const value = row[key];
+  return typeof value === "string" && value ? value : undefined;
+}
+
 export class OrchestratorDaemon {
   private timer: NodeJS.Timeout | undefined;
   private readonly runs = new Map<string, RunMeta>();
@@ -97,6 +108,8 @@ export class OrchestratorDaemon {
 
   async start(): Promise<void> {
     await this.loader().ensureDefault();
+    await this.reattachOpenRuns();
+    this.deps.store.markOrphaned();
     this.schedule();
   }
 
@@ -132,6 +145,60 @@ export class OrchestratorDaemon {
 
   private workspacesRoot(): string {
     return resolveWorkspacesRoot({ configured: this.deps.getConfig().workspacesRoot, dataDir: this.deps.ctx.getDataDir() });
+  }
+
+  private async reattachOpenRuns(): Promise<void> {
+    for (const row of this.deps.store.listOpenRuns()) await this.reattachRowIfActive(row);
+  }
+
+  private async reattachIssueIfActive(issueId: string): Promise<boolean> {
+    const claim = this.deps.claims.get(issueId);
+    if (claim) return true;
+    const row = this.deps.store.getOpenRunByIssue(issueId);
+    return row ? this.reattachRowIfActive(row) : false;
+  }
+
+  private async reattachRowIfActive(row: Record<string, unknown>): Promise<boolean> {
+    if (!this.deps.getSubagentRun) return false;
+    const runId = readString(row, "run_id");
+    const issueId = readString(row, "issue_id");
+    const subagentRunId = readString(row, "subagent_run_id");
+    if (!runId || !issueId) return false;
+    if (!subagentRunId) {
+      this.deps.store.finishRun(runId, "orphaned");
+      this.deps.store.release(issueId);
+      return false;
+    }
+    const status = await this.deps.getSubagentRun(subagentRunId).catch(() => undefined);
+    if (!subagentIsActive(status)) {
+      const terminal = subagentTerminalStatus(status);
+      this.deps.store.appendEvent(runId, "subagent.inactive_on_startup", status ?? { missing: true });
+      this.deps.store.finishRun(runId, terminal ? "subagent_finished" : "orphaned", terminal?.exitCode);
+      this.deps.store.release(issueId);
+      return false;
+    }
+    const identifier = readString(row, "identifier") ?? issueId;
+    const issue = (await this.deps.client.getIssue(identifier).catch(() => undefined)) ?? {
+      id: issueId,
+      identifier,
+      title: identifier,
+      state: "",
+      labels: [],
+    };
+    const repoName = readString(row, "repo");
+    const repo = repoName ? reposForLoader(this.deps.getConfig())[repoName] ?? null : null;
+    const workflow = await this.loader().resolve({ repo: repo?.name, issue });
+    await this.deps.claims.tryClaim(issueId, runId);
+    this.runs.set(issueId, {
+      issue,
+      repo,
+      workspace: readString(row, "workspace") ?? this.workspacesRoot(),
+      branch: readString(row, "branch"),
+      subagentRunId,
+      workflow: workflow.frontmatter,
+    });
+    this.deps.store.appendEvent(runId, "run.reattached", { subagentRunId });
+    return true;
   }
 
   private schedule(): void {
@@ -204,6 +271,7 @@ export class OrchestratorDaemon {
   }
 
   private async dispatch(issue: LinearIssue): Promise<boolean> {
+    if (await this.reattachIssueIfActive(issue.id)) return false;
     const cfg = this.deps.getConfig();
     const repoResolution = resolveRepo({ labels: issue.labels, repos: cfg.repos, defaultRepo: cfg.defaultRepo });
     const workflow = await this.loader().resolve({ repo: repoResolution.repo?.name, issue });

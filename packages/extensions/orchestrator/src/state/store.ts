@@ -21,6 +21,8 @@ CREATE TABLE IF NOT EXISTS heartbeats (daemon_id TEXT PRIMARY KEY, pid INTEGER, 
   appendEvent(runId: string, type: string, payload: unknown): void { this.db.prepare(`INSERT INTO events (run_id,type,payload,created_at) VALUES (?,?,?,?)`).run(runId, type, JSON.stringify(payload), new Date().toISOString()); }
   listRecent(limit = 50): unknown[] { return this.db.prepare(`SELECT * FROM runs ORDER BY started_at DESC LIMIT ?`).all(limit); }
   getRun(id: string): Record<string, unknown> | undefined { return this.db.prepare(`SELECT * FROM runs WHERE run_id=? OR issue_id=? OR identifier=? ORDER BY started_at DESC LIMIT 1`).get(id, id, id) as Record<string, unknown> | undefined; }
+  getOpenRunByIssue(issueId: string): Record<string, unknown> | undefined { return this.db.prepare(`SELECT * FROM runs WHERE issue_id=? AND finished_at IS NULL ORDER BY started_at DESC LIMIT 1`).get(issueId) as Record<string, unknown> | undefined; }
+  listOpenRuns(): Record<string, unknown>[] { return this.db.prepare(`SELECT * FROM runs WHERE finished_at IS NULL ORDER BY started_at ASC`).all() as Record<string, unknown>[]; }
   listEvents(runId: string, since = 0): unknown[] { return this.db.prepare(`SELECT * FROM events WHERE run_id=? AND id>? ORDER BY id ASC`).all(runId, since); }
   markOrphaned(): number { return this.db.prepare(`UPDATE runs SET finished_at=?, outcome='orphaned' WHERE finished_at IS NULL AND process_alive=0`).run(new Date().toISOString()).changes; }
   markActiveProcessStopped(): void { this.db.prepare(`UPDATE runs SET process_alive=0 WHERE finished_at IS NULL`).run(); }

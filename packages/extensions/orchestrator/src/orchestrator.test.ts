@@ -167,6 +167,55 @@ describe("orchestrator IO modules", () => {
     store.close();
   });
 
+  it("reattaches active subagent run after restart and skips duplicate dispatch", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-reattach-"));
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Todo]\n---\nDo {{issue.identifier}}\n");
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    store.insertRun({
+      runId: "orchestrator:lin_1:1",
+      issueId: "lin_1",
+      identifier: "ENG-1",
+      workspace: path.join(root, "workspaces", "eng-1"),
+      repo: null,
+      branch: null,
+      profileJson: JSON.stringify(profiles[0]),
+      workflowPath: path.join(root, "WORKFLOW.md"),
+      workflowSha: "sha",
+      pid: null,
+      startedAt: new Date().toISOString(),
+    });
+    store.setSubagentRunId("orchestrator:lin_1:1", "sub_existing");
+    store.markActiveProcessStopped();
+    const claims = new ClaimsRegistry();
+    const issue = { id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Todo", labels: [] };
+    const client = {
+      rateLimitRemaining: 99,
+      getIssue: vi.fn(async () => issue),
+      pollIssues: vi.fn(async () => [issue]),
+      commentCreate: vi.fn(),
+      issueUpdateStateByName: vi.fn(),
+    } as any;
+    const ctx = {
+      getDataDir: () => root,
+      getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { teamKey: "ENG" } } }),
+      emit: vi.fn(),
+    } as any;
+    const started = vi.fn(async () => ({ id: "sub_duplicate" }));
+    const getSubagentRun = vi.fn(async () => ({ id: "sub_existing", status: "running" }));
+    const daemon = new OrchestratorDaemon({ ctx, client, store, claims, getConfig: () => ({ teamKey: "ENG" }), startSubagent: started, getSubagentRun });
+
+    await daemon.start();
+    await daemon.tick();
+    daemon.stop();
+
+    expect(claims.list()).toHaveLength(1);
+    expect(claims.get("lin_1")?.runId).toBe("orchestrator:lin_1:1");
+    expect(started).not.toHaveBeenCalled();
+    expect(store.listEvents("orchestrator:lin_1:1").some((event: any) => event.type === "run.reattached")).toBe(true);
+    store.close();
+  });
+
   it("manual claim runs full dispatch path and rejects active claims", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claim-"));
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nManual {{issue.identifier}}\n");

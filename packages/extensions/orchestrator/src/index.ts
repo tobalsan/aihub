@@ -190,7 +190,6 @@ export const orchestratorExtension: Extension = {
     if (process.env.LINEAR_API_KEY) client = new LinearClient(process.env.LINEAR_API_KEY);
     store = new StateStore(path.join(context.getDataDir(), "orchestrator", "state.db"));
     store.bootstrap();
-    store.markOrphaned();
     store.heartbeat();
     await workflowLoader().ensureDefault();
     workflowWatch = workflowLoader().watch((event) => context.emit("orchestrator.workflow.changed", event));
