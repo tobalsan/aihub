@@ -13,6 +13,17 @@ export type SlackWebClient = {
         name?: string;
       };
     }>;
+    list(params: { limit?: number; cursor?: string }): Promise<{
+      members?: Array<{
+        id?: string;
+        name?: string;
+        real_name?: string;
+        deleted?: boolean;
+        is_bot?: boolean;
+        profile?: { display_name?: string; real_name?: string };
+      }>;
+      response_metadata?: { next_cursor?: string };
+    }>;
   };
   chat: {
     postMessage(params: {
@@ -50,6 +61,15 @@ export type SlackWebClient = {
   conversations: {
     info(params: { channel: string }): Promise<{
       channel?: { name?: string; topic?: { value?: string } };
+    }>;
+    list(params: {
+      limit?: number;
+      cursor?: string;
+      exclude_archived?: boolean;
+      types?: string;
+    }): Promise<{
+      channels?: Array<{ id?: string; name?: string }>;
+      response_metadata?: { next_cursor?: string };
     }>;
     history(params: {
       channel: string;

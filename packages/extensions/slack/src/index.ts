@@ -11,8 +11,13 @@ import {
   type SlackBot,
 } from "./bot.js";
 import { clearSlackContext, setSlackContext } from "./context.js";
-
-const activeBots = new Map<string, SlackBot>();
+import {
+  clearActiveBots,
+  getActiveBot,
+  getActiveBots,
+  registerActiveBot,
+} from "./bot-registry.js";
+import { clearSlackClientCache, slackAgentTools } from "./agent-tools.js";
 
 type StartSlackBotsOptions = {
   agents: AgentConfig[];
@@ -31,7 +36,7 @@ export async function startSlackBots(
 
     try {
       await bot.start();
-      activeBots.set(bot.agentId, bot);
+      registerActiveBot(bot.agentId, bot);
       console.log("[slack] Started component bot");
     } catch (err) {
       console.error("[slack] Failed to start component bot:", err);
@@ -49,7 +54,7 @@ export async function startSlackBots(
     agentBots.map(async ({ agent, bot }) => {
       try {
         await bot.start();
-        activeBots.set(agent.id, bot);
+        registerActiveBot(agent.id, bot);
         console.log(`[slack] Started bot for agent: ${agent.id}`);
       } catch (err) {
         console.error(`[slack] Failed to start bot for agent ${agent.id}:`, err);
@@ -59,7 +64,7 @@ export async function startSlackBots(
 }
 
 export async function stopSlackBots(): Promise<void> {
-  for (const [agentId, bot] of activeBots) {
+  for (const [agentId, bot] of getActiveBots()) {
     try {
       await bot.stop();
       console.log(`[slack] Stopped bot: ${agentId}`);
@@ -67,12 +72,11 @@ export async function stopSlackBots(): Promise<void> {
       console.error(`[slack] Failed to stop bot ${agentId}:`, err);
     }
   }
-  activeBots.clear();
+  clearActiveBots();
+  clearSlackClientCache();
 }
 
-export function getActiveBot(agentId: string): SlackBot | undefined {
-  return activeBots.get(agentId);
-}
+export { getActiveBot };
 
 const slackExtension: Extension = {
   id: "slack",
@@ -100,6 +104,10 @@ const slackExtension: Extension = {
     };
   },
   registerRoutes() {},
+  getAgentTools(_agent, context) {
+    if (context?.config.extensions?.slack?.enabled === false) return [];
+    return slackAgentTools();
+  },
   async start(ctx) {
     const rawConfig = ctx.getConfig().extensions?.slack;
 

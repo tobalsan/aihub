@@ -1,0 +1,252 @@
+import { WebClient } from "@slack/web-api";
+import type {
+  AgentConfig,
+  ExtensionAgentTool,
+  GatewayConfig,
+  SlackAgentConfig,
+  SlackComponentConfig,
+} from "@aihub/shared";
+import { z } from "zod";
+import { getActiveBot } from "./bot-registry.js";
+import { markdownToMrkdwn } from "./utils/mrkdwn.js";
+import { splitMessage } from "./utils/chunk.js";
+import type { SlackWebClient } from "./types.js";
+
+const sendMessageSchema = z.object({
+  channel: z.string().min(1),
+  text: z.string().min(1),
+  threadTs: z.string().min(1).optional(),
+});
+
+const listChannelsSchema = z.object({
+  query: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+const listUsersSchema = z.object({
+  query: z.string().min(1).optional(),
+  limit: z.number().int().positive().max(200).optional(),
+});
+
+function toolError(error: unknown) {
+  return {
+    ok: false as const,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+/**
+ * Resolve the Slack bot token for an agent. Per-agent config wins; otherwise
+ * fall back to the component-level extension config. Returns undefined when no
+ * Slack token is configured for this agent.
+ */
+function resolveSlackToken(
+  agent: AgentConfig,
+  config: GatewayConfig
+): string | undefined {
+  const agentSlack = agent.slack as SlackAgentConfig | undefined;
+  if (agentSlack?.token) return agentSlack.token;
+  const component = config.extensions?.slack as
+    | SlackComponentConfig
+    | undefined;
+  return component?.token;
+}
+
+const clientCache = new Map<string, WebClient>();
+
+/**
+ * Obtain a Slack Web API client capable of posting. Prefer the live bot client
+ * when a Socket Mode bot is running for this agent (or the shared component
+ * bot); otherwise construct a token-only WebClient. This lets proactive senders
+ * such as scheduled jobs post even when no bot is actively listening.
+ */
+function resolveSlackClient(
+  agent: AgentConfig,
+  config: GatewayConfig
+): SlackWebClient | undefined {
+  const activeBot = getActiveBot(agent.id) ?? getActiveBot("slack");
+  if (activeBot) {
+    return activeBot.app.client as unknown as SlackWebClient;
+  }
+
+  const token = resolveSlackToken(agent, config);
+  if (!token) return undefined;
+
+  let client = clientCache.get(token);
+  if (!client) {
+    client = new WebClient(token);
+    clientCache.set(token, client);
+  }
+  return client as unknown as SlackWebClient;
+}
+
+export function clearSlackClientCache(): void {
+  clientCache.clear();
+}
+
+export function slackAgentTools(): ExtensionAgentTool[] {
+  return [
+    {
+      name: "slack.send_message",
+      description:
+        "Proactively send a Slack message to a channel or user. Provide `channel` as a channel ID (e.g. C0123456789) or a user ID (e.g. U0123456789) for a direct message. Use slack.list_channels / slack.list_users to look up IDs.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel: {
+            type: "string",
+            description:
+              "Channel ID (C...) or user ID (U...). User IDs are delivered as a direct message.",
+          },
+          text: {
+            type: "string",
+            description: "Message body. Markdown is converted to Slack mrkdwn.",
+          },
+          threadTs: {
+            type: "string",
+            description:
+              "Optional parent message timestamp to reply in a thread.",
+          },
+        },
+        required: ["channel", "text"],
+        additionalProperties: false,
+      },
+      async execute(args, { agent, config }) {
+        try {
+          const input = sendMessageSchema.parse(args);
+          const client = resolveSlackClient(agent, config);
+          if (!client) {
+            return {
+              ok: false,
+              error: "No Slack token is configured for this agent.",
+            };
+          }
+          const chunks = splitMessage(markdownToMrkdwn(input.text));
+          let firstTs: string | undefined;
+          for (const chunk of chunks) {
+            const result = await client.chat.postMessage({
+              channel: input.channel,
+              text: chunk,
+              mrkdwn: true,
+              thread_ts: input.threadTs,
+              unfurl_links: false,
+              unfurl_media: false,
+            });
+            firstTs ??= result.ts;
+          }
+          return { ok: true, channel: input.channel, ts: firstTs };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+    {
+      name: "slack.list_channels",
+      description:
+        "List Slack channels the bot can post to, returning their IDs and names. Optionally filter by a name substring.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description: "Case-insensitive substring to match channel names.",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum channels to return (default 100, max 200).",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(args, { agent, config }) {
+        try {
+          const input = listChannelsSchema.parse(args);
+          const client = resolveSlackClient(agent, config);
+          if (!client?.conversations?.list) {
+            return {
+              ok: false,
+              error: "Slack channel listing is not available for this agent.",
+            };
+          }
+          const limit = input.limit ?? 100;
+          const query = input.query?.toLowerCase();
+          const channels: Array<{ id: string; name: string }> = [];
+          let cursor: string | undefined;
+          do {
+            const page = await client.conversations.list({
+              limit: 200,
+              cursor,
+              exclude_archived: true,
+              types: "public_channel,private_channel",
+            });
+            for (const channel of page.channels ?? []) {
+              if (!channel.id || !channel.name) continue;
+              if (query && !channel.name.toLowerCase().includes(query)) continue;
+              channels.push({ id: channel.id, name: channel.name });
+              if (channels.length >= limit) break;
+            }
+            cursor = page.response_metadata?.next_cursor || undefined;
+          } while (cursor && channels.length < limit);
+          return { ok: true, channels };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+    {
+      name: "slack.list_users",
+      description:
+        "List Slack workspace users, returning their IDs and display names for direct messaging. Optionally filter by a name substring.",
+      parameters: {
+        type: "object",
+        properties: {
+          query: {
+            type: "string",
+            description:
+              "Case-insensitive substring to match display, real, or user names.",
+          },
+          limit: {
+            type: "number",
+            description: "Maximum users to return (default 100, max 200).",
+          },
+        },
+        additionalProperties: false,
+      },
+      async execute(args, { agent, config }) {
+        try {
+          const input = listUsersSchema.parse(args);
+          const client = resolveSlackClient(agent, config);
+          if (!client?.users?.list) {
+            return {
+              ok: false,
+              error: "Slack user listing is not available for this agent.",
+            };
+          }
+          const limit = input.limit ?? 100;
+          const query = input.query?.toLowerCase();
+          const users: Array<{ id: string; name: string }> = [];
+          let cursor: string | undefined;
+          do {
+            const page = await client.users.list({ limit: 200, cursor });
+            for (const member of page.members ?? []) {
+              if (!member.id || member.deleted || member.is_bot) continue;
+              const name =
+                member.profile?.display_name?.trim() ||
+                member.profile?.real_name?.trim() ||
+                member.real_name?.trim() ||
+                member.name?.trim();
+              if (!name) continue;
+              if (query && !name.toLowerCase().includes(query)) continue;
+              users.push({ id: member.id, name });
+              if (users.length >= limit) break;
+            }
+            cursor = page.response_metadata?.next_cursor || undefined;
+          } while (cursor && users.length < limit);
+          return { ok: true, users };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+  ];
+}
