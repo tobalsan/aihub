@@ -97,9 +97,9 @@ describe("LinearClient", () => {
     const sleeps: number[] = [];
     const fetchImpl = vi
       .fn()
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "3" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ errors: [{ message: "rate" }] }), { status: 429, headers: { "x-ratelimit-remaining": "0", "x-ratelimit-reset": "5" } }))
-      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { headers: { "x-ratelimit-remaining": "9" } }));
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { headers: { "x-ratelimit-requests-remaining": "0", "x-ratelimit-requests-reset": "3" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ errors: [{ message: "rate" }] }), { status: 429, headers: { "x-ratelimit-requests-remaining": "0", "x-ratelimit-requests-reset": "5" } }))
+      .mockResolvedValueOnce(new Response(JSON.stringify({ data: { ok: true } }), { headers: { "x-ratelimit-requests-remaining": "9" } }));
     const client = new LinearClient("key", { fetchImpl, now: () => now, sleep: async (ms) => { sleeps.push(ms); now += ms; } });
     await expect(client.graphql("query")).resolves.toEqual({ ok: true });
     await expect(client.graphql("query")).resolves.toEqual({ ok: true });

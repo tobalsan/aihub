@@ -59,9 +59,15 @@ export class LinearClient {
   }
 
   private updateRateLimit(headers: Headers): void {
-    const remaining = headers.get("x-ratelimit-remaining");
+    const remaining =
+      headers.get("x-ratelimit-requests-remaining") ??
+      headers.get("x-ratelimit-complexity-remaining") ??
+      headers.get("x-ratelimit-remaining");
     if (remaining !== null) this.rateLimitRemaining = Number(remaining);
-    const reset = headers.get("x-ratelimit-reset");
+    const reset =
+      headers.get("x-ratelimit-requests-reset") ??
+      headers.get("x-ratelimit-complexity-reset") ??
+      headers.get("x-ratelimit-reset");
     if (reset !== null) {
       const value = Number(reset);
       this.rateLimitResetAt = value > 10_000_000_000 ? value : value * 1000;
