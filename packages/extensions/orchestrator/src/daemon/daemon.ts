@@ -20,6 +20,7 @@ export type OrchestratorConfig = {
   defaultRepo?: string;
   poll?: { intervalMs?: number; jitterMs?: number };
   notifyChannel?: string;
+  workspacesRoot?: string;
 };
 
 export type SubagentStarter = (body: Record<string, unknown>) => Promise<unknown>;
@@ -129,6 +130,10 @@ export class OrchestratorDaemon {
     return new WorkflowLoader(this.deps.ctx.getDataDir(), reposForLoader(this.deps.getConfig()));
   }
 
+  private workspacesRoot(): string {
+    return this.deps.getConfig().workspacesRoot ?? path.join(this.deps.ctx.getDataDir(), "workspaces");
+  }
+
   private schedule(): void {
     const cfg = this.deps.getConfig();
     const delay = cfg.poll?.intervalMs ?? 30_000;
@@ -222,7 +227,7 @@ export class OrchestratorDaemon {
     }
 
     try {
-      const layout = new WorkspaceLayout(path.join(this.deps.ctx.getDataDir(), "workspaces"));
+      const layout = new WorkspaceLayout(this.workspacesRoot());
       const workspace = await layout.create({ identifier: issue.identifier, repo: repoResolution.repo });
       const env = this.hookEnv(issue, workspace.path, repoResolution.repo, workspace.branch);
       this.deps.store.claim(issue.id, runId);
@@ -363,7 +368,7 @@ export class OrchestratorDaemon {
     await runHook({ command: run.workflow.hooks?.before_remove, phase: "before_remove", cwd: run.workspace, runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.repo, run.branch) }).catch((error) => {
       this.deps.store.appendEvent(runId, "hook.before_remove.error", { error: error instanceof Error ? error.message : String(error) });
     });
-    await new WorkspaceLayout(path.join(this.deps.ctx.getDataDir(), "workspaces")).remove({ identifier: run.issue.identifier, repo: run.repo });
+    await new WorkspaceLayout(this.workspacesRoot()).remove({ identifier: run.issue.identifier, repo: run.repo });
   }
 
   notifyStartupError(error: unknown): void {

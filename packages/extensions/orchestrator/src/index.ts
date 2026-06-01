@@ -144,7 +144,7 @@ function register(app: Hono) {
           ? { name: repoName, path: repos[repoName] }
           : { name: repoName, ...repos[repoName] }
         : null;
-      await new WorkspaceLayout(path.join(ctx!.getDataDir(), "workspaces")).remove({ identifier, repo: repoConfig }).catch(() => undefined);
+      await new WorkspaceLayout(config().workspacesRoot ?? path.join(ctx!.getDataDir(), "workspaces")).remove({ identifier, repo: repoConfig }).catch(() => undefined);
     }
     claims.release(String(row?.issue_id ?? id));
     store?.release(String(row?.issue_id ?? id));

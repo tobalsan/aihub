@@ -629,6 +629,7 @@ export const OrchestratorExtensionConfigSchema = z.object({
     .optional()
     .default({}),
   defaultRepo: z.string().optional(),
+  workspacesRoot: z.string().optional(),
   poll: z
     .object({
       intervalMs: z.number().positive().optional(),
