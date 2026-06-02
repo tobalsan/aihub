@@ -1,0 +1,136 @@
+import crypto from "node:crypto";
+import fsSync from "node:fs";
+import fs from "node:fs/promises";
+import path from "node:path";
+import yaml from "js-yaml";
+import type { LinearIssue, WorkflowConfig, WorkflowFrontmatter, WorkflowSnapshot } from "../types.js";
+
+const DEFAULT_ENDPOINT = "https://api.linear.app/graphql";
+const DEFAULT_ACTIVE = ["Todo", "In Progress"];
+const DEFAULT_TERMINAL = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"];
+
+function parse(content: string): { frontmatter: WorkflowFrontmatter; body: string } {
+  const match = content.match(/^---\n([\s\S]*?)\n---\n?([\s\S]*)$/);
+  if (!match) return { frontmatter: {}, body: content };
+  const parsed = yaml.load(match[1] ?? "") ?? {};
+  if (!parsed || typeof parsed !== "object" || Array.isArray(parsed)) throw new Error("WORKFLOW.md frontmatter must be an object");
+  return { frontmatter: parsed as WorkflowFrontmatter, body: match[2] ?? "" };
+}
+
+function expandEnv(value: string | undefined, fallback?: string): string {
+  const raw = value ?? fallback;
+  if (!raw) return "";
+  if (raw.startsWith("$") && /^\$[A-Za-z_][A-Za-z0-9_]*$/.test(raw)) return process.env[raw.slice(1)] ?? "";
+  return raw;
+}
+
+function resolvePath(value: string | undefined, projectPath: string): string {
+  const raw = value?.trim() || "./workspaces";
+  const expanded = raw === "$AIHUB_HOME"
+    ? process.env.AIHUB_HOME ?? projectPath
+    : raw.startsWith("$AIHUB_HOME/")
+      ? path.join(process.env.AIHUB_HOME ?? projectPath, raw.slice("$AIHUB_HOME/".length))
+      : raw.startsWith("~")
+        ? path.join(process.env.HOME ?? "", raw.slice(1))
+        : raw;
+  return path.resolve(path.isAbsolute(expanded) ? expanded : path.join(projectPath, expanded));
+}
+
+function stringifyTemplateValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function render(template: string, ctx: { issue?: LinearIssue; attempt?: number | null }): string {
+  return template.replace(/{{\s*([^{}|\s]+)(?:\s*\|\s*([^{}]+))?\s*}}/g, (_all, expression: string, filter: string | undefined) => {
+    if (filter) throw new Error(`Unknown workflow template filter: ${filter.trim()}`);
+    if (expression === "attempt") return stringifyTemplateValue(ctx.attempt ?? null);
+    const [group, key, extra] = expression.split(".");
+    if (extra || group !== "issue" || !key) throw new Error(`Unknown workflow template variable: ${expression}`);
+    if (!ctx.issue) throw new Error(`Workflow template variable requires issue context: ${expression}`);
+    if (!(key in ctx.issue)) throw new Error(`Unknown workflow template variable: ${expression}`);
+    return stringifyTemplateValue((ctx.issue as Record<string, unknown>)[key]);
+  });
+}
+
+function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): WorkflowConfig {
+  const tracker = frontmatter.tracker ?? {};
+  const legacyStates = tracker.states ?? {};
+  const kind = tracker.kind ?? "linear";
+  if (kind !== "linear") throw new Error(`Unsupported tracker.kind: ${kind}`);
+  const apiKey = expandEnv(tracker.api_key, "$LINEAR_API_KEY");
+  if (!apiKey) throw new Error("tracker.api_key is required");
+  if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
+  return {
+    tracker: {
+      kind,
+      endpoint: expandEnv(tracker.endpoint, DEFAULT_ENDPOINT) || DEFAULT_ENDPOINT,
+      apiKey,
+      projectSlug: tracker.project_slug,
+      activeStates: tracker.active_states ?? legacyStates.active ?? DEFAULT_ACTIVE,
+      terminalStates: tracker.terminal_states ?? legacyStates.terminal ?? DEFAULT_TERMINAL,
+      needsHuman: tracker.needs_human ?? legacyStates.needs_human ?? "Needs Human",
+      inProgressTarget: legacyStates.in_progress_target,
+    },
+    workspace: {
+      root: resolvePath(frontmatter.workspace?.root, projectPath),
+      cleanupOnTerminal: frontmatter.workspace?.cleanup_on_terminal ?? false,
+      reuse: frontmatter.workspace?.reuse ?? true,
+    },
+    polling: {
+      intervalMs: frontmatter.polling?.interval_ms ?? 30_000,
+      jitterMs: frontmatter.polling?.jitter_ms ?? 5_000,
+    },
+    agent: frontmatter.agent ?? {},
+    hooks: frontmatter.hooks ?? {},
+    server: frontmatter.server,
+    linear: frontmatter.linear,
+  };
+}
+
+export class WorkflowLoader {
+  private readonly cache = new Map<string, WorkflowSnapshot>();
+
+  constructor(private readonly home: string) {}
+
+  async loadProjectWorkflow(input: { projectPath: string; issue?: LinearIssue; attempt?: number | null; allowStale?: boolean }): Promise<WorkflowSnapshot> {
+    const workflowPath = path.join(input.projectPath, "WORKFLOW.md");
+    try {
+      const parsed = parse(await fs.readFile(workflowPath, "utf8"));
+      const body = input.issue ? render(parsed.body, { issue: input.issue, attempt: input.attempt }) : parsed.body;
+      const config = buildConfig(parsed.frontmatter, input.projectPath);
+      const sha = crypto.createHash("sha256").update(JSON.stringify(parsed.frontmatter)).update(body).digest("hex");
+      const snapshot = { path: workflowPath, projectPath: input.projectPath, sha, frontmatter: parsed.frontmatter, config, body };
+      if (!input.issue) this.cache.set(input.projectPath, snapshot);
+      return snapshot;
+    } catch (error) {
+      const cached = this.cache.get(input.projectPath);
+      if (!input.allowStale || !cached) throw error;
+      return { ...cached, body: input.issue ? render(cached.body, { issue: input.issue, attempt: input.attempt }) : cached.body };
+    }
+  }
+
+  async resolve(input: { projectPath?: string; issue?: LinearIssue; attempt?: number | null; allowStale?: boolean } = {}): Promise<WorkflowSnapshot> {
+    if (!input.projectPath) throw new Error("projectPath required");
+    return this.loadProjectWorkflow({ projectPath: input.projectPath, issue: input.issue, attempt: input.attempt, allowStale: input.allowStale });
+  }
+
+  watch(projectPath: string, onChange: (event: { path: string; ok: boolean; error?: string }) => void): { close: () => void } {
+    const file = path.join(projectPath, "WORKFLOW.md");
+    const handle = () => {
+      void this.loadProjectWorkflow({ projectPath })
+        .then(() => onChange({ path: file, ok: true }))
+        .catch((error) => onChange({ path: file, ok: false, error: error instanceof Error ? error.message : String(error) }));
+    };
+    try {
+      const watcher = fsSync.watch(file, { persistent: false }, handle);
+      return { close: () => watcher.close() };
+    } catch {
+      const watcher = fsSync.watch(projectPath, { persistent: false }, (_event, name) => {
+        if (name?.toString() === "WORKFLOW.md") handle();
+      });
+      return { close: () => watcher.close() };
+    }
+  }
+}

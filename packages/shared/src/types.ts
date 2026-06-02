@@ -613,6 +613,39 @@ export type SessionsExtensionConfig = z.infer<
   typeof SessionsExtensionConfigSchema
 >;
 
+export const OrchestratorExtensionConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  projects: z.array(z.string()).optional().default([]),
+  concurrency: z
+    .object({
+      global: z.number().int().positive().optional(),
+    })
+    .optional()
+    .default({}),
+  validation: z
+    .object({
+      strict: z.boolean().optional().default(true),
+    })
+    .optional()
+    .default({ strict: true }),
+  notifyChannel: z.string().optional(),
+  linear: z
+    .object({
+      exposeGraphqlTool: z.boolean().optional(),
+    })
+    .optional(),
+  webhook: z
+    .object({
+      enabled: z.boolean().optional(),
+      path: z.string().optional(),
+      secret: z.string().optional(),
+    })
+    .optional(),
+});
+export type OrchestratorExtensionConfig = z.infer<
+  typeof OrchestratorExtensionConfigSchema
+>;
+
 export const LangfuseExtensionConfigSchema = ExtensionBaseConfigSchema.extend({
   baseUrl: z.string().optional(),
   publicKey: z.string().optional(),
@@ -638,6 +671,7 @@ export const ExtensionsConfigSchema = z
       .optional(),
     heartbeat: HeartbeatExtensionConfigSchema.optional(),
     projects: ProjectsExtensionConfigSchema.optional(),
+    orchestrator: OrchestratorExtensionConfigSchema.optional(),
     subagents: SubagentsExtensionConfigSchema.optional(),
     sessions: SessionsExtensionConfigSchema.optional(),
     langfuse: LangfuseExtensionConfigSchema.optional(),

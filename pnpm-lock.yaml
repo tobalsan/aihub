@@ -65,6 +65,9 @@ importers:
       '@aihub/extension-multi-user':
         specifier: workspace:*
         version: link:../../packages/extensions/multi-user
+      '@aihub/extension-orchestrator':
+        specifier: workspace:*
+        version: link:../../packages/extensions/orchestrator
       '@aihub/extension-projects':
         specifier: workspace:*
         version: link:../../packages/extensions/projects
@@ -306,6 +309,37 @@ importers:
       '@types/better-sqlite3':
         specifier: ^7.6.13
         version: 7.6.13
+
+  packages/extensions/orchestrator:
+    dependencies:
+      '@aihub/extension-subagents':
+        specifier: workspace:*
+        version: link:../subagents
+      '@aihub/shared':
+        specifier: workspace:*
+        version: link:../../shared
+      better-sqlite3:
+        specifier: ^12.8.0
+        version: 12.8.0
+      commander:
+        specifier: ^12.1.0
+        version: 12.1.0
+      hono:
+        specifier: ^4.11.4
+        version: 4.11.4
+      js-yaml:
+        specifier: ^4.1.1
+        version: 4.1.1
+      zod:
+        specifier: ^3.23.8
+        version: 3.25.76
+    devDependencies:
+      '@types/better-sqlite3':
+        specifier: ^7.6.13
+        version: 7.6.13
+      '@types/js-yaml':
+        specifier: ^4.0.9
+        version: 4.0.9
 
   packages/extensions/projects:
     dependencies:

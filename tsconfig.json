@@ -25,6 +25,7 @@
     { "path": "packages/extensions/projects" },
     { "path": "packages/extensions/board" },
     { "path": "packages/extensions/subagents" },
+    { "path": "packages/extensions/orchestrator" },
     { "path": "apps/gateway" },
     { "path": "container/agent-runner" }
   ]

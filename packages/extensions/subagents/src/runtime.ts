@@ -399,7 +399,7 @@ function normalizeParsedLog(
   }
   if (type === "result") {
     const text = typeof parsed.result === "string" ? parsed.result : "";
-    return text ? { type: "assistant", text } : null;
+    return { type: "result", text };
   }
   if (type === "assistant") {
     const message = getRecord(parsed.message);

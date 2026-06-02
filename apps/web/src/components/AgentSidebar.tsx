@@ -159,6 +159,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
                 <span class="nav-short">Pr</span>
               </A>
             </Show>
+            <Show when={isExtensionEnabled("orchestrator")}>
+              <A
+                href="/orchestrator"
+                class="nav-link"
+                classList={{
+                  active: stripBase(location.pathname).startsWith("/orchestrator"),
+                }}
+              >
+                <span class="nav-full">Orchestrator</span>
+                <span class="nav-short">Or</span>
+              </A>
+            </Show>
             <A
               href="/agents"
               class="nav-link"

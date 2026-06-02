@@ -296,6 +296,23 @@ export class WsBroker {
     this.disposers.push(() =>
       agentEventBus.off("lead_session.changed", onLeadSessionChanged)
     );
+    const onOrchestratorEvent = (event: unknown) => {
+      for (const ws of this.connectedClients) {
+        this.send(ws, event as WsServerMessage);
+      }
+    };
+    for (const eventName of [
+      "orchestrator.run.claimed",
+      "orchestrator.run.finished",
+      "orchestrator.run.needs_human",
+      "orchestrator.run.event",
+      "orchestrator.workflow.changed",
+    ]) {
+      agentEventBus.on(eventName, onOrchestratorEvent);
+      this.disposers.push(() =>
+        agentEventBus.off(eventName, onOrchestratorEvent)
+      );
+    }
   }
 
   private async broadcastStreamEvent(

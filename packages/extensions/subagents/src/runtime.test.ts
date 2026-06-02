@@ -315,7 +315,7 @@ describe("subagent runtime logs", () => {
         tool: { id: "" },
       },
       { type: "assistant", text: "Readable assistant text." },
-      { type: "assistant", text: "Final result." },
+      { type: "result", text: "Final result." },
     ]);
   });
 });

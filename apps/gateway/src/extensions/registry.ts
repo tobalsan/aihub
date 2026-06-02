@@ -25,6 +25,10 @@ const MONOREPO_DEV_EXTENSION_IMPORTS: Record<string, string> = {
     "../../../../packages/extensions/projects/src/index.ts",
     import.meta.url
   ).href,
+  "@aihub/extension-orchestrator": new URL(
+    "../../../../packages/extensions/orchestrator/src/index.ts",
+    import.meta.url
+  ).href,
 };
 
 function isModuleNotFound(error: unknown): boolean {
@@ -170,6 +174,14 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     getConfig: (config) => config.extensions?.subagents,
     routePrefixes: ["/api/subagents"],
   },
+  orchestrator: builtInExtension(
+    "@aihub/extension-orchestrator",
+    "orchestratorExtension",
+    {
+      getConfig: (config) => config.extensions?.orchestrator,
+      routePrefixes: ["/api/orchestrator"],
+    }
+  ),
   langfuse: {
     load: () =>
       import("@aihub/extension-langfuse").then(
