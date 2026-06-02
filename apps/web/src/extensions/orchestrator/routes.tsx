@@ -253,13 +253,13 @@ function OrchestratorDashboard(): ReturnType<Component> {
         {(run) => {
           const key = () => runId(run()) || runIssueId(run());
           return (
-            <aside style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(620px, 100vw)", background: "var(--bg)", border: "1px solid var(--border)", padding: "18px", "box-shadow": "0 0 40px rgba(0,0,0,.35)", "z-index": 30, overflow: "auto" }}>
-              <div style={{ display: "flex", "justify-content": "space-between", gap: "12px" }}>
-                <div>
-                  <h2 style={{ margin: 0 }}>{runIssueId(run()) || key()}</h2>
+            <aside style={{ position: "fixed", top: 0, right: 0, bottom: 0, width: "min(620px, 100vw)", background: "var(--surface, var(--bg, #fff))", "border-left": "1px solid var(--border)", padding: "18px", "box-shadow": "0 0 40px rgba(0,0,0,.35)", "z-index": 1000, overflow: "auto", "box-sizing": "border-box" }}>
+              <div style={{ display: "flex", "justify-content": "space-between", gap: "12px", "align-items": "flex-start" }}>
+                <div style={{ "min-width": 0 }}>
+                  <h2 style={{ margin: 0, "word-break": "break-word" }}>{runIssueId(run()) || key()}</h2>
                   <p style={{ margin: "6px 0 0", color: "var(--text-muted)", "word-break": "break-all" }}>{key()}</p>
                 </div>
-                <button onClick={() => setSelected(undefined)}>Close</button>
+                <button style={{ "flex-shrink": 0 }} onClick={() => setSelected(undefined)}>Close</button>
               </div>
               <nav style={{ display: "flex", gap: "8px", margin: "18px 0", "flex-wrap": "wrap" }}>
                 <For each={["logs", "events", "workflow", "chat"] as const}>
@@ -267,7 +267,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
                 </For>
               </nav>
               <Show when={tab() === "logs"}>
-                <pre style={{ "white-space": "pre-wrap" }}>
+                <pre style={{ "white-space": "pre-wrap", "overflow-wrap": "anywhere" }}>
                   <Show when={logs().length} fallback="No logs yet.">
                     {logs().map(logLine).join("\n")}
                   </Show>
@@ -294,9 +294,9 @@ function OrchestratorDashboard(): ReturnType<Component> {
                     {workflow()?.path ?? "fallback workflow"} · {workflow()?.sha ?? "no sha"}
                   </p>
                   <h3>Frontmatter</h3>
-                  <pre style={{ "white-space": "pre-wrap" }}>{JSON.stringify(workflow()?.frontmatter ?? {}, null, 2)}</pre>
+                  <pre style={{ "white-space": "pre-wrap", "overflow-wrap": "anywhere" }}>{JSON.stringify(workflow()?.frontmatter ?? {}, null, 2)}</pre>
                   <h3>Body</h3>
-                  <pre style={{ "white-space": "pre-wrap" }}>{workflow()?.body ?? ""}</pre>
+                  <pre style={{ "white-space": "pre-wrap", "overflow-wrap": "anywhere" }}>{workflow()?.body ?? ""}</pre>
                 </div>
               </Show>
               <Show when={tab() === "chat"}>
