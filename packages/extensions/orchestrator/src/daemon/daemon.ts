@@ -43,12 +43,12 @@ function promptFor(project: ProjectDescriptor, issue: LinearIssue, body: string)
   return `${body.trim()}\n\n## Orchestrator context\nProject: ${project.id}\nLinear GraphQL tool calls must pass project: ${project.id}\n\n## Linear issue\n${issue.identifier}: ${issue.title}\n\n${issue.description ?? ""}\n${issue.url ? `\n${issue.url}\n` : ""}`.trim();
 }
 
-function subagentTerminalStatus(status: unknown): { exitCode?: number } | undefined {
+function subagentTerminalStatus(status: unknown): { status: "done" | "error" | "interrupted"; exitCode?: number } | undefined {
   if (!status || typeof status !== "object") return undefined;
   const record = status as Record<string, unknown>;
   const value = record.status;
   if (value !== "done" && value !== "error" && value !== "interrupted") return undefined;
-  return { exitCode: typeof record.exitCode === "number" ? record.exitCode : undefined };
+  return { status: value, exitCode: typeof record.exitCode === "number" ? record.exitCode : undefined };
 }
 
 export class OrchestratorDaemon {
@@ -171,12 +171,12 @@ export class OrchestratorDaemon {
   async tick(projectId?: string): Promise<{ dispatched: number; skipped: number; released: number }> {
     this.lastTickAt = new Date().toISOString();
     this.deps.store.heartbeat();
-    await this.observeSubagentCompletions();
     await this.detectStalls();
 
     let dispatched = 0;
     let skipped = 0;
     let released = 0;
+    const completedThisTick = await this.observeSubagentCompletions();
     const projects = projectId ? this.projects.filter((project) => project.id === projectId || project.path === projectId) : this.projects;
     const globalLimiter = new ConcurrencyLimiter(this.deps.getConfig().concurrency?.global ?? 3);
     for (const claim of this.deps.claims.list()) globalLimiter.tryReserve({ issueId: claim.issueId });
@@ -192,7 +192,7 @@ export class OrchestratorDaemon {
       for (const issue of issues) {
         const claim = this.deps.claims.get(issue.id, project.id);
         if (claim && states.terminalStates.includes(issue.state)) { await this.release(project.id, issue.id, "terminal"); released += 1; continue; }
-        if (!states.activeStates.includes(issue.state) || claim) { skipped += 1; continue; }
+        if (completedThisTick.has(`${project.id}:${issue.id}`) || !states.activeStates.includes(issue.state) || claim) { skipped += 1; continue; }
         const next = this.retry.nextAttempt(`${project.id}:${issue.id}`, "dispatch");
         if (next && next > Date.now()) { skipped += 1; continue; }
         const global = globalLimiter.tryReserve({ issueId: issue.id });
@@ -211,10 +211,13 @@ export class OrchestratorDaemon {
 
   private async dispatch(project: ProjectDescriptor, workflow: WorkflowSnapshot, issue: LinearIssue, client: LinearClient): Promise<boolean> {
     if (this.deps.claims.get(issue.id)) return false;
-    const resolvedWorkflow = await this.loader().loadProjectWorkflow({ projectPath: project.path, issue, allowStale: true });
+    const previousRuns = this.deps.store.countRunsByIssue(issue.id, project.id);
+    const attempt = previousRuns === 0 ? null : previousRuns + 1;
+    const resolvedWorkflow = await this.loader().loadProjectWorkflow({ projectPath: project.path, issue, attempt, allowStale: true });
     const profile = resolveProfile({ workflow: resolvedWorkflow.frontmatter, profilesConfig: profileList(this.deps.ctx) });
     if ("park" in profile) { await this.park(client, issue, resolvedWorkflow.config.tracker.needsHuman, profile.park.reason); return false; }
     const runId = `orchestrator:${project.id}:${issue.id}:${Date.now()}`;
+    const label = `${issue.identifier}-${runId.split(":").at(-1)}`;
     const claim = await this.deps.claims.tryClaim(issue.id, runId, project.id);
     if (!claim) return false;
     try {
@@ -227,7 +230,7 @@ export class OrchestratorDaemon {
       if (workspace.created) await runHook({ command: resolvedWorkflow.config.hooks?.after_create, phase: "after_create", cwd: workspace.path, runId, store: this.deps.store, env }).catch((error) => this.deps.store.appendEvent(runId, "hook.after_create.error", { error: error instanceof Error ? error.message : String(error) }, project.id));
       const before = await runHook({ command: resolvedWorkflow.config.hooks?.before_run, phase: "before_run", cwd: workspace.path, runId, store: this.deps.store, env });
       if (before !== 0) { this.deps.store.finishRun(runId, "hook_failed", before); await this.release(project.id, issue.id, "hook_failed"); return false; }
-      const subagent = await this.deps.startSubagent({ profile: profile.profile.name, cli: profile.profile.cli, cwd: workspace.path, prompt: promptFor(project, issue, resolvedWorkflow.body), label: profile.profile.labelPrefix ?? issue.identifier, parent: { type: "orchestrator", id: `${project.id}:${issue.id}` }, source: "orchestrator", model: profile.profile.model, reasoningEffort: profile.profile.reasoningEffort ?? profile.profile.reasoning });
+      const subagent = await this.deps.startSubagent({ profile: profile.profile.name, cli: profile.profile.cli, cwd: workspace.path, prompt: promptFor(project, issue, resolvedWorkflow.body), label: profile.profile.labelPrefix ? `${profile.profile.labelPrefix}-${label}` : label, parent: { type: "orchestrator", id: `${project.id}:${issue.id}` }, source: "orchestrator", model: profile.profile.model, reasoningEffort: profile.profile.reasoningEffort ?? profile.profile.reasoning });
       const subagentRunId = typeof subagent === "object" && subagent && "id" in subagent ? String((subagent as { id: unknown }).id) : undefined;
       this.runs.set(`${project.id}:${issue.id}`, { project, issue, workspace: workspace.path, subagentRunId, workflow: resolvedWorkflow });
       this.deps.store.setSubagentRunId(runId, subagentRunId);
@@ -255,8 +258,9 @@ export class OrchestratorDaemon {
     this.notifyHitl(`Orchestrator needs human for ${issue.identifier}: ${reason}`);
   }
 
-  private async observeSubagentCompletions(): Promise<void> {
-    if (!this.deps.getSubagentRun) return;
+  private async observeSubagentCompletions(): Promise<Set<string>> {
+    const completed = new Set<string>();
+    if (!this.deps.getSubagentRun) return completed;
     for (const [key, run] of this.runs) {
       if (!run.subagentRunId || run.afterRunFired) continue;
       const terminal = subagentTerminalStatus(await this.deps.getSubagentRun(run.subagentRunId).catch(() => undefined));
@@ -266,7 +270,10 @@ export class OrchestratorDaemon {
       if (!claim) continue;
       await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.project.id), exitCode: terminal.exitCode }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, run.project.id));
       this.runs.set(key, run);
+      await this.release(run.project.id, run.issue.id, terminal.status === "done" ? "completed" : terminal.status);
+      completed.add(key);
     }
+    return completed;
   }
 
   private async detectStalls(): Promise<void> {

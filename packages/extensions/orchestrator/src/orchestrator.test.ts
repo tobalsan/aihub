@@ -3,6 +3,7 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
+import { Hono } from "hono";
 import { ClaimsRegistry, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
@@ -160,6 +161,28 @@ describe("project workflow modules", () => {
   });
 });
 
+describe("orchestrator routes", () => {
+  it("redacts workflow tracker secrets", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-route-"));
+    const project = path.join(home, "project");
+    await fs.mkdir(project);
+    await writeCustomWorkflow(project, { apiKey: "secret-key", projectSlug: "proj-a" });
+    const context = { getDataDir: () => home, getConfig: () => ({ gateway: { port: 4001 }, extensions: { subagents: { profiles }, orchestrator: { projects: [project] } } }), emit: vi.fn() } as any;
+    const app = new Hono();
+    try {
+      await orchestratorExtension.start?.(context);
+      orchestratorExtension.registerRoutes(app);
+      const response = await app.request("/orchestrator/workflow?project=project");
+      const data = await response.json();
+      expect(data.frontmatter.tracker.api_key).toBe("[redacted]");
+      expect(data.config.tracker.apiKey).toBe("[redacted]");
+      expect(JSON.stringify(data)).not.toContain("secret-key");
+    } finally {
+      await orchestratorExtension.stop?.();
+    }
+  });
+});
+
 describe("orchestrator agent tools", () => {
   it("requires project and uses that project tracker auth", async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-tool-"));
@@ -247,6 +270,47 @@ describe("orchestrator daemon", () => {
     await daemon.tick();
     expect(claims.list()).toHaveLength(0);
     expect(store.listRecent(1)[0]).toMatchObject({ project_id: path.basename(root), outcome: "terminal" });
+    await daemon.stop();
+    store.close();
+  });
+
+  it("releases claim when subagent reaches terminal status", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-complete-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_done" })), getSubagentRun: vi.fn(async () => ({ status: "done", exitCode: 0 })), createLinearClient: () => client });
+    await daemon.start();
+    await daemon.tick();
+    expect(claims.list()).toHaveLength(1);
+    await daemon.tick();
+    expect(claims.list()).toHaveLength(0);
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "completed", process_alive: 0 });
+    await daemon.stop();
+    store.close();
+  });
+
+  it("retries same issue with unique label and attempt", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-retry-"));
+    await writeWorkflow(root);
+    await fs.appendFile(path.join(root, "WORKFLOW.md"), "Attempt {{attempt}}\n");
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    store.insertRun({ runId: "old", projectId: path.basename(root), issueId: "lin_1", identifier: "ENG-1", workspace: path.join(root, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "abc", pid: null, startedAt: new Date().toISOString() });
+    store.finishRun("old", "interrupted_gateway_restart");
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const started = vi.fn(async (body) => ({ id: "sub_retry", ...body }));
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    await daemon.start();
+    await daemon.tick();
+    const body = started.mock.calls[0]?.[0] as Record<string, unknown>;
+    expect(body.label).toMatch(/^ENG-1-\d+$/);
+    expect(body.prompt).toEqual(expect.stringContaining("Attempt 2"));
     await daemon.stop();
     store.close();
   });

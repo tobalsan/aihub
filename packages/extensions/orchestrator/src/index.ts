@@ -27,7 +27,15 @@ function workflowLoader() { return sharedWorkflowLoader ??= new WorkflowLoader(c
 function unavailable(c: any) { return c.json({ error: "orchestrator disabled" }, 503); }
 
 function apiBase(): string {
-  return (process.env.AIHUB_API_URL ?? process.env.AIHUB_URL ?? "http://127.0.0.1:4000/api").replace(/\/$/, "");
+  const envUrl = process.env.AIHUB_API_URL ?? process.env.AIHUB_URL;
+  if (envUrl) {
+    const trimmed = envUrl.replace(/\/$/, "").replace(/\/aihub$/, "");
+    return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
+  }
+  const gateway = ctx?.getConfig().gateway;
+  const host = gateway?.host ?? "127.0.0.1";
+  const port = gateway?.port ?? 4000;
+  return `http://${host}:${port}/api`;
 }
 
 async function callSubagents(pathname: string, init?: RequestInit) {
@@ -46,6 +54,22 @@ async function stopSubagent(runId: string) { return callSubagents(`/subagents/${
 async function stopSubagentDirect(runId: string) {
   if (!ctx) throw new Error("orchestrator context missing");
   return interruptSubagentRun({ dataDir: ctx.getDataDir(), emit: (event) => ctx?.emit("subagent.changed", event) }, runId);
+}
+
+const REDACTED = "[redacted]";
+
+function redactWorkflowSnapshot<T extends Record<string, any>>(snapshot: T): T {
+  return {
+    ...snapshot,
+    frontmatter: {
+      ...snapshot.frontmatter,
+      tracker: { ...snapshot.frontmatter?.tracker, api_key: REDACTED },
+    },
+    config: {
+      ...snapshot.config,
+      tracker: { ...snapshot.config?.tracker, apiKey: REDACTED },
+    },
+  };
 }
 
 function runSubagentId(id: string, projectId?: string): string | undefined {
@@ -117,7 +141,7 @@ function register(app: Hono) {
     const projectId = c.req.query("project");
     const project = (await projectDescriptors()).find((item) => !projectId || item.id === projectId || item.path === projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
-    return c.json(await workflowLoader().resolve({ projectPath: project.path, allowStale: true }));
+    return c.json(redactWorkflowSnapshot(await workflowLoader().resolve({ projectPath: project.path, allowStale: true })));
   });
   app.get("/orchestrator/runs", (c) => {
     const issue = c.req.query("issue");
