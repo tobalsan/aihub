@@ -310,6 +310,7 @@ export class OrchestratorDaemon {
     const claim = this.deps.claims.get(issueId, projectId);
     if (!claim) return;
     const run = this.runs.get(`${projectId}:${issueId}`);
+    if (outcome === "terminal" && run?.subagentRunId) await this.deps.stopSubagent?.(run.subagentRunId).catch(() => undefined);
     if (run && !run.afterRunFired) {
       run.afterRunFired = true;
       await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, projectId) }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, projectId));

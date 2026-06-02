@@ -184,6 +184,12 @@ function register(app: Hono) {
     }
     claims.release(String(row?.issue_id ?? id), typeof row?.project_id === "string" ? row.project_id : project);
     store?.release(String(row?.issue_id ?? id), typeof row?.project_id === "string" ? row.project_id : project);
+    const runId = typeof row?.run_id === "string" ? row.run_id : undefined;
+    const projectId = typeof row?.project_id === "string" ? row.project_id : project;
+    if (runId) {
+      store?.finishRun(runId, "killed");
+      ctx?.emit("orchestrator.run.finished", { issueId: String(row?.issue_id ?? id), projectId, runId, outcome: "killed" });
+    }
     return c.json({ ok: true });
   });
   app.post("/orchestrator/issues/:issueId/claim", async (c) => {

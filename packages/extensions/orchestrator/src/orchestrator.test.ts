@@ -181,6 +181,31 @@ describe("orchestrator routes", () => {
       await orchestratorExtension.stop?.();
     }
   });
+
+  it("marks killed runs as finished", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-kill-"));
+    const project = path.join(home, "project");
+    await fs.mkdir(project);
+    await writeWorkflow(project);
+    const context = { getDataDir: () => home, getConfig: () => ({ gateway: { port: 4001 }, extensions: { subagents: { profiles }, orchestrator: { projects: [project] } } }), emit: vi.fn() } as any;
+    const app = new Hono();
+    try {
+      await orchestratorExtension.start?.(context);
+      orchestratorExtension.registerRoutes(app);
+      const state = new StateStore(path.join(home, "orchestrator", "state.db"));
+      state.bootstrap();
+      state.insertRun({ runId: "r-kill", projectId: "project", issueId: "lin_1", identifier: "ENG-1", workspace: path.join(project, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(project, "WORKFLOW.md"), workflowSha: "abc", pid: null, startedAt: new Date().toISOString() });
+      state.claim("lin_1", "r-kill", "project");
+      const response = await app.request("/orchestrator/runs/ENG-1/kill?project=project", { method: "POST" });
+      expect(response.status).toBe(200);
+      expect(state.listOpenRuns("project")).toHaveLength(0);
+      expect(state.listRecent(1, "project")[0]).toMatchObject({ outcome: "killed", process_alive: 0 });
+      expect(context.emit).toHaveBeenCalledWith("orchestrator.run.finished", expect.objectContaining({ issueId: "lin_1", projectId: "project", runId: "r-kill", outcome: "killed" }));
+      state.close();
+    } finally {
+      await orchestratorExtension.stop?.();
+    }
+  });
 });
 
 describe("orchestrator agent tools", () => {
@@ -259,7 +284,8 @@ describe("orchestrator daemon", () => {
     } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
     const started = vi.fn(async (body) => ({ id: "sub_1", ...body }));
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    const stopSubagent = vi.fn(async () => undefined);
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, stopSubagent, createLinearClient: () => client });
 
     await daemon.start();
     await daemon.tick();
@@ -271,6 +297,7 @@ describe("orchestrator daemon", () => {
     state = "Done";
     await daemon.tick();
     expect(claims.list()).toHaveLength(0);
+    expect(stopSubagent).toHaveBeenCalledWith("sub_1");
     expect(store.listRecent(1)[0]).toMatchObject({ project_id: path.basename(root), outcome: "terminal" });
     await daemon.stop();
     store.close();

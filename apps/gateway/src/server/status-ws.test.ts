@@ -194,14 +194,15 @@ describe("gateway status websocket", () => {
         if (
           msg.type === "file_changed" ||
           msg.type === "agent_changed" ||
-          msg.type === "subagent_changed"
+          msg.type === "subagent_changed" ||
+          msg.type === "orchestrator.run.finished"
         ) {
           received.push({
             type: msg.type,
             projectId: msg.projectId,
             runId: msg.runId,
           });
-          if (received.length === 3) {
+          if (received.length === 4) {
             clearTimeout(timeout);
             resolve();
           }
@@ -226,6 +227,12 @@ describe("gateway status websocket", () => {
       runId: "run-1",
       status: "running",
     });
+    agentEventBus.emit("orchestrator.run.finished", {
+      type: "orchestrator.run.finished",
+      projectId: "PRO-1",
+      runId: "run-2",
+      outcome: "completed",
+    });
 
     await receivePromise;
     ws.close();
@@ -234,6 +241,7 @@ describe("gateway status websocket", () => {
       { type: "file_changed", projectId: "PRO-1", runId: undefined },
       { type: "agent_changed", projectId: "PRO-1", runId: undefined },
       { type: "subagent_changed", projectId: undefined, runId: "run-1" },
+      { type: "orchestrator.run.finished", projectId: "PRO-1", runId: "run-2" },
     ]);
   });
 });
