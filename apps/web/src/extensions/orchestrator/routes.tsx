@@ -108,6 +108,14 @@ const TONE_GLYPH: Record<Tone, string> = {
   muted: "•",
 };
 
+const FILTER_TONES: Tone[] = ["ok", "fail", "warn", "muted"];
+const FILTER_LABEL: Partial<Record<Tone, string>> = {
+  ok: "Completed",
+  fail: "Failed",
+  warn: "Interrupted",
+  muted: "Other",
+};
+
 function StatusPill(props: { tone: Tone; label: string; title?: string }): JSX.Element {
   return (
     <span class="orch-pill" data-tone={props.tone} title={props.title ?? props.label}>
@@ -816,6 +824,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
   const [error, setError] = createSignal<string>();
   const [copied, setCopied] = createSignal<string>();
   const [now, setNow] = createSignal(Date.now());
+  const [statusFilter, setStatusFilter] = createSignal<Set<Tone>>(new Set(FILTER_TONES));
   const [stickBottom, setStickBottom] = createSignal(true);
   let drawerEl: HTMLElement | undefined;
 
@@ -826,6 +835,24 @@ function OrchestratorDashboard(): ReturnType<Component> {
 
   const online = createMemo(() => (health()?.status ?? "loading") === "ok");
   const logItems = createMemo(() => transcriptItems(logs()));
+
+  const toneCounts = createMemo(() => {
+    const counts: Record<Tone, number> = { live: 0, ok: 0, fail: 0, warn: 0, muted: 0 };
+    for (const run of recent()) counts[outcomeTone(run)] += 1;
+    return counts;
+  });
+  const filteredRecent = createMemo(() => {
+    const active = statusFilter();
+    return recent().filter((run) => active.has(outcomeTone(run)));
+  });
+  const toggleTone = (tone: Tone) => {
+    setStatusFilter((prev) => {
+      const next = new Set(prev);
+      if (next.has(tone)) next.delete(tone);
+      else next.add(tone);
+      return next;
+    });
+  };
 
   const onDrawerScroll = () => {
     const el = drawerEl;
@@ -1045,42 +1072,70 @@ function OrchestratorDashboard(): ReturnType<Component> {
       <section class="orch-section">
         <div class="orch-section-head">
           <h2>Recent runs</h2>
-          <Show when={recent().length}>
-            <span class="orch-count">{recent().length}</span>
+          <Show when={filteredRecent().length}>
+            <span class="orch-count">{filteredRecent().length}</span>
           </Show>
         </div>
         <Show
           when={recent().length}
           fallback={<div class="orch-empty"><div><strong>No runs yet.</strong><p>History lands here once the daemon dispatches work.</p></div></div>}
         >
-          <div class="orch-recent-list">
-            <For each={recent()}>
-              {(run) => {
-                const id = runId(run);
-                const project = run.project_id ?? run.projectId;
+          <div class="orch-filters">
+            <For each={FILTER_TONES}>
+              {(tone) => {
+                const count = () => toneCounts()[tone];
+                const activeNow = () => statusFilter().has(tone);
                 return (
-                  <div class="orch-recent-row" onClick={() => setSelected(run)}>
-                    <StatusPill tone={outcomeTone(run)} label={outcomeLabel(run)} title={run.outcome ?? undefined} />
-                    <span class="orch-recent-id">{displayId(run)}</span>
-                    <span class="orch-mono orch-recent-hash" title={id} onClick={(e) => { e.stopPropagation(); copy(id); }}>
-                      {copied() === id ? "copied" : shortRunId(id)}
-                    </span>
-                    <Show when={project} fallback={<span class="orch-recent-proj orch-dim">—</span>}>
-                      <span class="orch-recent-proj">{project}</span>
-                    </Show>
-                    <span class="orch-recent-time" title={absTime(run.startedAt ?? run.started_at)}>
-                      {relTime(run.startedAt ?? run.started_at, now())}
-                    </span>
-                    <span class="orch-recent-exit orch-dim">
-                      <Show when={(run.exitCode ?? run.exit_code) != null} fallback="">
-                        exit {run.exitCode ?? run.exit_code}
-                      </Show>
-                    </span>
-                  </div>
+                  <button
+                    class="orch-filter"
+                    data-tone={tone}
+                    data-active={activeNow()}
+                    data-empty={count() === 0}
+                    aria-pressed={activeNow()}
+                    disabled={count() === 0}
+                    onClick={() => toggleTone(tone)}
+                  >
+                    <span class="orch-filter-dot" />
+                    <span>{FILTER_LABEL[tone]}</span>
+                    <span class="orch-filter-count">{count()}</span>
+                  </button>
                 );
               }}
             </For>
           </div>
+          <Show
+            when={filteredRecent().length}
+            fallback={<div class="orch-quiet">No runs match the selected filters.</div>}
+          >
+            <div class="orch-recent-list">
+              <For each={filteredRecent()}>
+                  {(run) => {
+                    const id = runId(run);
+                    const project = run.project_id ?? run.projectId;
+                    return (
+                      <div class="orch-recent-row" onClick={() => setSelected(run)}>
+                        <StatusPill tone={outcomeTone(run)} label={outcomeLabel(run)} title={run.outcome ?? undefined} />
+                        <span class="orch-recent-id">{displayId(run)}</span>
+                        <span class="orch-mono orch-recent-hash" title={id} onClick={(e) => { e.stopPropagation(); copy(id); }}>
+                          {copied() === id ? "copied" : shortRunId(id)}
+                        </span>
+                        <Show when={project} fallback={<span class="orch-recent-proj orch-dim">—</span>}>
+                          <span class="orch-recent-proj">{project}</span>
+                        </Show>
+                        <span class="orch-recent-time" title={absTime(run.startedAt ?? run.started_at)}>
+                          {relTime(run.startedAt ?? run.started_at, now())}
+                        </span>
+                        <span class="orch-recent-exit orch-dim">
+                          <Show when={(run.exitCode ?? run.exit_code) != null} fallback="">
+                            exit {run.exitCode ?? run.exit_code}
+                          </Show>
+                        </span>
+                      </div>
+                    );
+                  }}
+              </For>
+            </div>
+          </Show>
         </Show>
       </section>
 
@@ -1293,6 +1348,40 @@ const ORCH_STYLES = `
 .orch-recent-time { font-size: 12px; color: var(--text-tertiary); font-variant-numeric: tabular-nums; text-align: right; }
 .orch-recent-exit { font-size: 11px; text-align: right; }
 .orch-dim { color: var(--text-muted); }
+
+/* recent: status filters */
+.orch-filters { display: flex; align-items: center; gap: 7px; flex-wrap: wrap; }
+.orch-filter {
+  display: inline-flex; align-items: center; gap: 7px;
+  font-family: inherit; font-size: 12px; font-weight: 600;
+  padding: 4px 10px 4px 9px; border-radius: 999px; cursor: pointer;
+  color: var(--text-muted);
+  background: var(--bg-raised);
+  border: 1px solid var(--border-default);
+  transition: color 110ms ease, background 110ms ease, border-color 110ms ease, opacity 110ms ease;
+}
+.orch-filter:hover:not(:disabled) { color: var(--text-secondary); border-color: var(--text-muted); }
+.orch-filter-dot { width: 7px; height: 7px; border-radius: 50%; flex-shrink: 0; background: var(--text-muted); }
+.orch-filter[data-tone="live"] .orch-filter-dot { background: var(--orch-ok); }
+.orch-filter[data-tone="ok"] .orch-filter-dot { background: var(--orch-ok); }
+.orch-filter[data-tone="fail"] .orch-filter-dot { background: var(--orch-fail); }
+.orch-filter[data-tone="warn"] .orch-filter-dot { background: var(--orch-warn); }
+.orch-filter[data-tone="muted"] .orch-filter-dot { background: var(--text-tertiary); }
+.orch-filter-count {
+  font-size: 10.5px; font-weight: 600; font-variant-numeric: tabular-nums;
+  min-width: 16px; padding: 0 5px; text-align: center; border-radius: 999px;
+  background: color-mix(in srgb, var(--text-primary) 8%, transparent);
+  color: var(--text-tertiary);
+}
+.orch-filter[data-active="false"] { opacity: 0.5; }
+.orch-filter[data-active="false"] .orch-filter-dot { opacity: 0.6; }
+.orch-filter[data-empty="true"] { opacity: 0.32; cursor: default; }
+.orch-filter[data-active="true"][data-tone="live"] { color: var(--orch-ok); background: color-mix(in srgb, var(--orch-ok) 12%, transparent); border-color: color-mix(in srgb, var(--orch-ok) 30%, transparent); }
+.orch-filter[data-active="true"][data-tone="ok"]   { color: var(--orch-ok); background: color-mix(in srgb, var(--orch-ok) 10%, transparent); border-color: color-mix(in srgb, var(--orch-ok) 24%, transparent); }
+.orch-filter[data-active="true"][data-tone="fail"] { color: var(--orch-fail); background: color-mix(in srgb, var(--orch-fail) 11%, transparent); border-color: color-mix(in srgb, var(--orch-fail) 28%, transparent); }
+.orch-filter[data-active="true"][data-tone="warn"] { color: var(--orch-warn); background: color-mix(in srgb, var(--orch-warn) 11%, transparent); border-color: color-mix(in srgb, var(--orch-warn) 28%, transparent); }
+.orch-filter[data-active="true"][data-tone="muted"] { color: var(--text-secondary); background: var(--bg-surface); border-color: var(--border-default); }
+.orch-filter[data-active="true"] .orch-filter-count { background: color-mix(in srgb, currentColor 16%, transparent); color: currentColor; }
 
 /* empty */
 .orch-empty {
