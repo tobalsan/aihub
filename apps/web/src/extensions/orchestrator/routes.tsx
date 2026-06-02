@@ -115,6 +115,7 @@ const FILTER_LABEL: Partial<Record<Tone, string>> = {
   warn: "Interrupted",
   muted: "Other",
 };
+const RECENT_PAGE_SIZE = 100;
 
 function StatusPill(props: { tone: Tone; label: string; title?: string }): JSX.Element {
   return (
@@ -825,6 +826,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
   const [copied, setCopied] = createSignal<string>();
   const [now, setNow] = createSignal(Date.now());
   const [statusFilter, setStatusFilter] = createSignal<Set<Tone>>(new Set(FILTER_TONES));
+  const [recentPage, setRecentPage] = createSignal(0);
   const [stickBottom, setStickBottom] = createSignal(true);
   let drawerEl: HTMLElement | undefined;
 
@@ -845,6 +847,14 @@ function OrchestratorDashboard(): ReturnType<Component> {
     const active = statusFilter();
     return recent().filter((run) => active.has(outcomeTone(run)));
   });
+  const recentPageCount = createMemo(() =>
+    Math.max(1, Math.ceil(filteredRecent().length / RECENT_PAGE_SIZE))
+  );
+  const pagedRecent = createMemo(() => {
+    const start = recentPage() * RECENT_PAGE_SIZE;
+    return filteredRecent().slice(start, start + RECENT_PAGE_SIZE);
+  });
+
   const toggleTone = (tone: Tone) => {
     setStatusFilter((prev) => {
       const next = new Set(prev);
@@ -852,6 +862,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
       else next.add(tone);
       return next;
     });
+    setRecentPage(0);
   };
 
   const onDrawerScroll = () => {
@@ -940,6 +951,11 @@ function OrchestratorDashboard(): ReturnType<Component> {
     setLogCursor(0);
     setStickBottom(true);
     void loadSelected();
+  });
+
+  createEffect(() => {
+    const max = recentPageCount() - 1;
+    if (recentPage() > max) setRecentPage(max);
   });
 
   createEffect(() => {
@@ -1107,8 +1123,9 @@ function OrchestratorDashboard(): ReturnType<Component> {
             when={filteredRecent().length}
             fallback={<div class="orch-quiet">No runs match the selected filters.</div>}
           >
-            <div class="orch-recent-list">
-              <For each={filteredRecent()}>
+            <div class="orch-recent-scroll">
+              <div class="orch-recent-list">
+                <For each={pagedRecent()}>
                   {(run) => {
                     const id = runId(run);
                     const project = run.project_id ?? run.projectId;
@@ -1133,8 +1150,21 @@ function OrchestratorDashboard(): ReturnType<Component> {
                       </div>
                     );
                   }}
-              </For>
+                </For>
+              </div>
             </div>
+            <Show when={recentPageCount() > 1}>
+              <div class="orch-recent-foot">
+                <span class="orch-page-info">
+                  {recentPage() * RECENT_PAGE_SIZE + 1}–{Math.min((recentPage() + 1) * RECENT_PAGE_SIZE, filteredRecent().length)} of {filteredRecent().length}
+                </span>
+                <div class="orch-page-ctrls">
+                  <button class="orch-btn" disabled={recentPage() === 0} onClick={() => setRecentPage((p) => Math.max(0, p - 1))}>Prev</button>
+                  <span class="orch-page-num">{recentPage() + 1} / {recentPageCount()}</span>
+                  <button class="orch-btn" disabled={recentPage() >= recentPageCount() - 1} onClick={() => setRecentPage((p) => Math.min(recentPageCount() - 1, p + 1))}>Next</button>
+                </div>
+              </div>
+            </Show>
           </Show>
         </Show>
       </section>
@@ -1382,6 +1412,27 @@ const ORCH_STYLES = `
 .orch-filter[data-active="true"][data-tone="warn"] { color: var(--orch-warn); background: color-mix(in srgb, var(--orch-warn) 11%, transparent); border-color: color-mix(in srgb, var(--orch-warn) 28%, transparent); }
 .orch-filter[data-active="true"][data-tone="muted"] { color: var(--text-secondary); background: var(--bg-surface); border-color: var(--border-default); }
 .orch-filter[data-active="true"] .orch-filter-count { background: color-mix(in srgb, currentColor 16%, transparent); color: currentColor; }
+
+/* recent: scroll + pagination */
+.orch-recent-scroll {
+  max-height: 60vh; overflow-y: auto; overscroll-behavior: contain;
+  border: 1px solid var(--border-subtle); border-radius: 12px;
+}
+.orch-recent-scroll::-webkit-scrollbar { width: 10px; }
+.orch-recent-scroll::-webkit-scrollbar-thumb {
+  background: var(--border-default); border-radius: 999px;
+  border: 3px solid var(--bg-base); background-clip: padding-box;
+}
+.orch-recent-scroll::-webkit-scrollbar-thumb:hover { background: var(--text-muted); background-clip: padding-box; }
+.orch-recent-scroll .orch-recent-row:first-child { border-top: none; }
+.orch-recent-scroll .orch-recent-row:last-child { border-bottom: none; }
+
+.orch-recent-foot { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 0 2px; }
+.orch-page-info { font-size: 12px; color: var(--text-muted); font-variant-numeric: tabular-nums; }
+.orch-page-ctrls { display: flex; align-items: center; gap: 8px; }
+.orch-page-num { font-size: 12px; font-weight: 600; color: var(--text-secondary); font-variant-numeric: tabular-nums; }
+.orch-btn:disabled { opacity: 0.4; cursor: default; }
+.orch-btn:disabled:hover { color: var(--text-secondary); border-color: var(--border-default); background: var(--bg-raised); }
 
 /* empty */
 .orch-empty {
