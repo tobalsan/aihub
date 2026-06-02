@@ -816,6 +816,8 @@ function OrchestratorDashboard(): ReturnType<Component> {
   const [error, setError] = createSignal<string>();
   const [copied, setCopied] = createSignal<string>();
   const [now, setNow] = createSignal(Date.now());
+  const [stickBottom, setStickBottom] = createSignal(true);
+  let drawerEl: HTMLElement | undefined;
 
   const selectedKey = () => {
     const run = selected();
@@ -824,6 +826,13 @@ function OrchestratorDashboard(): ReturnType<Component> {
 
   const online = createMemo(() => (health()?.status ?? "loading") === "ok");
   const logItems = createMemo(() => transcriptItems(logs()));
+
+  const onDrawerScroll = () => {
+    const el = drawerEl;
+    if (!el) return;
+    const distance = el.scrollHeight - el.scrollTop - el.clientHeight;
+    setStickBottom(distance < 48);
+  };
 
   const copy = (value: string) => {
     void navigator.clipboard?.writeText(value);
@@ -902,7 +911,16 @@ function OrchestratorDashboard(): ReturnType<Component> {
     setEvents([]);
     setLogs([]);
     setLogCursor(0);
+    setStickBottom(true);
     void loadSelected();
+  });
+
+  createEffect(() => {
+    logItems().length;
+    if (tab() !== "logs" || !stickBottom() || !drawerEl) return;
+    requestAnimationFrame(() => {
+      if (drawerEl && stickBottom()) drawerEl.scrollTop = drawerEl.scrollHeight;
+    });
   });
 
   createEffect(() => {
@@ -1072,7 +1090,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
           return (
             <>
               <div class="orch-scrim" onClick={() => setSelected(undefined)} />
-              <aside class="orch-drawer">
+              <aside class="orch-drawer" ref={(el) => (drawerEl = el)} onScroll={onDrawerScroll}>
                 <div class="orch-drawer-head">
                   <div class="orch-drawer-titles">
                     <h2>{displayId(run())}</h2>
