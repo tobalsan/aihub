@@ -33,10 +33,10 @@ imported.
 - Recent runs: grid rows with semantic status pill, Linear identifier, copyable short hash,
   project, relative start time, exit code. `exit 0` renders correctly (guarded `!= null`,
   not truthiness).
-- Drawer: scrim + slide-in, styled tabs (Logs / Events / Workflow), mono log viewer with
-  per-line tone, event cards, workflow viewer. Removed the old "Chat" tab; it was a
-  duplicate event-stream dump and the PRD defers chat to the read-only event stream (the
-  Events tab already serves that).
+- Drawer: scrim + slide-in, styled tabs (Logs / Events / Workflow), event cards, workflow
+  viewer. Removed the old "Chat" tab; it was a duplicate event-stream dump and the PRD
+  defers chat to the read-only event stream (the Events tab already serves that). The Logs
+  tab rendering is covered in the update below.
 - Verbose outcomes shortened for the pill (`interrupted_gateway_restart` -> "interrupted",
   etc.); full raw outcome kept in the pill `title`. Pill clips with ellipsis so no label can
   overflow its column.
@@ -58,3 +58,28 @@ imported.
   claim each tick; deferred to avoid N fetches per poll for 5-10 runs.
 - Multi-project supervisor: a "projects" stat / per-project filter could use
   `fetchOrchestratorProjects()`; not added to keep scope tight.
+
+## Update: Logs tab renders agent turns
+
+The first pass rendered logs as flat type+text lines. That was hard to parse, and worse:
+the orchestrator dispatches subagents via the **codex** CLI, whose `item.started` /
+`item.completed` `command_execution` stream events are not normalized into tool events by
+`packages/extensions/subagents` `normalizeParsedLog`. They fell through to a catch-all and
+dumped as raw JSON (literal `\n` and all) in the drawer.
+
+Fix: the projects "agents" tab already handles this. `AgentRunChatPanel` converts
+`SubagentLogEvent[]` with the codex-aware `eventToBoardItem` (handles `command_execution`,
+`agent_message`, `user`/`assistant`, `tool_call`/`tool_output`) and renders via
+`BoardChatLog` (`BoardChatRenderer.tsx`). We **copied** those two pieces inline into
+`routes.tsx` (no import, per extension independence) and wired
+`logItems = createMemo(() => transcriptItems(logs()))` → `<BoardChatLog>`. An earlier
+attempt mistakenly ported `AgentChat.tsx` (a claude-only renderer), which is exactly why
+codex events still showed raw; that port was removed.
+
+Result: Prompt bubble, assistant markdown, and collapsible `exec_command` shell blocks
+(`$ cmd` + output, error tint on non-zero exit). The user-turn role label is "Prompt"
+(orchestrator runs carry a single user turn that is just the prompt). Verified in light +
+dark, tsc clean, no console errors. `command_execution` items still render once per
+`item.started` and once per `item.completed`, matching the agents tab (no dedup); that
+duplication, and normalizing codex events in the shared `normalizeParsedLog` so the chat
+benefits too, are possible follow-ups.
