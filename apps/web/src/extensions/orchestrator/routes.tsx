@@ -129,11 +129,10 @@ function eventPayload(event: OrchestratorEvent): string {
 }
 
 // ── Agent-run transcript rendering ──────────────────────────────────────────
-// Mirrors the projects "agents" tab exactly: the codex-aware eventToBoardItem
-// converter feeds BoardChatLog. Copied (not imported) so the orchestrator
-// extension stays self-contained.
+// Mirrors the project details Agents tab transcript renderer.
+// Copied (not imported) so the orchestrator extension stays self-contained.
 
-type BoardLogItem =
+type AgentTranscriptItem =
   | {
       type: "text";
       role: "user" | "assistant";
@@ -182,7 +181,7 @@ function stringifyToolArgs(text: string) {
   return parsed ?? { input: text };
 }
 
-function eventToBoardItem(event: OrchestratorLogEvent): BoardLogItem | null {
+function eventToTranscriptItem(event: OrchestratorLogEvent): AgentTranscriptItem | null {
   const tool = getRecord(event.tool);
   const diff = getRecord(event.diff);
   const text = (
@@ -256,10 +255,10 @@ function eventToBoardItem(event: OrchestratorLogEvent): BoardLogItem | null {
   return null;
 }
 
-function transcriptItems(events: OrchestratorLogEvent[]): BoardLogItem[] {
+function transcriptItems(events: OrchestratorLogEvent[]): AgentTranscriptItem[] {
   return events
-    .map(eventToBoardItem)
-    .filter((item): item is BoardLogItem => item !== null);
+    .map(eventToTranscriptItem)
+    .filter((item): item is AgentTranscriptItem => item !== null);
 }
 
 function detailBody(
@@ -306,7 +305,7 @@ function truncateInline(value: string, max = 96): string {
     : singleLine;
 }
 
-function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
+function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }) {
   const argsText = () => formatJson(props.item.args);
   const resultText = () =>
     getToolResultText(props.item.result) || props.item.body || "";
@@ -326,20 +325,20 @@ function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
   });
 
   return (
-    <div class={`board-tool-block ${failed() ? "error" : ""}`}>
+    <div class={`orch-tool-block ${failed() ? "error" : ""}`}>
       <button
-        class="board-tool-header"
+        class="orch-tool-header"
         onClick={() => setCollapsed(!collapsed())}
       >
-        <span class="board-collapse-icon">{collapsed() ? "▶" : "▼"}</span>
-        <span class="board-tool-kind">{props.item.toolName}</span>
-        <span class="board-tool-title">{summary()}</span>
+        <span class="orch-collapse-icon">{collapsed() ? "▶" : "▼"}</span>
+        <span class="orch-tool-kind">{props.item.toolName}</span>
+        <span class="orch-tool-title">{summary()}</span>
         <Show when={collapsed()}>
-          <span class="board-tool-preview">{preview()}</span>
+          <span class="orch-tool-preview">{preview()}</span>
         </Show>
       </button>
       <Show when={!collapsed()}>
-        <div class="board-tool-body">
+        <div class="orch-tool-body">
           <Show
             when={
               props.item.toolName === "bash" ||
@@ -347,19 +346,19 @@ function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
             }
             fallback={
               <>
-                <div class="board-tool-section-label">Input</div>
-                <pre class="board-tool-code">{argsText()}</pre>
+                <div class="orch-tool-section-label">Input</div>
+                <pre class="orch-tool-code">{argsText()}</pre>
                 <Show when={props.item.result || props.item.body}>
-                  <div class="board-tool-section-label">Output</div>
-                  <pre class="board-tool-code">
+                  <div class="orch-tool-section-label">Output</div>
+                  <pre class="orch-tool-code">
                     {resultText() || "(no output)"}
                   </pre>
                 </Show>
               </>
             }
           >
-            <div class="board-tool-section-label">Shell</div>
-            <pre class="board-tool-code">
+            <div class="orch-tool-section-label">Shell</div>
+            <pre class="orch-tool-code">
               {`$ ${getToolInputSummary(props.item.toolName, props.item.args)}${
                 props.item.result || props.item.body
                   ? `\n\n${resultText() || "(no output)"}`
@@ -368,8 +367,8 @@ function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
             </pre>
           </Show>
           <Show when={props.item.result?.details?.diff}>
-            <div class="board-tool-section-label">Diff</div>
-            <pre class="board-tool-code">
+            <div class="orch-tool-section-label">Diff</div>
+            <pre class="orch-tool-code">
               {props.item.result!.details!.diff}
             </pre>
           </Show>
@@ -380,37 +379,37 @@ function ToolLog(props: { item: Extract<BoardLogItem, { type: "tool" }> }) {
 }
 
 function ThinkingLog(props: {
-  item: Extract<BoardLogItem, { type: "thinking" }>;
+  item: Extract<AgentTranscriptItem, { type: "thinking" }>;
 }) {
   return (
-    <details class="board-log-details board-log-thinking">
-      <summary class="board-log-summary">
-        <span class="board-log-thinking-label">Thinking</span>
+    <details class="orch-log-details orch-log-thinking">
+      <summary class="orch-log-summary">
+        <span class="orch-log-thinking-label">Thinking</span>
       </summary>
-      <pre class="board-log-pre">{props.item.content}</pre>
+      <pre class="orch-log-pre">{props.item.content}</pre>
     </details>
   );
 }
 
-function DiffLog(props: { item: Extract<BoardLogItem, { type: "file" }> }) {
-  return <pre class="board-log-pre">{props.item.content}</pre>;
+function DiffLog(props: { item: Extract<AgentTranscriptItem, { type: "file" }> }) {
+  return <pre class="orch-log-pre">{props.item.content}</pre>;
 }
 
 function FileList(props: { files?: FileBlock[] }) {
   return (
     <Show when={props.files?.length}>
-      <div class="board-msg-files">
+      <div class="orch-msg-files">
         <For each={props.files}>
           {(file) => (
             <a
-              class="board-msg-file"
+              class="orch-msg-file"
               href={`/api/media/download/${file.fileId}`}
               target="_blank"
               rel="noreferrer"
             >
-              <span class="board-msg-file-name">{file.filename}</span>
+              <span class="orch-msg-file-name">{file.filename}</span>
               <Show when={formatFileSize(file.size ?? 0)}>
-                {(size) => <span class="board-msg-file-size">{size()}</span>}
+                {(size) => <span class="orch-msg-file-size">{size()}</span>}
               </Show>
             </a>
           )}
@@ -421,12 +420,12 @@ function FileList(props: { files?: FileBlock[] }) {
 }
 
 function TextLog(props: {
-  item: Extract<BoardLogItem, { type: "text" }>;
+  item: Extract<AgentTranscriptItem, { type: "text" }>;
   agentName: string;
 }) {
   return (
-    <div class={`board-msg board-msg-${props.item.role}`}>
-      <div class="board-msg-role">
+    <div class={`orch-msg orch-msg-${props.item.role}`}>
+      <div class="orch-msg-role">
         <Show
           when={props.item.role === "assistant"}
           fallback={
@@ -466,14 +465,14 @@ function TextLog(props: {
         when={props.item.role === "assistant"}
         fallback={
           <>
-            <div class="board-msg-content">{props.item.content}</div>
+            <div class="orch-msg-content">{props.item.content}</div>
             <FileList files={props.item.files} />
           </>
         }
       >
         <>
           <div
-            class="board-msg-content board-msg-markdown"
+            class="orch-msg-content orch-msg-markdown"
             innerHTML={renderMarkdown(props.item.content)}
           />
           <FileList files={props.item.files} />
@@ -483,9 +482,9 @@ function TextLog(props: {
   );
 }
 
-function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
+function AgentTranscriptLog(props: { items: AgentTranscriptItem[]; agentName: string }) {
   return (
-    <div class="board-chat-log">
+    <div class="orch-transcript-log">
       <For each={props.items}>
         {(item) => (
           <Show
@@ -498,43 +497,43 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
                     when={item.type === "tool"}
                     fallback={
                       <DiffLog
-                        item={item as Extract<BoardLogItem, { type: "file" }>}
+                        item={item as Extract<AgentTranscriptItem, { type: "file" }>}
                       />
                     }
                   >
                     <ToolLog
-                      item={item as Extract<BoardLogItem, { type: "tool" }>}
+                      item={item as Extract<AgentTranscriptItem, { type: "tool" }>}
                     />
                   </Show>
                 }
               >
                 <ThinkingLog
-                  item={item as Extract<BoardLogItem, { type: "thinking" }>}
+                  item={item as Extract<AgentTranscriptItem, { type: "thinking" }>}
                 />
               </Show>
             }
           >
             <TextLog
-              item={item as Extract<BoardLogItem, { type: "text" }>}
+              item={item as Extract<AgentTranscriptItem, { type: "text" }>}
               agentName={props.agentName}
             />
           </Show>
         )}
       </For>
       <style>{`
-        .board-chat-log {
+        .orch-transcript-log {
           display: flex;
           flex-direction: column;
           gap: 24px;
         }
 
-        .board-msg {
+        .orch-msg {
           display: flex;
           flex-direction: column;
           gap: 6px;
         }
 
-        .board-msg-role {
+        .orch-msg-role {
           display: flex;
           align-items: center;
           gap: 6px;
@@ -545,7 +544,7 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           letter-spacing: 0.5px;
         }
 
-        .board-msg-content {
+        .orch-msg-content {
           font-size: 14px;
           line-height: 1.65;
           white-space: pre-wrap;
@@ -553,7 +552,7 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           color: var(--text-primary);
         }
 
-        .board-msg-user .board-msg-content {
+        .orch-msg-user .orch-msg-content {
           padding: 10px 14px;
           border-radius: 12px;
           border-top-right-radius: 4px;
@@ -561,19 +560,19 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           color: var(--text-primary);
         }
 
-        .board-msg-assistant .board-msg-content {
+        .orch-msg-assistant .orch-msg-content {
           padding: 0;
           background: transparent;
         }
 
-        .board-msg-files {
+        .orch-msg-files {
           display: flex;
           flex-wrap: wrap;
           gap: 8px;
           margin-top: 8px;
         }
 
-        .board-msg-file {
+        .orch-msg-file {
           display: inline-flex;
           align-items: center;
           gap: 8px;
@@ -587,68 +586,68 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           text-decoration: none;
         }
 
-        .board-msg-file:hover {
+        .orch-msg-file:hover {
           color: var(--text-primary);
           border-color: color-mix(in srgb, var(--text-primary) 18%, var(--border-default));
         }
 
-        .board-msg-file-name {
+        .orch-msg-file-name {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
           white-space: nowrap;
         }
 
-        .board-msg-file-size {
+        .orch-msg-file-size {
           flex-shrink: 0;
           opacity: 0.7;
         }
 
-        .board-msg-markdown {
+        .orch-msg-markdown {
           white-space: normal;
           line-height: 1.55;
         }
 
-        .board-msg-markdown > :first-child {
+        .orch-msg-markdown > :first-child {
           margin-top: 0;
         }
 
-        .board-msg-markdown > :last-child {
+        .orch-msg-markdown > :last-child {
           margin-bottom: 0;
         }
 
-        .board-msg-markdown p,
-        .board-msg-markdown pre,
-        .board-msg-markdown blockquote {
+        .orch-msg-markdown p,
+        .orch-msg-markdown pre,
+        .orch-msg-markdown blockquote {
           margin: 0 0 0.5em;
         }
 
-        .board-msg-markdown ul,
-        .board-msg-markdown ol {
+        .orch-msg-markdown ul,
+        .orch-msg-markdown ol {
           margin: 0.25em 0;
           padding-left: 1.25em;
         }
 
-        .board-msg-markdown li {
+        .orch-msg-markdown li {
           margin: 0;
           padding: 0;
         }
 
-        .board-msg-markdown li > p {
+        .orch-msg-markdown li > p {
           margin: 0;
         }
 
-        .board-msg-markdown li > ul,
-        .board-msg-markdown li > ol {
+        .orch-msg-markdown li > ul,
+        .orch-msg-markdown li > ol {
           margin: 0;
         }
 
-        .board-msg-markdown code {
+        .orch-msg-markdown code {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
           font-size: 0.92em;
         }
 
-        .board-msg-markdown pre {
+        .orch-msg-markdown pre {
           overflow-x: auto;
           padding: 12px 14px;
           border-radius: 12px;
@@ -656,14 +655,14 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           border: 1px solid var(--border-default);
         }
 
-        .board-log-details {
+        .orch-log-details {
           border: 1px solid var(--border-default);
           border-radius: 14px;
           background: var(--bg-surface);
           overflow: hidden;
         }
 
-        .board-log-summary {
+        .orch-log-summary {
           display: flex;
           align-items: center;
           gap: 10px;
@@ -675,19 +674,19 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           font-weight: 500;
         }
 
-        .board-log-summary::-webkit-details-marker {
+        .orch-log-summary::-webkit-details-marker {
           display: none;
         }
 
-        .board-log-details[open] .board-log-summary {
+        .orch-log-details[open] .orch-log-summary {
           border-bottom: 1px solid var(--border-default);
         }
 
-        .board-log-icon {
+        .orch-log-icon {
           display: none;
         }
 
-        .board-log-pre {
+        .orch-log-pre {
           margin: 0;
           padding: 14px;
           white-space: pre-wrap;
@@ -699,26 +698,26 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, "Liberation Mono", monospace;
         }
 
-        .board-log-thinking .board-log-summary {
+        .orch-log-thinking .orch-log-summary {
           font-style: italic;
         }
 
-        .board-log-thinking-label {
+        .orch-log-thinking-label {
           color: var(--text-secondary);
         }
 
-        .board-tool-block {
+        .orch-tool-block {
           background: color-mix(in srgb, var(--text-primary) 5%, var(--bg-surface));
           border: 1px solid color-mix(in srgb, var(--text-primary) 9%, transparent);
           border-radius: 14px;
           overflow: hidden;
         }
 
-        .board-tool-block.error {
+        .orch-tool-block.error {
           border-color: color-mix(in srgb, #ef4444 42%, var(--border-default));
         }
 
-        .board-tool-header {
+        .orch-tool-header {
           display: flex;
           align-items: center;
           gap: 8px;
@@ -732,18 +731,18 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           text-align: left;
         }
 
-        .board-tool-header:hover {
+        .orch-tool-header:hover {
           background: color-mix(in srgb, var(--text-primary) 4%, transparent);
         }
 
-        .board-collapse-icon {
+        .orch-collapse-icon {
           flex-shrink: 0;
           width: 10px;
           color: var(--text-secondary);
           font-size: 9px;
         }
 
-        .board-tool-title {
+        .orch-tool-title {
           min-width: 0;
           overflow: hidden;
           text-overflow: ellipsis;
@@ -753,7 +752,7 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           font-weight: 560;
         }
 
-        .board-tool-kind {
+        .orch-tool-kind {
           flex-shrink: 0;
           padding: 1px 6px;
           border-radius: 999px;
@@ -763,7 +762,7 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           font-size: 11px;
         }
 
-        .board-tool-preview {
+        .orch-tool-preview {
           min-width: 0;
           flex: 1;
           overflow: hidden;
@@ -774,23 +773,23 @@ function BoardChatLog(props: { items: BoardLogItem[]; agentName: string }) {
           font-size: 12px;
         }
 
-        .board-tool-body {
+        .orch-tool-body {
           padding: 12px 14px 14px;
           border-top: 1px solid color-mix(in srgb, var(--border-default) 84%, transparent);
         }
 
-        .board-tool-section-label {
+        .orch-tool-section-label {
           margin-bottom: 8px;
           color: var(--text-secondary);
           font-size: 12px;
           font-weight: 560;
         }
 
-        .board-tool-section-label:not(:first-child) {
+        .orch-tool-section-label:not(:first-child) {
           margin-top: 14px;
         }
 
-        .board-tool-code {
+        .orch-tool-code {
           margin: 0;
           white-space: pre-wrap;
           word-break: break-word;
@@ -1095,7 +1094,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
 
                 <Show when={tab() === "logs"}>
                   <Show when={logItems().length} fallback={<div class="orch-quiet">No logs yet.</div>}>
-                    <BoardChatLog items={logItems()} agentName="Agent" />
+                    <AgentTranscriptLog items={logItems()} agentName="Agent" />
                   </Show>
                 </Show>
 
