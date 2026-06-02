@@ -3,9 +3,14 @@ export type LinearIssue = {
   identifier: string;
   title: string;
   description?: string | null;
+  priority?: number | null;
+  branch_name?: string | null;
   url?: string | null;
   state: string;
   labels: string[];
+  blocked_by?: Array<{ id?: string | null; identifier?: string | null; state?: string | null }>;
+  created_at?: string | null;
+  updated_at?: string | null;
   projectName?: string | null;
   projectSlug?: string | null;
   parentId?: string | null;

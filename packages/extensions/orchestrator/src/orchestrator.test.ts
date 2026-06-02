@@ -122,6 +122,21 @@ describe("project workflow modules", () => {
     expect(snapshot.body.trim()).toBe("Do ENG-1");
   });
 
+  it("renders only Symphony issue and attempt variables strictly", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-template-"));
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n---\n{{issue.identifier}} {{attempt}} {{issue.labels}}\n");
+    const issue = { id: "1", identifier: "ENG-1", title: "Hello", state: "Ready", labels: ["bug", "p1"] };
+    const loader = new WorkflowLoader(root);
+
+    await expect(loader.resolve({ projectPath: root, issue })).resolves.toMatchObject({ body: 'ENG-1  ["bug","p1"]\n' });
+    await expect(loader.resolve({ projectPath: root, issue, attempt: 2 })).resolves.toMatchObject({ body: 'ENG-1 2 ["bug","p1"]\n' });
+
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\n---\n{{project.id}}\n");
+    await expect(loader.resolve({ projectPath: root, issue })).rejects.toThrow("Unknown workflow template variable: project.id");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\n---\n{{issue.identifier | upper}}\n");
+    await expect(loader.resolve({ projectPath: root, issue })).rejects.toThrow("Unknown workflow template filter: upper");
+  });
+
   it("keeps last known good workflow when reload is invalid", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-lkg-"));
     await writeWorkflow(root);

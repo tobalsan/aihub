@@ -189,15 +189,30 @@ The tool uses that project's workflow `tracker.api_key` and `tracker.endpoint`.
 
 Markdown body after frontmatter becomes worker prompt template.
 
-Supported substitutions:
+Supported substitutions follow Symphony core inputs only:
 
 - `{{issue.id}}`
 - `{{issue.identifier}}`
 - `{{issue.title}}`
 - `{{issue.description}}`
+- `{{issue.priority}}`
+- `{{issue.branch_name}}`
 - `{{issue.state}}`
 - `{{issue.url}}`
-- `{{run.<field>}}` where run context is available
+- `{{issue.labels}}`
+- `{{issue.blocked_by}}`
+- `{{issue.created_at}}`
+- `{{issue.updated_at}}`
+- `{{attempt}}`
+
+Rules:
+
+- First run renders `attempt` as empty/null.
+- Retries/continuations render `attempt` as the attempt number.
+- Unknown variables fail workflow rendering.
+- Unknown filters fail workflow rendering.
+- Arrays/maps render as JSON.
+- No `project`, `workspace`, `repo`, `run`, or secret variables are exposed to templates.
 
 Repo bootstrap should prefer deterministic hooks/tooling. Prompt-driven cloning is allowed, but must stay inside the issue workspace.
 

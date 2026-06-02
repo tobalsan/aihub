@@ -36,11 +36,21 @@ function resolvePath(value: string | undefined, projectPath: string): string {
   return path.resolve(path.isAbsolute(expanded) ? expanded : path.join(projectPath, expanded));
 }
 
-function render(template: string, ctx: { issue?: LinearIssue; run?: Record<string, unknown> }): string {
-  return template.replace(/{{\s*([a-z]+)\.([A-Za-z0-9_]+)\s*}}/g, (_all, group, key) => {
-    const source = group === "issue" ? ctx.issue : ctx.run;
-    const value = source ? (source as Record<string, unknown>)[key] : undefined;
-    return Array.isArray(value) ? value.join(", ") : value == null ? "" : String(value);
+function stringifyTemplateValue(value: unknown): string {
+  if (value == null) return "";
+  if (typeof value === "string" || typeof value === "number" || typeof value === "boolean") return String(value);
+  return JSON.stringify(value);
+}
+
+function render(template: string, ctx: { issue?: LinearIssue; attempt?: number | null }): string {
+  return template.replace(/{{\s*([^{}|\s]+)(?:\s*\|\s*([^{}]+))?\s*}}/g, (_all, expression: string, filter: string | undefined) => {
+    if (filter) throw new Error(`Unknown workflow template filter: ${filter.trim()}`);
+    if (expression === "attempt") return stringifyTemplateValue(ctx.attempt ?? null);
+    const [group, key, extra] = expression.split(".");
+    if (extra || group !== "issue" || !key) throw new Error(`Unknown workflow template variable: ${expression}`);
+    if (!ctx.issue) throw new Error(`Workflow template variable requires issue context: ${expression}`);
+    if (!(key in ctx.issue)) throw new Error(`Unknown workflow template variable: ${expression}`);
+    return stringifyTemplateValue((ctx.issue as Record<string, unknown>)[key]);
   });
 }
 
@@ -84,26 +94,26 @@ export class WorkflowLoader {
 
   constructor(private readonly home: string) {}
 
-  async loadProjectWorkflow(input: { projectPath: string; issue?: LinearIssue; run?: Record<string, unknown>; allowStale?: boolean }): Promise<WorkflowSnapshot> {
+  async loadProjectWorkflow(input: { projectPath: string; issue?: LinearIssue; attempt?: number | null; allowStale?: boolean }): Promise<WorkflowSnapshot> {
     const workflowPath = path.join(input.projectPath, "WORKFLOW.md");
     try {
       const parsed = parse(await fs.readFile(workflowPath, "utf8"));
-      const body = input.issue || input.run ? render(parsed.body, { issue: input.issue, run: input.run }) : parsed.body;
+      const body = input.issue ? render(parsed.body, { issue: input.issue, attempt: input.attempt }) : parsed.body;
       const config = buildConfig(parsed.frontmatter, input.projectPath);
       const sha = crypto.createHash("sha256").update(JSON.stringify(parsed.frontmatter)).update(body).digest("hex");
       const snapshot = { path: workflowPath, projectPath: input.projectPath, sha, frontmatter: parsed.frontmatter, config, body };
-      if (!input.issue && !input.run) this.cache.set(input.projectPath, snapshot);
+      if (!input.issue) this.cache.set(input.projectPath, snapshot);
       return snapshot;
     } catch (error) {
       const cached = this.cache.get(input.projectPath);
       if (!input.allowStale || !cached) throw error;
-      return { ...cached, body: render(cached.body, { issue: input.issue, run: input.run }) };
+      return { ...cached, body: input.issue ? render(cached.body, { issue: input.issue, attempt: input.attempt }) : cached.body };
     }
   }
 
-  async resolve(input: { projectPath?: string; issue?: LinearIssue; run?: Record<string, unknown>; allowStale?: boolean } = {}): Promise<WorkflowSnapshot> {
+  async resolve(input: { projectPath?: string; issue?: LinearIssue; attempt?: number | null; allowStale?: boolean } = {}): Promise<WorkflowSnapshot> {
     if (!input.projectPath) throw new Error("projectPath required");
-    return this.loadProjectWorkflow({ projectPath: input.projectPath, issue: input.issue, run: input.run, allowStale: input.allowStale });
+    return this.loadProjectWorkflow({ projectPath: input.projectPath, issue: input.issue, attempt: input.attempt, allowStale: input.allowStale });
   }
 
   watch(projectPath: string, onChange: (event: { path: string; ok: boolean; error?: string }) => void): { close: () => void } {
