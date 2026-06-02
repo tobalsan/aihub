@@ -277,6 +277,9 @@ export class OrchestratorDaemon {
       if (!claim) continue;
       await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.project.id), exitCode: terminal.exitCode }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, run.project.id));
       this.runs.set(key, run);
+      if (terminal.status === "error") {
+        await this.park(this.clientFor(run.project, run.workflow), run.issue, run.workflow.config.tracker.needsHuman, `worker exited with error${terminal.exitCode === undefined ? "" : ` (exit ${terminal.exitCode})`}`);
+      }
       await this.release(run.project.id, run.issue.id, terminal.status === "done" ? "completed" : terminal.status);
       completed.add(key);
     }

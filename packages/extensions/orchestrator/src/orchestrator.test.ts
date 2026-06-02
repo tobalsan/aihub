@@ -295,6 +295,25 @@ describe("orchestrator daemon", () => {
     store.close();
   });
 
+  it("parks issue when subagent exits with error", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-error-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_error" })), getSubagentRun: vi.fn(async () => ({ status: "error", exitCode: 1 })), createLinearClient: () => client });
+    await daemon.start();
+    await daemon.tick();
+    await daemon.tick();
+    expect(client.commentCreate).toHaveBeenCalledWith("lin_1", "Orchestrator parked issue: worker exited with error (exit 1)");
+    expect(client.issueUpdateStateByName).toHaveBeenCalledWith("lin_1", "Needs Human");
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "error" });
+    await daemon.stop();
+    store.close();
+  });
+
   it("retries same issue with unique label and attempt", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-retry-"));
     await writeWorkflow(root);
