@@ -1,10 +1,10 @@
 import crypto from "node:crypto";
-import type { FSWatcher } from "node:fs";
 import path from "node:path";
 import { Hono } from "hono";
 import { z } from "zod";
 import type { Extension, ExtensionContext, ExtensionAgentTool } from "@aihub/shared";
 import { OrchestratorExtensionConfigSchema } from "@aihub/shared";
+import { interruptSubagentRun } from "@aihub/extension-subagents";
 import { LinearClient } from "./linear/client.js";
 import { WorkflowLoader } from "./workflow/loader.js";
 import { StateStore } from "./state/store.js";
@@ -12,19 +12,19 @@ import { ClaimsRegistry } from "./daemon/claims.js";
 import { OrchestratorDaemon } from "./daemon/daemon.js";
 import { exportLinear } from "./exporter/exporter.js";
 import { runHook } from "./hooks/runner.js";
-import { WorkspaceLayout, resolveWorkspacesRoot } from "./workspace/layout.js";
+import { WorkspaceLayout } from "./workspace/layout.js";
+import { resolveProjects } from "./projects/registry.js";
 
 let ctx: ExtensionContext | undefined;
-let client: LinearClient | undefined;
 let store: StateStore | undefined;
 let daemon: OrchestratorDaemon | undefined;
-let workflowWatch: FSWatcher | { close: () => void } | undefined;
+let sharedWorkflowLoader: WorkflowLoader | undefined;
 const claims = new ClaimsRegistry();
 
-function enabled(): boolean { return Boolean(process.env.LINEAR_API_KEY && client); }
+function enabled(): boolean { return Boolean(daemon); }
 function config(): z.infer<typeof OrchestratorExtensionConfigSchema> { return OrchestratorExtensionConfigSchema.parse(ctx?.getConfig().extensions?.orchestrator ?? {}); }
-function workflowLoader() { const cfg = config(); const repos = Object.fromEntries(Object.entries(cfg.repos ?? {}).map(([name, value]) => [name, typeof value === "string" ? { name, path: value } : { name, ...value }])); return new WorkflowLoader(ctx!.getDataDir(), repos); }
-function unavailable(c: any) { return c.json({ error: "orchestrator disabled: LINEAR_API_KEY missing" }, 503); }
+function workflowLoader() { return sharedWorkflowLoader ??= new WorkflowLoader(ctx!.getDataDir()); }
+function unavailable(c: any) { return c.json({ error: "orchestrator disabled" }, 503); }
 
 function apiBase(): string {
   return (process.env.AIHUB_API_URL ?? process.env.AIHUB_URL ?? "http://127.0.0.1:4000/api").replace(/\/$/, "");
@@ -41,12 +41,15 @@ async function startSubagent(body: Record<string, unknown>) {
   return callSubagents("/subagents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
 }
 
-async function getSubagentRun(runId: string) {
-  return callSubagents(`/subagents/${encodeURIComponent(runId)}`);
+async function getSubagentRun(runId: string) { return callSubagents(`/subagents/${encodeURIComponent(runId)}`); }
+async function stopSubagent(runId: string) { return callSubagents(`/subagents/${encodeURIComponent(runId)}`, { method: "DELETE" }); }
+async function stopSubagentDirect(runId: string) {
+  if (!ctx) throw new Error("orchestrator context missing");
+  return interruptSubagentRun({ dataDir: ctx.getDataDir(), emit: (event) => ctx?.emit("subagent.changed", event) }, runId);
 }
 
-function runSubagentId(id: string): string | undefined {
-  const row = store?.getRun(id);
+function runSubagentId(id: string, projectId?: string): string | undefined {
+  const row = store?.getRun(id, projectId);
   const value = row?.subagent_run_id;
   return typeof value === "string" && value ? value : undefined;
 }
@@ -55,24 +58,23 @@ async function runBeforeRemove(row: Record<string, unknown> | undefined) {
   if (!row || !store || !ctx) return;
   const workspace = typeof row.workspace === "string" ? row.workspace : undefined;
   const runId = typeof row.run_id === "string" ? row.run_id : undefined;
-  if (!workspace || !runId) return;
-  const repoName = typeof row.repo === "string" ? row.repo : undefined;
-  const workflow = await workflowLoader().resolve({ repo: repoName });
+  const projectPath = typeof row.workflow_path === "string" ? path.dirname(row.workflow_path) : undefined;
+  if (!workspace || !runId || !projectPath) return;
+  const workflow = await workflowLoader().resolve({ projectPath, allowStale: true });
   await runHook({
-    command: workflow.frontmatter.hooks?.before_remove,
+    command: workflow.config.hooks?.before_remove,
     phase: "before_remove",
     cwd: workspace,
     runId,
     store,
     env: {
+      AIHUB_PROJECT_ID: typeof row.project_id === "string" ? row.project_id : undefined,
       AIHUB_ISSUE_ID: typeof row.issue_id === "string" ? row.issue_id : undefined,
       AIHUB_ISSUE_IDENTIFIER: typeof row.identifier === "string" ? row.identifier : undefined,
       AIHUB_WORKSPACE: workspace,
-      AIHUB_REPO: repoName,
-      AIHUB_BRANCH: typeof row.branch === "string" ? row.branch : undefined,
       LINEAR_API_KEY: undefined,
     },
-  }).catch((error) => store?.appendEvent(runId, "hook.before_remove.error", { error: error instanceof Error ? error.message : String(error) }));
+  }).catch((error) => store?.appendEvent(runId, "hook.before_remove.error", { error: error instanceof Error ? error.message : String(error) }, typeof row.project_id === "string" ? row.project_id : undefined));
 }
 
 export function verifyWebhookSignature(secret: string, body: string, signature: string | undefined): boolean {
@@ -89,78 +91,95 @@ export function isRelevantWebhook(payload: unknown): boolean {
   const record = payload as Record<string, unknown>;
   const action = String(record.action ?? "").toLowerCase();
   const type = String(record.type ?? "").toLowerCase();
-  const data = record.data && typeof record.data === "object" ? record.data as Record<string, unknown> : record;
+  const data = record.data && typeof record.data === "object" ? dataSafe(record.data) : record;
   const hasIssue = Boolean(data.issue || data.issueId || data.identifier || data.id);
   const isIssueEvent = type.includes("issue") || action.includes("issue");
   const stateChanged = isIssueEvent && (action.includes("update") || action.includes("state") || "state" in data);
   const commentAdded = type.includes("comment") || action.includes("comment") || "comment" in data;
   return hasIssue && (stateChanged || commentAdded);
 }
+function dataSafe(value: object): Record<string, unknown> { return value as Record<string, unknown>; }
+
+async function projectDescriptors() {
+  if (!ctx) return [];
+  return resolveProjects({ paths: config().projects, dataDir: ctx.getDataDir() });
+}
 
 function register(app: Hono) {
-  app.get("/orchestrator/health", (c) => c.json({ status: enabled() ? "ok" : "disabled", lastTickAt: daemon?.lastTickAt, rateLimitRemaining: client?.rateLimitRemaining, activeClaims: claims.list().length }));
+  app.get("/orchestrator/health", (c) => c.json({ status: enabled() ? "ok" : "disabled", lastTickAt: daemon?.lastTickAt, activeClaims: claims.list().length }));
   app.use("/orchestrator/*", async (c, next) => {
     if (c.req.path.endsWith("/health")) return next();
     if (!enabled()) return unavailable(c);
     return next();
   });
-  app.get("/orchestrator/workflow", async (c) => c.json(await workflowLoader().resolve({ repo: c.req.query("repo") })));
+  app.get("/orchestrator/projects", async (c) => c.json({ items: await projectDescriptors() }));
+  app.get("/orchestrator/workflow", async (c) => {
+    const projectId = c.req.query("project");
+    const project = (await projectDescriptors()).find((item) => !projectId || item.id === projectId || item.path === projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    return c.json(await workflowLoader().resolve({ projectPath: project.path, allowStale: true }));
+  });
   app.get("/orchestrator/runs", (c) => {
     const issue = c.req.query("issue");
-    const active = claims.list().filter((claim) => !issue || claim.issueId === issue);
-    const recent = (store?.listRecent(Number(c.req.query("limit") ?? 50)) ?? []).filter((run: any) => !issue || run.issue_id === issue || run.issueId === issue);
+    const project = c.req.query("project");
+    const active = claims.list({ projectId: project }).filter((claim) => !issue || claim.issueId === issue);
+    const recent = (store?.listRecent(Number(c.req.query("limit") ?? 50), project) ?? []).filter((run: any) => !issue || run.issue_id === issue || run.issueId === issue);
     return c.json({ active, recent });
   });
   app.get("/orchestrator/runs/:id", (c) => {
     const id = c.req.param("id");
-    const run = store?.getRun(id);
+    const project = c.req.query("project");
+    const run = store?.getRun(id, project);
     const runId = typeof run?.run_id === "string" ? run.run_id : id;
-    return c.json({ claim: claims.get(id), run, events: store?.listEvents(runId, Number(c.req.query("since") ?? 0)) ?? [] });
+    return c.json({ claim: claims.get(id, project), run, events: store?.listEvents(runId, Number(c.req.query("since") ?? 0)) ?? [] });
   });
   app.get("/orchestrator/runs/:id/logs", async (c) => {
-    const subagentRunId = runSubagentId(c.req.param("id"));
+    const subagentRunId = runSubagentId(c.req.param("id"), c.req.query("project"));
     if (!subagentRunId) return c.json({ error: "subagent run not found" }, 404);
     const since = c.req.query("since") ?? "0";
     return c.json(await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}/logs?since=${encodeURIComponent(since)}`));
   });
-  app.post("/orchestrator/runs/:issueId/release", (c) => { const id = c.req.param("issueId"); claims.release(id); store?.release(id); return c.json({ ok: true }); });
+  app.post("/orchestrator/runs/:issueId/release", (c) => { const id = c.req.param("issueId"); const project = c.req.query("project"); claims.release(id, project); store?.release(id, project); return c.json({ ok: true }); });
   app.post("/orchestrator/runs/:id/interrupt", async (c) => {
-    const subagentRunId = runSubagentId(c.req.param("id"));
+    const subagentRunId = runSubagentId(c.req.param("id"), c.req.query("project"));
     if (!subagentRunId) return c.json({ error: "subagent run not found" }, 404);
     return c.json(await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}/interrupt`, { method: "POST" }));
   });
   app.post("/orchestrator/runs/:id/kill", async (c) => {
     const id = c.req.param("id");
-    const row = store?.getRun(id);
-    const subagentRunId = runSubagentId(id);
-    if (subagentRunId) await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}`, { method: "DELETE" });
+    const project = c.req.query("project");
+    const row = store?.getRun(id, project);
+    const subagentRunId = runSubagentId(id, project);
+    if (subagentRunId) await stopSubagent(subagentRunId).catch(() => undefined);
     await runBeforeRemove(row);
     const identifier = typeof row?.identifier === "string" ? row.identifier : undefined;
-    if (identifier) {
-      const repoName = typeof row?.repo === "string" ? row.repo : undefined;
-      const repos = config().repos ?? {};
-      const repoConfig = repoName && repos[repoName]
-        ? typeof repos[repoName] === "string"
-          ? { name: repoName, path: repos[repoName] }
-          : { name: repoName, ...repos[repoName] }
-        : null;
-      await new WorkspaceLayout(resolveWorkspacesRoot({ configured: config().workspacesRoot, dataDir: ctx!.getDataDir() })).remove({ identifier, repo: repoConfig }).catch(() => undefined);
+    const workflowPath = typeof row?.workflow_path === "string" ? row.workflow_path : undefined;
+    if (identifier && workflowPath) {
+      const workflow = await workflowLoader().resolve({ projectPath: path.dirname(workflowPath), allowStale: true });
+      await new WorkspaceLayout(workflow.config.workspace.root).remove({ identifier }).catch(() => undefined);
     }
-    claims.release(String(row?.issue_id ?? id));
-    store?.release(String(row?.issue_id ?? id));
+    claims.release(String(row?.issue_id ?? id), typeof row?.project_id === "string" ? row.project_id : project);
+    store?.release(String(row?.issue_id ?? id), typeof row?.project_id === "string" ? row.project_id : project);
     return c.json({ ok: true });
   });
   app.post("/orchestrator/issues/:issueId/claim", async (c) => {
     if (!daemon) return c.json({ error: "orchestrator daemon not started" }, 503);
-    const result = await daemon.claimNow(c.req.param("issueId"));
+    const result = await daemon.claimNow(c.req.param("issueId"), c.req.query("project"));
     if (!result.ok) return c.json({ error: result.error }, result.status as 400 | 404 | 409 | 503);
     return c.json(result, 201);
   });
-  app.post("/orchestrator/export", async (c) => { const cfg = config(); const teamKey = c.req.query("team") ?? cfg.teamKey; if (!teamKey) return c.json({ error: "teamKey required" }, 400); return c.json(await exportLinear({ client: client!, teamKey, outDir: c.req.query("out") ?? path.join(ctx!.getDataDir(), "exports", "linear") })); });
+  app.post("/orchestrator/export", async (c) => {
+    const projectId = c.req.query("project");
+    const project = (await projectDescriptors()).find((item) => !projectId || item.id === projectId || item.path === projectId);
+    if (!project) return c.json({ error: "project not found" }, 404);
+    const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true });
+    const client = new LinearClient(workflow.config.tracker.apiKey, workflow.config.tracker.endpoint);
+    return c.json(await exportLinear({ client, projectSlug: workflow.config.tracker.projectSlug, outDir: c.req.query("out") ?? path.join(ctx!.getDataDir(), "exports", "linear", project.id) }));
+  });
   app.post("/orchestrator/tick", async (c) => {
     if (!enabled()) return unavailable(c);
     if (!daemon) return c.json({ error: "orchestrator daemon not started" }, 503);
-    return c.json({ ok: true, ...(await daemon.tick()) });
+    return c.json({ ok: true, ...(await daemon.tick(c.req.query("project"))) });
   });
   app.post("/orchestrator/webhook", async (c) => {
     const webhook = config().webhook;
@@ -187,32 +206,23 @@ export const orchestratorExtension: Extension = {
   registerRoutes: register,
   async start(context) {
     ctx = context;
-    if (process.env.LINEAR_API_KEY) client = new LinearClient(process.env.LINEAR_API_KEY);
+    sharedWorkflowLoader = new WorkflowLoader(context.getDataDir());
     store = new StateStore(path.join(context.getDataDir(), "orchestrator", "state.db"));
     store.bootstrap();
     store.heartbeat();
-    await workflowLoader().ensureDefault();
-    workflowWatch = workflowLoader().watch((event) => context.emit("orchestrator.workflow.changed", event));
-    if (client) {
-      daemon = new OrchestratorDaemon({ ctx: context, client, store, claims, getConfig: config, startSubagent, getSubagentRun });
-      try {
-        await daemon.start();
-      } catch (error) {
-        daemon.notifyStartupError(error);
-        throw error;
-      }
-    }
+    daemon = new OrchestratorDaemon({ ctx: context, store, claims, getConfig: config, startSubagent, getSubagentRun, stopSubagent: stopSubagentDirect, workflowLoader: sharedWorkflowLoader, createLinearClient: ({ apiKey, endpoint }) => new LinearClient(apiKey, endpoint) });
+    try { await daemon.start(); } catch (error) { daemon.notifyStartupError(error); throw error; }
   },
-  async stop() { daemon?.stop(); workflowWatch?.close(); store?.markActiveProcessStopped(); store?.close(); ctx = undefined; client = undefined; store = undefined; daemon = undefined; workflowWatch = undefined; },
+  async stop() { await daemon?.stop(); store?.close(); ctx = undefined; store = undefined; daemon = undefined; sharedWorkflowLoader = undefined; },
   capabilities() { return ["orchestrator"]; },
-  getAgentTools(): ExtensionAgentTool[] { if (!client || config().linear?.exposeGraphqlTool === false) return []; return [{ name: "orchestrator.linear_graphql", description: "Execute Linear GraphQL using daemon-held auth", parameters: { type: "object", properties: { query: { type: "string" }, variables: { type: "object" } }, required: ["query"] }, execute: async (args) => { const parsed = z.object({ query: z.string(), variables: z.record(z.unknown()).optional() }).parse(args); try { return await client!.graphql(parsed.query, parsed.variables); } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; } } }]; },
+  getAgentTools(): ExtensionAgentTool[] { if (config().linear?.exposeGraphqlTool === false) return []; return [{ name: "orchestrator.linear_graphql", description: "Execute Linear GraphQL using workflow auth. Project is required so calls use the owning project endpoint/api_key.", parameters: { type: "object", properties: { project: { type: "string" }, query: { type: "string" }, variables: { type: "object" } }, required: ["project", "query"] }, execute: async (args) => { try { const parsed = z.object({ project: z.string(), query: z.string(), variables: z.record(z.unknown()).optional() }).parse(args); const project = (await projectDescriptors()).find((item) => item.id === parsed.project || item.path === parsed.project); if (!project) return { error: "project not found" }; const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true }); return await new LinearClient(workflow.config.tracker.apiKey, workflow.config.tracker.endpoint).graphql(parsed.query, parsed.variables); } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; } } }]; },
 };
 
 export { registerOrchestratorCommands } from "./cli/index.js";
 export { LinearClient } from "./linear/client.js";
 export { WorkflowLoader } from "./workflow/loader.js";
-export { resolveRepo } from "./repo/resolver.js";
-export { WorkspaceLayout, resolveWorkspacesRoot, sanitizeIdentifier } from "./workspace/layout.js";
+export { resolveProjects, InvalidProjectsError } from "./projects/registry.js";
+export { WorkspaceLayout, sanitizeIdentifier } from "./workspace/layout.js";
 export { resolveProfile } from "./profile/resolver.js";
 export { ConcurrencyLimiter } from "./concurrency/limiter.js";
 export { ClaimsRegistry } from "./daemon/claims.js";

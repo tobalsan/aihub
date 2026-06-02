@@ -46,15 +46,16 @@ export class OrchestratorApiClient {
   }
 
   health() { return this.request("/health"); }
-  runs(limit?: number, issue?: string) { return this.request("/runs", { query: { limit, issue } }); }
-  run(issueId: string) { return this.request(`/runs/${encodeURIComponent(issueId)}`); }
-  logs(issueId: string, since?: number, follow?: boolean) { return this.request(`/runs/${encodeURIComponent(issueId)}/logs`, { query: { since, follow }, raw: true }) as Promise<Response>; }
-  workflow(repo?: string) { return this.request("/workflow", { query: { repo } }); }
-  claim(issueId: string) { return this.request(`/issues/${encodeURIComponent(issueId)}/claim`, { method: "POST" }); }
-  release(issueId: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/release`, { method: "POST" }); }
-  interrupt(issueId: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/interrupt`, { method: "POST" }); }
-  kill(issueId: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/kill`, { method: "POST" }); }
-  export(team?: string, out?: string) { return this.request("/export", { method: "POST", query: { team, out } }); }
-  tick() { return this.request("/tick", { method: "POST" }); }
-  events(runId: string) { return this.request(`/runs/${encodeURIComponent(runId)}`); }
+  projects() { return this.request("/projects"); }
+  runs(limit?: number, issue?: string, project?: string) { return this.request("/runs", { query: { limit, issue, project } }); }
+  run(issueId: string, project?: string) { return this.request(`/runs/${encodeURIComponent(issueId)}`, { query: { project } }); }
+  logs(issueId: string, since?: number, follow?: boolean, project?: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/logs`, { query: { since, follow, project }, raw: true }) as Promise<Response>; }
+  workflow(project?: string) { return this.request("/workflow", { query: { project } }); }
+  claim(issueId: string, project?: string) { return this.request(`/issues/${encodeURIComponent(issueId)}/claim`, { method: "POST", query: { project } }); }
+  release(issueId: string, project?: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/release`, { method: "POST", query: { project } }); }
+  interrupt(issueId: string, project?: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/interrupt`, { method: "POST", query: { project } }); }
+  kill(issueId: string, project?: string) { return this.request(`/runs/${encodeURIComponent(issueId)}/kill`, { method: "POST", query: { project } }); }
+  export(project?: string, out?: string) { return this.request("/export", { method: "POST", query: { project, out } }); }
+  tick(project?: string) { return this.request("/tick", { method: "POST", query: { project } }); }
+  events(runId: string, project?: string) { return this.request(`/runs/${encodeURIComponent(runId)}`, { query: { project } }); }
 }

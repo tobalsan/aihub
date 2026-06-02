@@ -1,31 +1,29 @@
 ---
-title: "Orchestrator slice 03: RepoResolver + WorkspaceLayout (git worktree + no-repo fallback)"
+title: "Orchestrator slice 03: Project workspace layout"
 status: needs-triage
 type: AFK
-parent: docs/specs/orchestrator-extension-prd.md
+parent: docs/specs/orchestrator-symphony-alignment-prd.md
 ---
 
 ## Parent
 
-`docs/specs/orchestrator-extension-prd.md` — Orchestrator extension PRD.
+`docs/specs/orchestrator-symphony-alignment-prd.md` — Symphony-aligned project-scoped orchestrator.
 
 ## What to build
 
-Repo-aware workspaces. `RepoResolver` is a pure function over `(labels, config)` returning `{ name, path, baseBranch }`, `null` (no-repo), or `{ name, warning }` for multi-repo (pick first `repo:*` label alphabetically + emit warning event). `WorkspaceLayout` sanitizes the Linear identifier (strip non-`[A-Za-z0-9_-]`, lowercase), creates a git worktree at `extensions.orchestrator.workspacesRoot` (relative paths resolve under `$AIHUB_HOME`; default `$AIHUB_HOME/workspaces/<sanitized-identifier>/`) on branch `aihub/<sanitized-identifier>` from the resolved `baseBranch`, and tears it down on terminal when `workspace.cleanup_on_terminal=true`. Worktrees survive across runs by default (`workspace.reuse: true`). Issues with no `repo:*` label keep using no-repo mode (plain `mkdir -p`).
+Directory-only per-issue workspaces for configured projects. Each project supplies `WORKFLOW.md`; `workspace.root` resolves relative to that project folder and defaults to `./workspaces`. `WorkspaceLayout` sanitizes the Linear identifier and creates `<workspace.root>/<sanitized-identifier>/` as a plain directory. Core orchestration does not clone repos, create git worktrees, delete branches, or route by labels.
 
-The orchestrator dispatch path now: resolve repo → prepare workspace → start the `subagents` run with the workspace path as `cwd`. Concurrent issues against the same repo each get their own worktree on their own branch; no leases needed.
+Repo bootstrap, if needed, belongs in deterministic hooks/tooling or prompt instructions that keep all filesystem writes inside the issue workspace.
 
 ## Acceptance criteria
 
-- [ ] `RepoResolver` table-tested over (labels, config) inputs covering: matching `repo:<name>` label, no label + `defaultRepo` set, no label + no default (no-repo), multiple `repo:*` labels (first alphabetical + warning), label missing from config (warning, no-repo).
-- [ ] Identifier sanitizer strips characters outside `[A-Za-z0-9_-]` and lowercases the result (table-tested).
-- [ ] `WorkspaceLayout.create({ identifier, repo, baseBranch })` runs `git worktree add -b aihub/<sanitized-id> <workspaceDir> <baseBranch>` and returns the workspace path.
-- [ ] Re-creating a workspace for the same identifier is idempotent (reuses the existing worktree when present).
-- [ ] `WorkspaceLayout.remove({ identifier })` removes the worktree and deletes the branch; succeeds even when the worktree is already gone.
-- [ ] No-repo mode produces a plain directory with no `.git`.
-- [ ] Dispatcher passes the resolved workspace path to the `subagents` run as `cwd`.
-- [ ] Smoke: a Linear issue labeled `repo:aihub` in `Todo` produces a worktree at the configured workspaces root checked out on `aihub/<id>`; `git -C ~/code/aihub worktree list` shows it; agent commits land on that branch.
+- [ ] `WorkspaceLayout.create({ identifier })` creates a plain directory under workflow `workspace.root` and returns `{ path, created }`.
+- [ ] Re-creating a workspace for the same identifier is idempotent and returns `created: false`.
+- [ ] `WorkspaceLayout.remove({ identifier })` removes only the per-issue directory and refuses paths escaping the workspace root.
+- [ ] No git command is invoked by core workspace layout.
+- [ ] Dispatcher passes the resolved issue workspace path to the `subagents` run as `cwd`.
+- [ ] Smoke: a Linear issue in a configured project creates `$PROJECT/workspaces/<id>/` unless workflow `workspace.root` overrides it.
 
 ## Blocked by
 
-- Slice 02 (WorkflowLoader).
+Slice 02 workflow loading and project registry.

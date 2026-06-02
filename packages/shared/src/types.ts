@@ -615,28 +615,19 @@ export type SessionsExtensionConfig = z.infer<
 
 export const OrchestratorExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
-  teamKey: z.string().optional(),
-  repos: z
-    .record(
-      z.union([
-        z.string(),
-        z.object({
-          path: z.string(),
-          baseBranch: z.string().optional(),
-        }),
-      ])
-    )
-    .optional()
-    .default({}),
-  defaultRepo: z.string().optional(),
-  workspacesRoot: z.string().optional(),
-  poll: z
+  projects: z.array(z.string()).optional().default([]),
+  concurrency: z
     .object({
-      intervalMs: z.number().positive().optional(),
-      jitterMs: z.number().nonnegative().optional(),
+      global: z.number().int().positive().optional(),
     })
     .optional()
     .default({}),
+  validation: z
+    .object({
+      strict: z.boolean().optional().default(true),
+    })
+    .optional()
+    .default({ strict: true }),
   notifyChannel: z.string().optional(),
   linear: z
     .object({

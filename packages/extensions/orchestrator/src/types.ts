@@ -7,11 +7,36 @@ export type LinearIssue = {
   state: string;
   labels: string[];
   projectName?: string | null;
+  projectSlug?: string | null;
   parentId?: string | null;
+};
+
+export type TrackerConfig = {
+  kind: "linear";
+  endpoint: string;
+  apiKey: string;
+  projectSlug: string;
+  activeStates: string[];
+  terminalStates: string[];
+  needsHuman: string;
+  inProgressTarget?: string;
+};
+
+export type WorkspaceConfig = {
+  root: string;
+  cleanupOnTerminal: boolean;
+  reuse: boolean;
 };
 
 export type WorkflowFrontmatter = {
   tracker?: {
+    kind?: string;
+    endpoint?: string;
+    api_key?: string;
+    project_slug?: string;
+    active_states?: string[];
+    terminal_states?: string[];
+    needs_human?: string;
     states?: {
       active?: string[];
       terminal?: string[];
@@ -20,7 +45,7 @@ export type WorkflowFrontmatter = {
     };
   };
   polling?: { interval_ms?: number; jitter_ms?: number };
-  workspace?: { cleanup_on_terminal?: boolean; reuse?: boolean };
+  workspace?: { root?: string; cleanup_on_terminal?: boolean; reuse?: boolean };
   agent?: {
     profile?: string;
     max_turns?: number;
@@ -34,11 +59,23 @@ export type WorkflowFrontmatter = {
   [key: string]: unknown;
 };
 
+export type WorkflowConfig = {
+  tracker: TrackerConfig;
+  workspace: WorkspaceConfig;
+  polling: { intervalMs: number; jitterMs: number };
+  agent: NonNullable<WorkflowFrontmatter["agent"]>;
+  hooks: WorkflowFrontmatter["hooks"];
+  server: WorkflowFrontmatter["server"];
+  linear: WorkflowFrontmatter["linear"];
+};
+
 export type WorkflowSnapshot = {
   path: string;
+  projectPath: string;
   sha: string;
   frontmatter: WorkflowFrontmatter;
+  config: WorkflowConfig;
   body: string;
 };
 
-export type RepoConfig = { name: string; path: string; baseBranch?: string };
+export type ProjectDescriptor = { id: string; path: string; workflowPath: string };

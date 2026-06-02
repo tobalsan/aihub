@@ -1,66 +1,46 @@
-import path from "node:path";
 import type { ExtensionContext, SubagentRuntimeProfile } from "@aihub/shared";
 import { notify } from "@aihub/shared";
 import type { LinearClient } from "../linear/client.js";
 import type { StateStore } from "../state/store.js";
-import type { LinearIssue, RepoConfig, WorkflowFrontmatter } from "../types.js";
+import type { LinearIssue, ProjectDescriptor, WorkflowSnapshot } from "../types.js";
 import { ClaimsRegistry } from "./claims.js";
 import { ConcurrencyLimiter } from "../concurrency/limiter.js";
-import { resolveRepo } from "../repo/resolver.js";
 import { resolveProfile } from "../profile/resolver.js";
 import { RetryPolicy } from "../retry/policy.js";
-import { WorkspaceLayout, resolveWorkspacesRoot } from "../workspace/layout.js";
+import { WorkspaceLayout } from "../workspace/layout.js";
 import { WorkflowLoader } from "../workflow/loader.js";
 import { runHook } from "../hooks/runner.js";
 import { createHitlBurstBuffer } from "../notifications/hitl.js";
+import { resolveProjects } from "../projects/registry.js";
 
 export type OrchestratorConfig = {
-  teamKey?: string;
-  repos?: Record<string, string | { path: string; baseBranch?: string }>;
-  defaultRepo?: string;
-  poll?: { intervalMs?: number; jitterMs?: number };
+  projects?: string[];
+  concurrency?: { global?: number };
+  validation?: { strict?: boolean };
   notifyChannel?: string;
-  workspacesRoot?: string;
 };
 
 export type SubagentStarter = (body: Record<string, unknown>) => Promise<unknown>;
 export type SubagentStatusReader = (runId: string) => Promise<unknown>;
 export type OrchestratorNotifier = (message: string) => Promise<void>;
+export type LinearClientFactory = (input: { apiKey: string; endpoint: string; project: ProjectDescriptor }) => LinearClient;
 
 type RunMeta = {
+  project: ProjectDescriptor;
   issue: LinearIssue;
-  repo: RepoConfig | null;
   workspace: string;
-  branch?: string;
   subagentRunId?: string;
-  workflow: WorkflowFrontmatter;
+  workflow: WorkflowSnapshot;
   afterRunFired?: boolean;
 };
-
-function workflowStates(workflow?: WorkflowFrontmatter) {
-  return {
-    active: workflow?.tracker?.states?.active ?? ["Todo", "In Progress"],
-    terminal: workflow?.tracker?.states?.terminal ?? ["Done", "Canceled"],
-    needsHuman: workflow?.tracker?.states?.needs_human ?? "Needs Human",
-  };
-}
-
-function reposForLoader(config: OrchestratorConfig): Record<string, RepoConfig> {
-  return Object.fromEntries(
-    Object.entries(config.repos ?? {}).map(([name, value]) => [
-      name,
-      typeof value === "string" ? { name, path: value } : { name, ...value },
-    ])
-  );
-}
 
 function profileList(ctx: ExtensionContext): SubagentRuntimeProfile[] {
   const raw = ctx.getConfig().extensions?.subagents;
   return raw?.profiles ?? [];
 }
 
-function promptFor(issue: LinearIssue, body: string): string {
-  return `${body.trim()}\n\n## Linear issue\n${issue.identifier}: ${issue.title}\n\n${issue.description ?? ""}\n${issue.url ? `\n${issue.url}\n` : ""}`.trim();
+function promptFor(project: ProjectDescriptor, issue: LinearIssue, body: string): string {
+  return `${body.trim()}\n\n## Orchestrator context\nProject: ${project.id}\nLinear GraphQL tool calls must pass project: ${project.id}\n\n## Linear issue\n${issue.identifier}: ${issue.title}\n\n${issue.description ?? ""}\n${issue.url ? `\n${issue.url}\n` : ""}`.trim();
 }
 
 function subagentTerminalStatus(status: unknown): { exitCode?: number } | undefined {
@@ -68,62 +48,63 @@ function subagentTerminalStatus(status: unknown): { exitCode?: number } | undefi
   const record = status as Record<string, unknown>;
   const value = record.status;
   if (value !== "done" && value !== "error" && value !== "interrupted") return undefined;
-  const exitCode = typeof record.exitCode === "number" ? record.exitCode : undefined;
-  return { exitCode };
-}
-
-function subagentIsActive(status: unknown): boolean {
-  if (!status || typeof status !== "object") return false;
-  const value = (status as Record<string, unknown>).status;
-  return value === "running" || value === "queued" || value === "starting";
-}
-
-function readString(row: Record<string, unknown>, key: string): string | undefined {
-  const value = row[key];
-  return typeof value === "string" && value ? value : undefined;
+  return { exitCode: typeof record.exitCode === "number" ? record.exitCode : undefined };
 }
 
 export class OrchestratorDaemon {
-  private timer: NodeJS.Timeout | undefined;
+  private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly runs = new Map<string, RunMeta>();
   private readonly retry = new RetryPolicy();
-  private limiter = new ConcurrencyLimiter(3);
   private tickRunning = false;
   private tickPending = false;
+  private readonly pendingProjectTicks = new Set<string | undefined>();
   private readonly hitl = createHitlBurstBuffer({ flush: async (messages) => this.flushHitl(messages) });
+  private projects: ProjectDescriptor[] = [];
+  private watchers: Array<{ close: () => void }> = [];
+  private readonly workflowLoader: WorkflowLoader;
   lastTickAt: string | undefined;
 
   constructor(
     private readonly deps: {
       ctx: ExtensionContext;
-      client: LinearClient;
+      client?: LinearClient;
       store: StateStore;
       claims: ClaimsRegistry;
       getConfig: () => OrchestratorConfig;
       startSubagent: SubagentStarter;
       getSubagentRun?: SubagentStatusReader;
+      createLinearClient?: LinearClientFactory;
+      stopSubagent?: (runId: string) => Promise<unknown>;
       notify?: OrchestratorNotifier;
+      workflowLoader?: WorkflowLoader;
     }
-  ) {}
+  ) {
+    this.workflowLoader = this.deps.workflowLoader ?? new WorkflowLoader(this.deps.ctx.getDataDir());
+  }
 
   async start(): Promise<void> {
-    await this.loader().ensureDefault();
-    await this.reattachOpenRuns();
-    this.deps.store.markOrphaned();
-    this.schedule();
+    this.projects = await resolveProjects({ paths: this.deps.getConfig().projects ?? [], dataDir: this.deps.ctx.getDataDir() });
+    await this.validateProjectSlugs();
+    await this.stopStaleOwnedWorkers();
+    this.deps.store.markOpenRunsInterrupted("interrupted_gateway_restart");
+    const loader = this.loader();
+    this.watchers = this.projects.map((project) => loader.watch(project.path, (event) => this.deps.ctx.emit("orchestrator.workflow.changed", { project: project.id, ...event })));
+    for (const project of this.projects) await this.scheduleProject(project);
   }
 
-  stop(): void {
-    if (this.timer) clearTimeout(this.timer);
-    this.timer = undefined;
-    void this.hitl.flush();
+  async stop(): Promise<void> {
+    for (const timer of this.timers.values()) clearTimeout(timer);
+    this.timers.clear();
+    for (const run of this.runs.values()) if (run.subagentRunId) await this.deps.stopSubagent?.(run.subagentRunId).catch(() => undefined);
+    for (const watcher of this.watchers) watcher.close();
+    this.watchers = [];
+    this.deps.store.markActiveProcessStopped();
+    await this.hitl.flush();
   }
 
-  enqueueTick(): void {
-    if (this.tickRunning) {
-      this.tickPending = true;
-      return;
-    }
+  enqueueTick(projectId?: string): void {
+    this.pendingProjectTicks.add(projectId);
+    if (this.tickRunning) { this.tickPending = true; return; }
     void this.runQueuedTick();
   }
 
@@ -132,341 +113,212 @@ export class OrchestratorDaemon {
     try {
       do {
         this.tickPending = false;
-        await this.tick();
-      } while (this.tickPending);
-    } finally {
-      this.tickRunning = false;
+        const projectIds = [...this.pendingProjectTicks];
+        this.pendingProjectTicks.clear();
+        if (projectIds.includes(undefined)) await this.tick();
+        else for (const projectId of projectIds) await this.tick(projectId);
+      } while (this.tickPending || this.pendingProjectTicks.size > 0);
+    } finally { this.tickRunning = false; }
+  }
+
+  private loader(): WorkflowLoader { return this.workflowLoader; }
+
+  private async validateProjectSlugs(): Promise<void> {
+    const seen = new Map<string, string>();
+    for (const project of this.projects) {
+      const workflow = await this.loader().loadProjectWorkflow({ projectPath: project.path });
+      const existing = seen.get(workflow.config.tracker.projectSlug);
+      if (existing) throw new Error(`duplicate tracker.project_slug ${workflow.config.tracker.projectSlug}: ${existing}, ${project.id}`);
+      seen.set(workflow.config.tracker.projectSlug, project.id);
     }
   }
 
-  private loader(): WorkflowLoader {
-    return new WorkflowLoader(this.deps.ctx.getDataDir(), reposForLoader(this.deps.getConfig()));
-  }
-
-  private workspacesRoot(): string {
-    return resolveWorkspacesRoot({ configured: this.deps.getConfig().workspacesRoot, dataDir: this.deps.ctx.getDataDir() });
-  }
-
-  private async reattachOpenRuns(): Promise<void> {
-    for (const row of this.deps.store.listOpenRuns()) await this.reattachRowIfActive(row);
-  }
-
-  private async reattachIssueIfActive(issueId: string): Promise<boolean> {
-    const claim = this.deps.claims.get(issueId);
-    if (claim) return true;
-    const row = this.deps.store.getOpenRunByIssue(issueId);
-    return row ? this.reattachRowIfActive(row) : false;
-  }
-
-  private async reattachRowIfActive(row: Record<string, unknown>): Promise<boolean> {
-    if (!this.deps.getSubagentRun) return false;
-    const runId = readString(row, "run_id");
-    const issueId = readString(row, "issue_id");
-    const subagentRunId = readString(row, "subagent_run_id");
-    if (!runId || !issueId) return false;
-    if (!subagentRunId) {
-      this.deps.store.finishRun(runId, "orphaned");
-      this.deps.store.release(issueId);
-      return false;
+  private async stopStaleOwnedWorkers(): Promise<void> {
+    for (const row of this.deps.store.listOpenRuns()) {
+      const subagentRunId = typeof row.subagent_run_id === "string" ? row.subagent_run_id : undefined;
+      if (subagentRunId) await this.deps.stopSubagent?.(subagentRunId).catch(() => undefined);
+      const pid = typeof row.pid === "number" ? row.pid : undefined;
+      if (pid && pid > 0 && pid !== process.pid) {
+        try { process.kill(pid, "SIGTERM"); } catch {}
+      }
     }
-    const status = await this.deps.getSubagentRun(subagentRunId).catch(() => undefined);
-    if (!subagentIsActive(status)) {
-      const terminal = subagentTerminalStatus(status);
-      this.deps.store.appendEvent(runId, "subagent.inactive_on_startup", status ?? { missing: true });
-      this.deps.store.finishRun(runId, terminal ? "subagent_finished" : "orphaned", terminal?.exitCode);
-      this.deps.store.release(issueId);
-      return false;
-    }
-    const identifier = readString(row, "identifier") ?? issueId;
-    const issue = (await this.deps.client.getIssue(identifier).catch(() => undefined)) ?? {
-      id: issueId,
-      identifier,
-      title: identifier,
-      state: "",
-      labels: [],
-    };
-    const repoName = readString(row, "repo");
-    const repo = repoName ? reposForLoader(this.deps.getConfig())[repoName] ?? null : null;
-    const workflow = await this.loader().resolve({ repo: repo?.name, issue });
-    await this.deps.claims.tryClaim(issueId, runId);
-    this.runs.set(issueId, {
-      issue,
-      repo,
-      workspace: readString(row, "workspace") ?? this.workspacesRoot(),
-      branch: readString(row, "branch"),
-      subagentRunId,
-      workflow: workflow.frontmatter,
-    });
-    this.deps.store.appendEvent(runId, "run.reattached", { subagentRunId });
-    return true;
   }
 
-  private schedule(): void {
-    const cfg = this.deps.getConfig();
-    const delay = cfg.poll?.intervalMs ?? 30_000;
-    const jitter = cfg.poll?.jitterMs ?? 5_000;
+  private async scheduleProject(project: ProjectDescriptor): Promise<void> {
+    const workflow = await this.loader().loadProjectWorkflow({ projectPath: project.path, allowStale: true });
+    const delay = workflow.config.polling.intervalMs;
+    const jitter = workflow.config.polling.jitterMs;
     const next = Math.max(1_000, delay + Math.floor((Math.random() * 2 - 1) * jitter));
-    this.timer = setTimeout(() => void this.tick().finally(() => this.schedule()), next);
+    const previous = this.timers.get(project.id);
+    if (previous) clearTimeout(previous);
+    this.timers.set(project.id, setTimeout(() => { this.enqueueTick(project.id); void this.scheduleProject(project); }, next));
   }
 
-  async claimNow(idOrIdentifier: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
-    const existing = this.deps.claims.get(idOrIdentifier);
-    if (existing) return { ok: false, status: 409, error: "issue already claimed" };
-    const issue = await this.deps.client.getIssue(idOrIdentifier);
-    if (!issue) return { ok: false, status: 404, error: "issue not found" };
-    if (this.deps.claims.get(issue.id)) return { ok: false, status: 409, error: "issue already claimed" };
-    const dispatched = await this.dispatch(issue);
-    if (!dispatched && this.deps.claims.get(issue.id)) {
-      return { ok: false, status: 409, error: "issue already claimed" };
+  async claimNow(idOrIdentifier: string, projectId?: string): Promise<{ ok: true } | { ok: false; status: number; error: string }> {
+    const targets = projectId ? this.projects.filter((project) => project.id === projectId || project.path === projectId) : this.projects;
+    for (const project of targets) {
+      const workflow = await this.loader().loadProjectWorkflow({ projectPath: project.path, allowStale: true });
+      const client = this.clientFor(project, workflow);
+      const issue = await client.getIssue(idOrIdentifier).catch(() => undefined);
+      if (!issue) continue;
+      if (issue.projectSlug && issue.projectSlug !== workflow.config.tracker.projectSlug) continue;
+      if (this.deps.claims.get(issue.id, project.id)) return { ok: false, status: 409, error: "issue already claimed" };
+      return (await this.dispatch(project, workflow, issue, client)) ? { ok: true } : { ok: false, status: 409, error: "issue was not dispatched" };
     }
-    return dispatched
-      ? { ok: true }
-      : { ok: false, status: 409, error: "issue was not dispatched" };
+    return { ok: false, status: 404, error: "issue not found" };
   }
 
-  async tick(): Promise<{ dispatched: number; skipped: number; released: number }> {
+  async tick(projectId?: string): Promise<{ dispatched: number; skipped: number; released: number }> {
     this.lastTickAt = new Date().toISOString();
     this.deps.store.heartbeat();
     await this.observeSubagentCompletions();
     await this.detectStalls();
 
-    const fallback = await this.loader().resolve();
-    const states = workflowStates(fallback.frontmatter);
-    const cfg = this.deps.getConfig();
-    if (!cfg.teamKey) return { dispatched: 0, skipped: 0, released: 0 };
-
-    const issues = await this.deps.client.pollIssues({
-      teamKey: cfg.teamKey,
-      activeStates: [...new Set([...states.active, ...states.terminal, states.needsHuman])],
-    });
-
     let dispatched = 0;
     let skipped = 0;
     let released = 0;
-    const max = fallback.frontmatter.agent?.max_concurrent ?? 3;
-    this.limiter = new ConcurrencyLimiter(max);
-    for (const claim of this.deps.claims.list()) this.limiter.tryReserve({ issueId: claim.issueId });
+    const projects = projectId ? this.projects.filter((project) => project.id === projectId || project.path === projectId) : this.projects;
+    const globalLimiter = new ConcurrencyLimiter(this.deps.getConfig().concurrency?.global ?? 3);
+    for (const claim of this.deps.claims.list()) globalLimiter.tryReserve({ issueId: claim.issueId });
 
-    for (const issue of issues) {
-      const claim = this.deps.claims.get(issue.id);
-      if (claim && states.terminal.includes(issue.state)) {
-        await this.release(issue.id, "terminal");
-        released += 1;
-        continue;
+    for (const project of projects) {
+      const workflow = await this.loader().loadProjectWorkflow({ projectPath: project.path, allowStale: true });
+      const client = this.clientFor(project, workflow);
+      const states = workflow.config.tracker;
+      const issues = await client.pollIssues({ projectSlug: states.projectSlug, activeStates: [...new Set([...states.activeStates, ...states.terminalStates, states.needsHuman])] });
+      const projectLimiter = new ConcurrencyLimiter(workflow.config.agent.max_concurrent ?? 3);
+      for (const claim of this.deps.claims.list({ projectId: project.id })) projectLimiter.tryReserve({ issueId: claim.issueId });
+
+      for (const issue of issues) {
+        const claim = this.deps.claims.get(issue.id, project.id);
+        if (claim && states.terminalStates.includes(issue.state)) { await this.release(project.id, issue.id, "terminal"); released += 1; continue; }
+        if (!states.activeStates.includes(issue.state) || claim) { skipped += 1; continue; }
+        const next = this.retry.nextAttempt(`${project.id}:${issue.id}`, "dispatch");
+        if (next && next > Date.now()) { skipped += 1; continue; }
+        const global = globalLimiter.tryReserve({ issueId: issue.id });
+        const local = projectLimiter.tryReserve({ issueId: issue.id });
+        if (!global.ok || !local.ok) { if (global.ok) global.release(); if (local.ok) local.release(); skipped += 1; continue; }
+        const ok = await this.dispatch(project, workflow, issue, client);
+        if (ok) dispatched += 1; else { global.release(); local.release(); skipped += 1; }
       }
-      if (!states.active.includes(issue.state) || claim) {
-        skipped += 1;
-        continue;
-      }
-      const next = this.retry.nextAttempt(issue.id, "dispatch");
-      if (next && next > Date.now()) {
-        skipped += 1;
-        continue;
-      }
-      const ok = await this.dispatch(issue);
-      if (ok) dispatched += 1;
-      else skipped += 1;
     }
     return { dispatched, skipped, released };
   }
 
-  private async dispatch(issue: LinearIssue): Promise<boolean> {
-    if (await this.reattachIssueIfActive(issue.id)) return false;
-    const cfg = this.deps.getConfig();
-    const repoResolution = resolveRepo({ labels: issue.labels, repos: cfg.repos, defaultRepo: cfg.defaultRepo });
-    const workflow = await this.loader().resolve({ repo: repoResolution.repo?.name, issue });
-    const states = workflowStates(workflow.frontmatter);
-    if (repoResolution.warning) this.deps.ctx.emit("orchestrator.run.event", { issueId: issue.id, type: "warning", message: repoResolution.warning });
+  private clientFor(project: ProjectDescriptor, workflow: WorkflowSnapshot): LinearClient {
+    return this.deps.createLinearClient?.({ apiKey: workflow.config.tracker.apiKey, endpoint: workflow.config.tracker.endpoint, project }) ?? this.deps.client!;
+  }
 
-    const profile = resolveProfile({ workflow: workflow.frontmatter, profilesConfig: profileList(this.deps.ctx) });
-    if ("park" in profile) {
-      await this.park(issue, states.needsHuman, profile.park.reason);
-      return false;
-    }
-
-    const reservation = this.limiter.tryReserve({ issueId: issue.id, profile: profile.profile.name, repo: repoResolution.repo?.name });
-    if (!reservation.ok) return false;
-
-    const runId = `orchestrator:${issue.id}:${Date.now()}`;
-    const claim = await this.deps.claims.tryClaim(issue.id, runId);
-    if (!claim) {
-      reservation.release();
-      return false;
-    }
-
+  private async dispatch(project: ProjectDescriptor, workflow: WorkflowSnapshot, issue: LinearIssue, client: LinearClient): Promise<boolean> {
+    if (this.deps.claims.get(issue.id)) return false;
+    const resolvedWorkflow = await this.loader().loadProjectWorkflow({ projectPath: project.path, issue, allowStale: true });
+    const profile = resolveProfile({ workflow: resolvedWorkflow.frontmatter, profilesConfig: profileList(this.deps.ctx) });
+    if ("park" in profile) { await this.park(client, issue, resolvedWorkflow.config.tracker.needsHuman, profile.park.reason); return false; }
+    const runId = `orchestrator:${project.id}:${issue.id}:${Date.now()}`;
+    const claim = await this.deps.claims.tryClaim(issue.id, runId, project.id);
+    if (!claim) return false;
     try {
-      const layout = new WorkspaceLayout(this.workspacesRoot());
-      const workspace = await layout.create({ identifier: issue.identifier, repo: repoResolution.repo });
-      const env = this.hookEnv(issue, workspace.path, repoResolution.repo, workspace.branch);
-      this.deps.store.claim(issue.id, runId);
-      this.deps.store.insertRun({
-        runId,
-        issueId: issue.id,
-        identifier: issue.identifier,
-        workspace: workspace.path,
-        repo: repoResolution.repo?.name ?? null,
-        branch: workspace.branch ?? null,
-        profileJson: JSON.stringify(profile.profile),
-        workflowPath: workflow.path,
-        workflowSha: workflow.sha,
-        pid: null,
-        startedAt: new Date().toISOString(),
-      });
-      this.deps.store.appendEvent(runId, "run.claimed", { issueId: issue.id, identifier: issue.identifier });
+      const workspace = await new WorkspaceLayout(resolvedWorkflow.config.workspace.root).create({ identifier: issue.identifier });
+      const env = this.hookEnv(issue, workspace.path, project.id);
+      this.deps.store.claim(issue.id, runId, project.id);
+      this.deps.store.insertRun({ runId, projectId: project.id, issueId: issue.id, identifier: issue.identifier, workspace: workspace.path, profileJson: JSON.stringify(profile.profile), workflowPath: resolvedWorkflow.path, workflowSha: resolvedWorkflow.sha, pid: null, startedAt: new Date().toISOString() });
+      this.deps.store.appendEvent(runId, "run.claimed", { issueId: issue.id, identifier: issue.identifier, projectId: project.id }, project.id);
       this.deps.ctx.emit("orchestrator.run.claimed", claim);
-
-      if (workspace.created) {
-        await runHook({ command: workflow.frontmatter.hooks?.after_create, phase: "after_create", cwd: workspace.path, runId, store: this.deps.store, env }).catch((error) => {
-          this.deps.store.appendEvent(runId, "hook.after_create.error", { error: error instanceof Error ? error.message : String(error) });
-        });
-      }
-
-      const before = await runHook({ command: workflow.frontmatter.hooks?.before_run, phase: "before_run", cwd: workspace.path, runId, store: this.deps.store, env });
-      if (before !== 0) {
-        this.deps.store.finishRun(runId, "hook_failed", before);
-        await this.release(issue.id, "hook_failed");
-        return false;
-      }
-
-      const subagent = await this.deps.startSubagent({
-        profile: profile.profile.name,
-        cli: profile.profile.cli,
-        cwd: workspace.path,
-        prompt: promptFor(issue, workflow.body),
-        label: profile.profile.labelPrefix ?? issue.identifier,
-        parent: { type: "orchestrator", id: issue.id },
-        source: "orchestrator",
-        model: profile.profile.model,
-        reasoningEffort: profile.profile.reasoningEffort ?? profile.profile.reasoning,
-      });
+      if (workspace.created) await runHook({ command: resolvedWorkflow.config.hooks?.after_create, phase: "after_create", cwd: workspace.path, runId, store: this.deps.store, env }).catch((error) => this.deps.store.appendEvent(runId, "hook.after_create.error", { error: error instanceof Error ? error.message : String(error) }, project.id));
+      const before = await runHook({ command: resolvedWorkflow.config.hooks?.before_run, phase: "before_run", cwd: workspace.path, runId, store: this.deps.store, env });
+      if (before !== 0) { this.deps.store.finishRun(runId, "hook_failed", before); await this.release(project.id, issue.id, "hook_failed"); return false; }
+      const subagent = await this.deps.startSubagent({ profile: profile.profile.name, cli: profile.profile.cli, cwd: workspace.path, prompt: promptFor(project, issue, resolvedWorkflow.body), label: profile.profile.labelPrefix ?? issue.identifier, parent: { type: "orchestrator", id: `${project.id}:${issue.id}` }, source: "orchestrator", model: profile.profile.model, reasoningEffort: profile.profile.reasoningEffort ?? profile.profile.reasoning });
       const subagentRunId = typeof subagent === "object" && subagent && "id" in subagent ? String((subagent as { id: unknown }).id) : undefined;
-      this.runs.set(issue.id, { issue, repo: repoResolution.repo, workspace: workspace.path, branch: workspace.branch, subagentRunId, workflow: workflow.frontmatter });
+      this.runs.set(`${project.id}:${issue.id}`, { project, issue, workspace: workspace.path, subagentRunId, workflow: resolvedWorkflow });
       this.deps.store.setSubagentRunId(runId, subagentRunId);
-      this.deps.store.appendEvent(runId, "subagent.started", subagent);
-      this.deps.claims.touch(issue.id);
-      this.retry.reset(issue.id, "dispatch");
+      this.deps.store.appendEvent(runId, "subagent.started", subagent, project.id);
+      this.deps.claims.touch(issue.id, undefined, project.id);
+      this.retry.reset(`${project.id}:${issue.id}`, "dispatch");
       return true;
     } catch (error) {
-      reservation.release();
-      this.retry.register(issue.id, "dispatch");
-      this.deps.store.appendEvent(runId, "dispatch.error", { error: error instanceof Error ? error.message : String(error) });
+      this.retry.register(`${project.id}:${issue.id}`, "dispatch");
+      this.deps.store.appendEvent(runId, "dispatch.error", { error: error instanceof Error ? error.message : String(error) }, project.id);
       this.deps.store.finishRun(runId, "dispatch_failed");
-      await this.release(issue.id, "dispatch_failed");
+      await this.release(project.id, issue.id, "dispatch_failed");
       return false;
     }
   }
 
-  private hookEnv(issue: LinearIssue, workspace: string, repo: RepoConfig | null, branch?: string): Record<string, string | undefined> {
-    return {
-      AIHUB_ISSUE_ID: issue.id,
-      AIHUB_ISSUE_IDENTIFIER: issue.identifier,
-      AIHUB_WORKSPACE: workspace,
-      AIHUB_REPO: repo?.name,
-      AIHUB_BRANCH: branch,
-      LINEAR_API_KEY: undefined,
-    };
+  private hookEnv(issue: LinearIssue, workspace: string, projectId: string): Record<string, string | undefined> {
+    return { AIHUB_PROJECT_ID: projectId, AIHUB_ISSUE_ID: issue.id, AIHUB_ISSUE_IDENTIFIER: issue.identifier, AIHUB_WORKSPACE: workspace, LINEAR_API_KEY: undefined };
   }
 
-  private async park(issue: LinearIssue, needsHuman: string, reason: string): Promise<void> {
-    await this.deps.client.commentCreate(issue.id, `Orchestrator parked issue: ${reason}`).catch(() => undefined);
-    await this.deps.client.issueUpdateStateByName(issue.id, needsHuman).catch(() => undefined);
+  private async park(client: LinearClient, issue: LinearIssue, needsHuman: string, reason: string): Promise<void> {
+    await client.commentCreate(issue.id, `Orchestrator parked issue: ${reason}`).catch(() => undefined);
+    await client.issueUpdateStateByName(issue.id, needsHuman).catch(() => undefined);
     this.deps.ctx.emit("orchestrator.run.needs_human", { issueId: issue.id, reason });
     this.notifyHitl(`Orchestrator needs human for ${issue.identifier}: ${reason}`);
   }
 
   private async observeSubagentCompletions(): Promise<void> {
     if (!this.deps.getSubagentRun) return;
-    for (const [issueId, run] of this.runs) {
+    for (const [key, run] of this.runs) {
       if (!run.subagentRunId || run.afterRunFired) continue;
-      const status = await this.deps.getSubagentRun(run.subagentRunId).catch(() => undefined);
-      const terminal = subagentTerminalStatus(status);
+      const terminal = subagentTerminalStatus(await this.deps.getSubagentRun(run.subagentRunId).catch(() => undefined));
       if (!terminal) continue;
       run.afterRunFired = true;
-      const claim = this.deps.claims.get(issueId);
+      const claim = this.deps.claims.get(run.issue.id, run.project.id);
       if (!claim) continue;
-      await runHook({ command: run.workflow.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.repo, run.branch), exitCode: terminal.exitCode }).catch((error) => {
-        this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) });
-      });
+      await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.project.id), exitCode: terminal.exitCode }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, run.project.id));
+      this.runs.set(key, run);
     }
   }
 
   private async detectStalls(): Promise<void> {
-    const fallback = await this.loader().resolve();
-    const timeout = fallback.frontmatter.agent?.stall_timeout_ms ?? 1_800_000;
-    const states = workflowStates(fallback.frontmatter);
     const now = Date.now();
     for (const claim of this.deps.claims.list()) {
-      if (now - Date.parse(claim.lastEventAt) <= timeout) continue;
-      await this.deps.client.commentCreate(claim.issueId, `Orchestrator stalled: no events for ${timeout}ms`).catch(() => undefined);
-      await this.deps.client.issueUpdateStateByName(claim.issueId, states.needsHuman).catch(() => undefined);
-      await this.interruptSubagent(claim.issueId);
-      this.deps.ctx.emit("orchestrator.run.stalled", { issueId: claim.issueId, runId: claim.runId });
+      const run = this.runs.get(`${claim.projectId}:${claim.issueId}`);
+      const timeout = run?.workflow.config.agent.stall_timeout_ms ?? 1_800_000;
+      if (now - Date.parse(claim.lastEventAt) <= timeout || !run) continue;
+      const client = this.clientFor(run.project, run.workflow);
+      await client.commentCreate(claim.issueId, `Orchestrator stalled: no events for ${timeout}ms`).catch(() => undefined);
+      await client.issueUpdateStateByName(claim.issueId, run.workflow.config.tracker.needsHuman).catch(() => undefined);
+      if (run.subagentRunId) await this.deps.stopSubagent?.(run.subagentRunId).catch(() => undefined);
       this.notifyHitl(`Orchestrator stalled: ${claim.issueId}`);
-      await this.release(claim.issueId, "stalled");
+      await this.release(claim.projectId, claim.issueId, "stalled");
     }
   }
 
-  async interruptSubagent(issueId: string): Promise<void> {
-    const run = this.runs.get(issueId);
-    if (!run?.subagentRunId) return;
-    const url = process.env.AIHUB_API_URL ?? process.env.AIHUB_URL ?? "http://127.0.0.1:4000/api";
-    await fetch(`${url.replace(/\/$/, "")}/subagents/${encodeURIComponent(run.subagentRunId)}/interrupt`, { method: "POST" }).catch(() => undefined);
+  async interruptSubagent(issueId: string, projectId = "default"): Promise<void> {
+    const run = this.runs.get(`${projectId}:${issueId}`) ?? [...this.runs.values()].find((item) => item.issue.id === issueId);
+    if (run?.subagentRunId) await this.deps.stopSubagent?.(run.subagentRunId).catch(() => undefined);
   }
 
-  private async release(issueId: string, outcome: string): Promise<void> {
-    const claim = this.deps.claims.get(issueId);
+  private async release(projectId: string, issueId: string, outcome: string): Promise<void> {
+    const claim = this.deps.claims.get(issueId, projectId);
     if (!claim) return;
-    const run = this.runs.get(issueId);
+    const run = this.runs.get(`${projectId}:${issueId}`);
     if (run && !run.afterRunFired) {
       run.afterRunFired = true;
-      await runHook({ command: run.workflow.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.repo, run.branch) }).catch((error) => {
-        this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) });
-      });
+      await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, projectId) }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, projectId));
     }
-    if (run?.workflow.workspace?.cleanup_on_terminal) {
-      await this.removeWorkspace(run, claim.runId);
-    }
-    this.deps.claims.release(issueId);
-    this.deps.store.release(issueId);
+    if (run?.workflow.config.workspace.cleanupOnTerminal) await this.removeWorkspace(run, claim.runId);
+    this.deps.claims.release(issueId, projectId);
+    this.deps.store.release(issueId, projectId);
     this.deps.store.finishRun(claim.runId, outcome);
-    this.deps.ctx.emit("orchestrator.run.finished", { issueId, runId: claim.runId, outcome });
+    this.runs.delete(`${projectId}:${issueId}`);
+    this.deps.ctx.emit("orchestrator.run.finished", { issueId, projectId, runId: claim.runId, outcome });
   }
 
   private async removeWorkspace(run: RunMeta, runId: string): Promise<void> {
-    await runHook({ command: run.workflow.hooks?.before_remove, phase: "before_remove", cwd: run.workspace, runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.repo, run.branch) }).catch((error) => {
-      this.deps.store.appendEvent(runId, "hook.before_remove.error", { error: error instanceof Error ? error.message : String(error) });
-    });
-    await new WorkspaceLayout(this.workspacesRoot()).remove({ identifier: run.issue.identifier, repo: run.repo });
+    await runHook({ command: run.workflow.config.hooks?.before_remove, phase: "before_remove", cwd: run.workspace, runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.project.id) }).catch((error) => this.deps.store.appendEvent(runId, "hook.before_remove.error", { error: error instanceof Error ? error.message : String(error) }, run.project.id));
+    await new WorkspaceLayout(run.workflow.config.workspace.root).remove({ identifier: run.issue.identifier });
   }
 
-  notifyStartupError(error: unknown): void {
-    this.notifyHitl(`Orchestrator startup error: ${error instanceof Error ? error.message : String(error)}`);
-  }
-
-  notifyRunFailed(issueId: string, reason: string): void {
-    this.notifyHitl(`Orchestrator run failed for ${issueId}: ${reason}`);
-  }
-
-  private notifyHitl(message: string): void {
-    this.hitl.push(message);
-  }
+  notifyStartupError(error: unknown): void { this.notifyHitl(`Orchestrator startup error: ${error instanceof Error ? error.message : String(error)}`); }
+  notifyRunFailed(issueId: string, reason: string): void { this.notifyHitl(`Orchestrator run failed for ${issueId}: ${reason}`); }
+  private notifyHitl(message: string): void { this.hitl.push(message); }
 
   private async flushHitl(messages: string[]): Promise<void> {
-    const channel = await this.notifyChannel();
-    if (!channel) return;
-    const message = messages.length === 1 ? messages[0] : messages.map((item) => `- ${item}`).join("\n");
-    const send = this.deps.notify ?? (async (text: string) => {
-      await notify({ config: this.deps.ctx.getConfig().notifications, channel, message: text });
-    });
-    await send(message).catch((error) => {
-      this.deps.ctx.emit("orchestrator.run.event", { type: "notification.error", message: error instanceof Error ? error.message : String(error) });
-    });
-  }
-
-  private async notifyChannel(): Promise<string | undefined> {
     const configured = this.deps.getConfig().notifyChannel;
-    if (configured) return configured;
-    const workflow = await this.loader().resolve().catch(() => undefined);
-    return workflow?.frontmatter.server?.notify_channel;
+    if (!configured) return;
+    const message = messages.length === 1 ? messages[0] : messages.map((item) => `- ${item}`).join("\n");
+    const send = this.deps.notify ?? (async (text: string) => { await notify({ config: this.deps.ctx.getConfig().notifications, channel: configured, message: text }); });
+    await send(message).catch((error) => this.deps.ctx.emit("orchestrator.run.event", { type: "notification.error", message: error instanceof Error ? error.message : String(error) }));
   }
 }

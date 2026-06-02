@@ -3,11 +3,17 @@ import { API_BASE, apiFetch } from "./core";
 export type OrchestratorHealth = {
   status: string;
   lastTickAt?: string;
-  rateLimitRemaining?: number;
   activeClaims?: number;
 };
 
+export type OrchestratorProject = {
+  id: string;
+  path: string;
+  workflowPath: string;
+};
+
 export type OrchestratorClaim = {
+  projectId?: string;
   issueId: string;
   runId: string;
   claimedAt?: string;
@@ -15,14 +21,14 @@ export type OrchestratorClaim = {
 };
 
 export type OrchestratorRun = {
+  project_id?: string;
+  projectId?: string;
   run_id?: string;
   runId?: string;
   issue_id?: string;
   issueId?: string;
   identifier?: string;
   workspace?: string;
-  repo?: string;
-  branch?: string;
   started_at?: string;
   startedAt?: string;
   finished_at?: string | null;
@@ -35,6 +41,7 @@ export type OrchestratorRun = {
 
 export type OrchestratorEvent = {
   id?: number;
+  project_id?: string;
   run_id?: string;
   type?: string;
   payload?: string;
@@ -67,6 +74,7 @@ export type OrchestratorRunsResponse = {
 
 export type OrchestratorWorkflow = {
   frontmatter?: Record<string, unknown>;
+  config?: Record<string, unknown>;
   body?: string;
   path?: string;
   sha?: string;
@@ -79,47 +87,47 @@ async function parseJson<T>(response: Response): Promise<T> {
   return body;
 }
 
+function projectQuery(project?: string): string {
+  return project ? `project=${encodeURIComponent(project)}` : "";
+}
+
 export async function fetchOrchestratorHealth(): Promise<OrchestratorHealth> {
   return parseJson(await apiFetch(`${API_BASE}/orchestrator/health`));
 }
 
-export async function fetchOrchestratorRuns(limit = 50): Promise<OrchestratorRunsResponse> {
-  return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs?limit=${limit}`));
+export async function fetchOrchestratorProjects(): Promise<{ items: OrchestratorProject[] }> {
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/projects`));
 }
 
-export async function fetchOrchestratorRun(runOrIssueId: string, since = 0): Promise<OrchestratorRunDetail> {
-  return parseJson(
-    await apiFetch(
-      `${API_BASE}/orchestrator/runs/${encodeURIComponent(runOrIssueId)}?since=${encodeURIComponent(String(since))}`
-    )
-  );
+export async function fetchOrchestratorRuns(limit = 50, project?: string): Promise<OrchestratorRunsResponse> {
+  const params = new URLSearchParams({ limit: String(limit) });
+  if (project) params.set("project", project);
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs?${params.toString()}`));
 }
 
-export async function fetchOrchestratorLogs(runOrIssueId: string, since = 0): Promise<OrchestratorLogsResponse> {
-  return parseJson(
-    await apiFetch(
-      `${API_BASE}/orchestrator/runs/${encodeURIComponent(runOrIssueId)}/logs?since=${encodeURIComponent(String(since))}`
-    )
-  );
+export async function fetchOrchestratorRun(runOrIssueId: string, since = 0, project?: string): Promise<OrchestratorRunDetail> {
+  const params = new URLSearchParams({ since: String(since) });
+  if (project) params.set("project", project);
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs/${encodeURIComponent(runOrIssueId)}?${params.toString()}`));
 }
 
-export async function fetchOrchestratorWorkflow(repo?: string): Promise<OrchestratorWorkflow> {
-  const query = repo ? `?repo=${encodeURIComponent(repo)}` : "";
-  return parseJson(await apiFetch(`${API_BASE}/orchestrator/workflow${query}`));
+export async function fetchOrchestratorLogs(runOrIssueId: string, since = 0, project?: string): Promise<OrchestratorLogsResponse> {
+  const params = new URLSearchParams({ since: String(since) });
+  if (project) params.set("project", project);
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs/${encodeURIComponent(runOrIssueId)}/logs?${params.toString()}`));
 }
 
-export async function interruptOrchestratorRun(issueId: string): Promise<unknown> {
-  return parseJson(
-    await apiFetch(`${API_BASE}/orchestrator/runs/${encodeURIComponent(issueId)}/interrupt`, {
-      method: "POST",
-    })
-  );
+export async function fetchOrchestratorWorkflow(project?: string): Promise<OrchestratorWorkflow> {
+  const query = projectQuery(project);
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/workflow${query ? `?${query}` : ""}`));
 }
 
-export async function killOrchestratorRun(issueId: string): Promise<unknown> {
-  return parseJson(
-    await apiFetch(`${API_BASE}/orchestrator/runs/${encodeURIComponent(issueId)}/kill`, {
-      method: "POST",
-    })
-  );
+export async function interruptOrchestratorRun(issueId: string, project?: string): Promise<unknown> {
+  const query = projectQuery(project);
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs/${encodeURIComponent(issueId)}/interrupt${query ? `?${query}` : ""}`, { method: "POST" }));
+}
+
+export async function killOrchestratorRun(issueId: string, project?: string): Promise<unknown> {
+  const query = projectQuery(project);
+  return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs/${encodeURIComponent(issueId)}/kill${query ? `?${query}` : ""}`, { method: "POST" }));
 }

@@ -33,6 +33,7 @@ export class LinearClient {
       state: node.state?.name ?? "",
       labels: node.labels?.nodes?.map((label: { name: string }) => label.name) ?? [],
       projectName: node.project?.name,
+      projectSlug: node.project?.slugId,
       parentId: node.parent?.id,
     };
   }
@@ -59,15 +60,9 @@ export class LinearClient {
   }
 
   private updateRateLimit(headers: Headers): void {
-    const remaining =
-      headers.get("x-ratelimit-requests-remaining") ??
-      headers.get("x-ratelimit-complexity-remaining") ??
-      headers.get("x-ratelimit-remaining");
+    const remaining = headers.get("x-ratelimit-requests-remaining") ?? headers.get("x-ratelimit-complexity-remaining") ?? headers.get("x-ratelimit-remaining");
     if (remaining !== null) this.rateLimitRemaining = Number(remaining);
-    const reset =
-      headers.get("x-ratelimit-requests-reset") ??
-      headers.get("x-ratelimit-complexity-reset") ??
-      headers.get("x-ratelimit-reset");
+    const reset = headers.get("x-ratelimit-requests-reset") ?? headers.get("x-ratelimit-complexity-reset") ?? headers.get("x-ratelimit-reset");
     if (reset !== null) {
       const value = Number(reset);
       this.rateLimitResetAt = value > 10_000_000_000 ? value : value * 1000;
@@ -80,21 +75,23 @@ export class LinearClient {
   }
 
   private async waitForBucket(): Promise<void> {
-    if (this.rateLimitRemaining !== undefined && this.rateLimitRemaining <= 0) {
-      await this.sleep(this.retryDelayMs());
-    }
+    if (this.rateLimitRemaining !== undefined && this.rateLimitRemaining <= 0) await this.sleep(this.retryDelayMs());
   }
 
-  async pollIssues(input: { teamKey: string; activeStates: string[] }): Promise<LinearIssue[]> {
+  async pollIssues(input: { projectSlug: string; activeStates: string[] }): Promise<LinearIssue[]> {
     const data = await this.graphql<{ issues: { nodes: Array<any> } }>(
-      `query AihubPoll($teamKey: String!, $states: [String!]) { issues(filter: { team: { key: { eq: $teamKey } }, state: { name: { in: $states } } }) { nodes { id identifier title description url state { name } labels { nodes { name } } project { name } parent { id } } } }`,
-      { teamKey: input.teamKey, states: input.activeStates }
+      `query AihubPoll($projectSlug: String!, $states: [String!]) { issues(filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { in: $states } } }) { nodes { id identifier title description url state { name } labels { nodes { name } } project { name slugId } parent { id } } } }`,
+      { projectSlug: input.projectSlug, states: input.activeStates }
     );
     return data.issues.nodes.map((node) => this.mapIssue(node));
   }
 
+  async fetchTerminalIssues(input: { projectSlug: string; terminalStates: string[] }): Promise<LinearIssue[]> {
+    return this.pollIssues({ projectSlug: input.projectSlug, activeStates: input.terminalStates });
+  }
+
   async getIssue(idOrIdentifier: string): Promise<LinearIssue | undefined> {
-    const issueFields = `id identifier title description url state { name } labels { nodes { name } } project { name } parent { id }`;
+    const issueFields = `id identifier title description url state { name } labels { nodes { name } } project { name slugId } parent { id }`;
     if (/^[A-Z][A-Z0-9]*-\d+$/.test(idOrIdentifier)) {
       const data = await this.graphql<{ issues: { nodes: Array<any> } }>(
         `query AihubIssueByIdentifier($identifier: String!) { issues(filter: { identifier: { eq: $identifier } }, first: 1) { nodes { ${issueFields} } } }`,
@@ -103,10 +100,7 @@ export class LinearClient {
       const [node] = data.issues.nodes;
       return node ? this.mapIssue(node) : undefined;
     }
-    const data = await this.graphql<{ issue: any | null }>(
-      `query AihubIssueById($id: String!) { issue(id: $id) { ${issueFields} } }`,
-      { id: idOrIdentifier }
-    );
+    const data = await this.graphql<{ issue: any | null }>(`query AihubIssueById($id: String!) { issue(id: $id) { ${issueFields} } }`, { id: idOrIdentifier });
     return data.issue ? this.mapIssue(data.issue) : undefined;
   }
 

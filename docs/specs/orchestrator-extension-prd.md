@@ -8,6 +8,8 @@ supersedes: projects-ui-refresh-prd.md, project-shaping-repo-prd.md, kanban-slic
 
 # Orchestrator extension
 
+> Superseded for runtime shape by `docs/specs/orchestrator-symphony-alignment-prd.md`. Keep this document as historical context for initial slices; new implementation follows project-scoped `WORKFLOW.md`, Linear `tracker.project_slug`, directory-only workspaces, and no repo label/git-worktree core behavior.
+
 Replace the AIHub `projects` (and `board`) extension with a Symphony-pattern orchestrator that uses Linear as the canonical issue store and AIHub as the runtime that polls, claims, and dispatches CLI subagents into per-issue workspaces.
 
 ## Problem Statement

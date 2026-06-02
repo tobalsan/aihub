@@ -37,8 +37,9 @@ function statusLabel(health?: OrchestratorHealth): string {
   return health.status === "ok" ? "online" : health.status;
 }
 
-function repoFromRun(run?: OrchestratorRun | OrchestratorClaim): string | undefined {
-  return typeof run?.repo === "string" ? run.repo : undefined;
+function projectFromRun(run?: OrchestratorRun | OrchestratorClaim): string | undefined {
+  const value = run?.projectId ?? run?.project_id;
+  return typeof value === "string" ? value : undefined;
 }
 
 function eventPayload(event: OrchestratorEvent): string {
@@ -93,8 +94,8 @@ function OrchestratorDashboard(): ReturnType<Component> {
     if (!key) return;
     try {
       const [detail, nextWorkflow] = await Promise.all([
-        fetchOrchestratorRun(key),
-        fetchOrchestratorWorkflow(repoFromRun(selected())),
+        fetchOrchestratorRun(key, 0, projectFromRun(selected())),
+        fetchOrchestratorWorkflow(projectFromRun(selected())),
       ]);
       setEvents(detail.events ?? []);
       setWorkflow(nextWorkflow);
@@ -107,7 +108,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
     const key = selectedKey();
     if (!key) return;
     try {
-      const response = await fetchOrchestratorLogs(key, logCursor());
+      const response = await fetchOrchestratorLogs(key, logCursor(), projectFromRun(selected()));
       setLogCursor(response.cursor ?? logCursor());
       if (response.events?.length) {
         setLogs((current) => [...current, ...response.events]);
@@ -225,7 +226,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
             <tr style={{ "text-align": "left" }}>
               <th>Issue</th>
               <th>Run</th>
-              <th>Repo</th>
+              <th>Project</th>
               <th>Started</th>
               <th>Outcome</th>
               <th>Exit</th>
@@ -237,7 +238,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
                 <tr onClick={() => setSelected(run)} style={{ cursor: "pointer", "border-top": "1px solid var(--border)" }}>
                   <td>{run.identifier ?? runIssueId(run)}</td>
                   <td style={{ "word-break": "break-all" }}>{runId(run)}</td>
-                  <td>{run.repo ?? "—"}</td>
+                  <td>{run.project_id ?? run.projectId ?? "—"}</td>
                   <td>{dateLabel(run.startedAt ?? run.started_at)}</td>
                   <td>{run.outcome ?? (run.finished_at || run.finishedAt ? "finished" : "running")}</td>
                   <td>{run.exitCode ?? run.exit_code ?? "—"}</td>

@@ -1,59 +1,43 @@
 import fs from "node:fs/promises";
 import path from "node:path";
-import { spawn } from "node:child_process";
-import type { RepoConfig } from "../types.js";
 
 export function sanitizeIdentifier(identifier: string): string {
-  const sanitized = identifier.replace(/[^A-Za-z0-9_-]/g, "").toLowerCase();
+  const sanitized = identifier.replace(/[^A-Za-z0-9._-]/g, "").toLowerCase();
   return sanitized || "issue";
 }
 
-function run(command: string, args: string[], cwd?: string): Promise<void> {
-  return new Promise((resolve, reject) => {
-    const child = spawn(command, args, { cwd, stdio: "ignore" });
-    child.on("error", reject);
-    child.on("exit", (code) => (code === 0 ? resolve() : reject(new Error(`${command} ${args.join(" ")} exited ${code}`))));
-  });
-}
-
-export function resolveWorkspacesRoot(input: { configured?: string; dataDir: string }): string {
-  const configured = input.configured?.trim();
-  if (!configured) return path.join(input.dataDir, "workspaces");
-  if (configured.startsWith("$AIHUB_HOME/")) return path.join(input.dataDir, configured.slice("$AIHUB_HOME/".length));
-  if (configured === "$AIHUB_HOME") return input.dataDir;
-  if (configured.startsWith("~")) return path.join(process.env.HOME ?? "", configured.slice(1));
-  return path.isAbsolute(configured) ? configured : path.join(input.dataDir, configured);
+function assertInsideRoot(root: string, target: string): void {
+  const relative = path.relative(root, target);
+  if (relative.startsWith("..") || path.isAbsolute(relative)) throw new Error(`workspace escapes root: ${target}`);
 }
 
 export class WorkspaceLayout {
-  constructor(private readonly root: string) {}
+  private readonly root: string;
+  constructor(root: string) {
+    this.root = path.resolve(root);
+  }
 
   workspacePath(identifier: string): string {
-    return path.join(this.root, sanitizeIdentifier(identifier));
+    const workspace = path.join(this.root, sanitizeIdentifier(identifier));
+    assertInsideRoot(this.root, workspace);
+    return workspace;
   }
 
-  async create(input: { identifier: string; repo?: RepoConfig | null }): Promise<{ path: string; branch?: string; created: boolean }> {
+  async create(input: { identifier: string }): Promise<{ path: string; created: boolean }> {
     const workspace = this.workspacePath(input.identifier);
     try {
-      await fs.access(workspace);
-      return { path: workspace, branch: input.repo ? `aihub/${sanitizeIdentifier(input.identifier)}` : undefined, created: false };
-    } catch {}
-    await fs.mkdir(path.dirname(workspace), { recursive: true });
-    if (!input.repo) {
-      await fs.mkdir(workspace, { recursive: true });
-      return { path: workspace, created: true };
+      const stat = await fs.stat(workspace);
+      if (!stat.isDirectory()) throw new Error(`workspace path is not a directory: ${workspace}`);
+      return { path: workspace, created: false };
+    } catch (error) {
+      if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error;
     }
-    const branch = `aihub/${sanitizeIdentifier(input.identifier)}`;
-    await run("git", ["worktree", "add", "-b", branch, workspace, input.repo.baseBranch ?? "main"], input.repo.path);
-    return { path: workspace, branch, created: true };
+    await fs.mkdir(workspace, { recursive: true });
+    return { path: workspace, created: true };
   }
 
-  async remove(input: { identifier: string; repo?: RepoConfig | null }): Promise<void> {
+  async remove(input: { identifier: string }): Promise<void> {
     const workspace = this.workspacePath(input.identifier);
-    if (input.repo) {
-      await run("git", ["worktree", "remove", "--force", workspace], input.repo.path).catch(() => undefined);
-      await run("git", ["branch", "-D", `aihub/${sanitizeIdentifier(input.identifier)}`], input.repo.path).catch(() => undefined);
-    }
     await fs.rm(workspace, { recursive: true, force: true });
   }
 }

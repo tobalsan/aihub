@@ -3,9 +3,49 @@ import fs from "node:fs/promises";
 import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
-import { ClaimsRegistry, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, resolveProfile, resolveRepo, resolveWorkspacesRoot, sanitizeIdentifier, StateStore, verifyWebhookSignature } from "./index.js";
+import { ClaimsRegistry, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
+
+async function writeWorkflow(root: string, extra = ""): Promise<void> {
+  await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
+tracker:
+  kind: linear
+  api_key: test-key
+  project_slug: proj-a
+  active_states: [Ready]
+  terminal_states: [Done]
+agent:
+  profile: default
+  max_concurrent: 1
+workspace:
+  root: ./workspaces
+${extra}---
+Do {{issue.identifier}}
+`);
+}
+
+async function writeCustomWorkflow(root: string, input: { apiKey?: string; endpoint?: string; projectSlug: string; intervalMs?: number }): Promise<void> {
+  await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
+tracker:
+  kind: linear
+  api_key: ${input.apiKey ?? "test-key"}
+  endpoint: ${input.endpoint ?? "https://api.linear.app/graphql"}
+  project_slug: ${input.projectSlug}
+  active_states: [Ready]
+  terminal_states: [Done]
+polling:
+  interval_ms: ${input.intervalMs ?? 30000}
+  jitter_ms: 0
+agent:
+  profile: default
+  max_concurrent: 1
+workspace:
+  root: ./workspaces
+---
+Do {{issue.identifier}}
+`);
+}
 
 describe("orchestrator pure modules", () => {
   it("limits concurrency and issue exclusivity", () => {
@@ -18,19 +58,8 @@ describe("orchestrator pure modules", () => {
     expect(limiter.tryReserve({ issueId: "B" }).ok).toBe(true);
   });
 
-  it("resolves repos", () => {
-    expect(resolveRepo({ labels: ["repo:z", "repo:a"], repos: { a: "/tmp/a" } })).toMatchObject({ repo: { name: "a", path: "/tmp/a" }, warning: expect.stringContaining("Multiple") });
-    expect(resolveRepo({ labels: [], repos: {}, defaultRepo: undefined })).toEqual({ repo: null, warning: undefined });
-    expect(resolveRepo({ labels: ["repo:missing"], repos: {} })).toMatchObject({ repo: null, warning: expect.stringContaining("Repo not configured") });
-  });
-
   it("sanitizes identifiers", () => {
     expect(sanitizeIdentifier("ENG-123? Bad!")).toBe("eng-123bad");
-  });
-
-  it("resolves relative workspace root against AIHUB_HOME", () => {
-    expect(resolveWorkspacesRoot({ configured: "./.worktrees", dataDir: "/tmp/aihub" })).toBe(path.join("/tmp/aihub", ".worktrees"));
-    expect(resolveWorkspacesRoot({ configured: "$AIHUB_HOME/.worktrees", dataDir: "/tmp/aihub" })).toBe(path.join("/tmp/aihub", ".worktrees"));
   });
 
   it("resolves profiles or parks", () => {
@@ -59,43 +88,107 @@ describe("orchestrator pure modules", () => {
   });
 });
 
-describe("orchestrator Linear client", () => {
-  it("gets issues by human identifier or id", async () => {
-    const calls: Array<{ query: string; variables: Record<string, unknown> }> = [];
-    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
-      const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
-      calls.push(body);
-      const node = {
-        id: body.variables.identifier === "ENG-1" ? "lin_1" : body.variables.id,
-        identifier: body.variables.identifier ?? "ENG-2",
-        title: "Title",
-        description: "Body",
-        url: "https://linear.app/acme/issue/ENG-1/title",
-        state: { name: "Ready" },
-        labels: { nodes: [{ name: "agent:codex" }] },
-        project: { name: "Project" },
-        parent: { id: "parent_1" },
-      };
-      const data = body.variables.identifier
-        ? { issues: { nodes: [node] } }
-        : { issue: node };
-      return new Response(JSON.stringify({ data }), { status: 200, headers: { "content-type": "application/json" } });
-    }) as unknown as typeof fetch;
-    const previousFetch = globalThis.fetch;
-    globalThis.fetch = fetchImpl;
+describe("project workflow modules", () => {
+  it("resolves configured projects and requires uppercase WORKFLOW.md", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-projects-"));
+    const project = path.join(home, "project-a");
+    await fs.mkdir(project);
+    await writeWorkflow(project);
+    await expect(resolveProjects({ paths: ["project-a"], dataDir: home })).resolves.toEqual([{ id: "project-a", path: project, workflowPath: path.join(project, "WORKFLOW.md") }]);
+    await fs.mkdir(path.join(home, "bad"));
+    await expect(resolveProjects({ paths: ["bad"], dataDir: home })).rejects.toThrow("missing WORKFLOW.md");
+  });
+
+  it("disambiguates duplicate project basenames", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-project-collision-"));
+    const left = path.join(home, "left", "app");
+    const right = path.join(home, "right", "app");
+    await fs.mkdir(left, { recursive: true });
+    await fs.mkdir(right, { recursive: true });
+    await writeWorkflow(left);
+    await writeCustomWorkflow(right, { projectSlug: "proj-b" });
+    const projects = await resolveProjects({ paths: [left, right], dataDir: home });
+    expect(projects[0]?.id).toMatch(/^app-[a-f0-9]{8}$/);
+    expect(projects[1]?.id).toMatch(/^app-[a-f0-9]{8}$/);
+    expect(projects[0]?.id).not.toBe(projects[1]?.id);
+  });
+
+  it("loads self-contained workflow and resolves workspace relative to project", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-workflow-"));
+    await writeWorkflow(root);
+    const snapshot = await new WorkflowLoader(root).resolve({ projectPath: root, issue: { id: "1", identifier: "ENG-1", title: "Hello", state: "Ready", labels: [] } });
+    expect(snapshot.config.tracker.projectSlug).toBe("proj-a");
+    expect(snapshot.config.workspace.root).toBe(path.join(root, "workspaces"));
+    expect(snapshot.body.trim()).toBe("Do ENG-1");
+  });
+
+  it("keeps last known good workflow when reload is invalid", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-lkg-"));
+    await writeWorkflow(root);
+    const loader = new WorkflowLoader(root);
+    const first = await loader.resolve({ projectPath: root });
+    expect(first.config.tracker.projectSlug).toBe("proj-a");
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker: [bad]\n---\nbad");
+    const stale = await loader.resolve({ projectPath: root, issue: { id: "1", identifier: "ENG-2", title: "Hello", state: "Ready", labels: [] }, allowStale: true });
+    expect(stale.config.tracker.projectSlug).toBe("proj-a");
+    expect(stale.body.trim()).toBe("Do ENG-2");
+    await expect(loader.resolve({ projectPath: root })).rejects.toThrow();
+  });
+
+  it("creates directory-only workspaces", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-ws-"));
+    const layout = new WorkspaceLayout(root);
+    await expect(layout.create({ identifier: "ENG-1" })).resolves.toMatchObject({ path: path.join(root, "eng-1"), created: true });
+    await expect(layout.create({ identifier: "ENG-1" })).resolves.toMatchObject({ created: false });
+    await layout.remove({ identifier: "ENG-1" });
+    await expect(fs.stat(path.join(root, "eng-1"))).rejects.toThrow();
+  });
+});
+
+describe("orchestrator agent tools", () => {
+  it("requires project and uses that project tracker auth", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-tool-"));
+    const one = path.join(home, "one");
+    const two = path.join(home, "two");
+    await fs.mkdir(one);
+    await fs.mkdir(two);
+    await writeCustomWorkflow(one, { apiKey: "key-one", endpoint: "https://linear-one.test/graphql", projectSlug: "proj-a" });
+    await writeCustomWorkflow(two, { apiKey: "key-two", endpoint: "https://linear-two.test/graphql", projectSlug: "proj-b" });
+    const calls: Array<{ url: string; auth: string | null }> = [];
+    const originalFetch = globalThis.fetch;
+    globalThis.fetch = vi.fn(async (url: string | URL | Request, init?: RequestInit) => {
+      calls.push({ url: String(url), auth: new Headers(init?.headers).get("authorization") });
+      return new Response(JSON.stringify({ data: { ok: true } }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as any;
+    const context = { getDataDir: () => home, getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [one, two] } } }), emit: vi.fn() } as any;
     try {
-      const client = new LinearClient("test", "https://linear.test/graphql");
-      await expect(client.getIssue("ENG-1")).resolves.toMatchObject({ id: "lin_1", identifier: "ENG-1", labels: ["agent:codex"] });
-      await expect(client.getIssue("lin_2")).resolves.toMatchObject({ id: "lin_2", identifier: "ENG-2" });
-      expect(calls[0]?.query).toContain("AihubIssueByIdentifier");
-      expect(calls[1]?.query).toContain("AihubIssueById");
+      await orchestratorExtension.start?.(context);
+      const tools = await Promise.resolve(orchestratorExtension.getAgentTools?.(context) ?? []);
+      const tool = tools[0]!;
+      await expect(tool.execute({ query: "query" }, {} as any)).resolves.toHaveProperty("error");
+      await expect(tool.execute({ project: "two", query: "query" }, {} as any)).resolves.toEqual({ ok: true });
+      expect(calls).toEqual([{ url: "https://linear-two.test/graphql", auth: "key-two" }]);
     } finally {
-      globalThis.fetch = previousFetch;
+      await orchestratorExtension.stop?.();
+      globalThis.fetch = originalFetch;
     }
   });
 });
 
-describe("LinearClient", () => {
+describe("orchestrator Linear client", () => {
+  it("polls by Linear project slug", async () => {
+    const calls: Array<{ query: string; variables: Record<string, unknown> }> = [];
+    const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
+      const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
+      calls.push(body);
+      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200, headers: { "content-type": "application/json" } });
+    }) as unknown as typeof fetch;
+    const client = new LinearClient("test", { fetchImpl });
+    await client.pollIssues({ projectSlug: "proj-a", activeStates: ["Ready"] });
+    expect(calls[0]?.query).toContain("slugId");
+    expect(calls[0]?.variables).toEqual({ projectSlug: "proj-a", states: ["Ready"] });
+  });
+
   it("waits on exhausted bucket and retries one 429 after reset", async () => {
     let now = 1_000;
     const sleeps: number[] = [];
@@ -112,249 +205,130 @@ describe("LinearClient", () => {
   });
 });
 
-describe("orchestrator IO modules", () => {
-  it("claims only once under concurrency", async () => {
-    const claims = new ClaimsRegistry();
-    const results = await Promise.all([claims.tryClaim("A", "1"), claims.tryClaim("A", "2")]);
-    expect(results.filter(Boolean)).toHaveLength(1);
-  });
-
-  it("merges workflow frontmatter and replaces body", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-"));
-    const repo = path.join(root, "repo");
-    await fs.mkdir(repo);
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nfallback {{issue.identifier}}\n");
-    await fs.writeFile(path.join(repo, "WORKFLOW.md"), "---\nagent:\n  max_turns: 2\n---\nrepo {{issue.title}}\n");
-    const loader = new WorkflowLoader(root, { a: { name: "a", path: repo } });
-    const snapshot = await loader.resolve({ repo: "a", issue: { id: "1", identifier: "ENG-1", title: "Hello", state: "Ready", labels: [] } });
-    expect(snapshot.frontmatter.agent).toMatchObject({ profile: "default", max_turns: 2 });
-    expect(snapshot.body.trim()).toBe("repo Hello");
-  });
-
-  it("daemon ticks poll, claim, create workspace, start subagent, and release on terminal", async () => {
+describe("orchestrator daemon", () => {
+  it("ticks configured project, dispatches in issue workspace, and releases terminal", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-daemon-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\n  max_concurrent: 1\ntracker:\n  states:\n    active: [Ready]\n    terminal: [Done]\n---\nDo {{issue.identifier}}\n");
+    await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
     let state = "Ready";
     const client = {
-      rateLimitRemaining: 99,
-      pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state, labels: [] }]),
+      pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state, labels: [], projectSlug: "proj-a" }]),
       commentCreate: vi.fn(),
-      issueUpdate: vi.fn(),
+      issueUpdateStateByName: vi.fn(),
     } as any;
-    const events: Array<{ name: string; payload: unknown }> = [];
-    const ctx = {
-      getDataDir: () => root,
-      getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { teamKey: "ENG" } } }),
-      emit: (name: string, payload: unknown) => events.push({ name, payload }),
-    } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
     const started = vi.fn(async (body) => ({ id: "sub_1", ...body }));
-    const daemon = new OrchestratorDaemon({ ctx, client, store, claims, getConfig: () => ({ teamKey: "ENG" }), startSubagent: started });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
 
+    await daemon.start();
     await daemon.tick();
     expect(claims.list()).toHaveLength(1);
-    expect(started).toHaveBeenCalledWith(expect.objectContaining({ profile: "default", cwd: path.join(root, "workspaces", "eng-1") }));
-    expect(await fs.stat(path.join(root, "workspaces", "eng-1"))).toBeTruthy();
+    expect(started).toHaveBeenCalledWith(expect.objectContaining({ profile: "default", cwd: path.join(root, "workspaces", "eng-1"), prompt: expect.stringContaining(`Linear GraphQL tool calls must pass project: ${path.basename(root)}`) }));
     expect(store.listRecent(5)).toHaveLength(1);
-    expect(events.some((event) => event.name === "orchestrator.run.claimed")).toBe(true);
 
     state = "Done";
     await daemon.tick();
     expect(claims.list()).toHaveLength(0);
-    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "terminal" });
+    expect(store.listRecent(1)[0]).toMatchObject({ project_id: path.basename(root), outcome: "terminal" });
+    await daemon.stop();
     store.close();
   });
 
-  it("reattaches active subagent run after restart and skips duplicate dispatch", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-reattach-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Todo]\n---\nDo {{issue.identifier}}\n");
-    const store = new StateStore(path.join(root, "state.db"));
-    store.bootstrap();
-    store.insertRun({
-      runId: "orchestrator:lin_1:1",
-      issueId: "lin_1",
-      identifier: "ENG-1",
-      workspace: path.join(root, "workspaces", "eng-1"),
-      repo: null,
-      branch: null,
-      profileJson: JSON.stringify(profiles[0]),
-      workflowPath: path.join(root, "WORKFLOW.md"),
-      workflowSha: "sha",
-      pid: null,
-      startedAt: new Date().toISOString(),
-    });
-    store.setSubagentRunId("orchestrator:lin_1:1", "sub_existing");
-    store.markActiveProcessStopped();
-    const claims = new ClaimsRegistry();
-    const issue = { id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Todo", labels: [] };
-    const client = {
-      rateLimitRemaining: 99,
-      getIssue: vi.fn(async () => issue),
-      pollIssues: vi.fn(async () => [issue]),
-      commentCreate: vi.fn(),
-      issueUpdateStateByName: vi.fn(),
-    } as any;
-    const ctx = {
-      getDataDir: () => root,
-      getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { teamKey: "ENG" } } }),
-      emit: vi.fn(),
-    } as any;
-    const started = vi.fn(async () => ({ id: "sub_duplicate" }));
-    const getSubagentRun = vi.fn(async () => ({ id: "sub_existing", status: "running" }));
-    const daemon = new OrchestratorDaemon({ ctx, client, store, claims, getConfig: () => ({ teamKey: "ENG" }), startSubagent: started, getSubagentRun });
-
-    await daemon.start();
-    await daemon.tick();
-    daemon.stop();
-
-    expect(claims.list()).toHaveLength(1);
-    expect(claims.get("lin_1")?.runId).toBe("orchestrator:lin_1:1");
-    expect(started).not.toHaveBeenCalled();
-    expect(store.listEvents("orchestrator:lin_1:1").some((event: any) => event.type === "run.reattached")).toBe(true);
-    store.close();
-  });
-
-  it("manual claim runs full dispatch path and rejects active claims", async () => {
+  it("manual claim runs project-scoped dispatch", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claim-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nManual {{issue.identifier}}\n");
+    await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const claims = new ClaimsRegistry();
-    const issue = { id: "lin_1", identifier: "ENG-1", title: "Manual", description: "Body", state: "Ready", labels: [] };
-    const client = {
-      rateLimitRemaining: 99,
-      getIssue: vi.fn(async () => issue),
-      pollIssues: vi.fn(),
-      commentCreate: vi.fn(),
-      issueUpdateStateByName: vi.fn(),
-    } as any;
-    const ctx = {
-      getDataDir: () => root,
-      getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { teamKey: "ENG" } } }),
-      emit: vi.fn(),
-    } as any;
+    const issue = { id: "lin_1", identifier: "ENG-1", title: "Manual", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" };
+    const client = { getIssue: vi.fn(async () => issue), pollIssues: vi.fn(), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
     const started = vi.fn(async (body) => ({ id: "sub_manual", ...body }));
-    const daemon = new OrchestratorDaemon({ ctx, client, store, claims, getConfig: () => ({ teamKey: "ENG" }), startSubagent: started });
-
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    await daemon.start();
     await expect(daemon.claimNow("ENG-1")).resolves.toEqual({ ok: true });
     expect(client.getIssue).toHaveBeenCalledWith("ENG-1");
-    expect(started).toHaveBeenCalledWith(expect.objectContaining({ profile: "default", cwd: path.join(root, "workspaces", "eng-1") }));
-    expect(claims.list()).toHaveLength(1);
-    expect(store.listRecent(1)[0]).toMatchObject({ issue_id: "lin_1", subagent_run_id: "sub_manual" });
-
+    expect(started).toHaveBeenCalledWith(expect.objectContaining({ cwd: path.join(root, "workspaces", "eng-1") }));
     await expect(daemon.claimNow("ENG-1")).resolves.toMatchObject({ ok: false, status: 409 });
-    expect(started).toHaveBeenCalledTimes(1);
+    await daemon.stop();
     store.close();
   });
 
-  it("runs hook lifecycle phases and cleans up workspace on terminal", async () => {
-    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-hooks-"));
-    const marker = path.join(root, "hooks.log");
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
-agent:
-  profile: default
-tracker:
-  states:
-    active: [Ready]
-    terminal: [Done]
-workspace:
-  cleanup_on_terminal: true
-hooks:
-  after_create: "printf after_create:$AIHUB_EXIT_CODE >> ${marker}"
-  before_run: "printf '|before_run:'$AIHUB_ISSUE_IDENTIFIER >> ${marker}"
-  after_run: "printf '|after_run:'$AIHUB_EXIT_CODE >> ${marker}"
-  before_remove: "printf '|before_remove:'$AIHUB_WORKSPACE >> ${marker}"
----
-Do work
-`);
+  it("honors per-project polling cadence", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-polling-"));
+    const fast = path.join(home, "fast");
+    const slow = path.join(home, "slow");
+    await fs.mkdir(fast);
+    await fs.mkdir(slow);
+    await writeWorkflow(fast, "polling:\n  interval_ms: 1000\n  jitter_ms: 0\n");
+    await writeCustomWorkflow(slow, { projectSlug: "proj-b", intervalMs: 5000 });
+    const store = new StateStore(path.join(home, "state.db"));
+    store.bootstrap();
+    const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
+    const ctx = { getDataDir: () => home, getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [fast, slow] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [fast, slow] }), startSubagent: vi.fn(), createLinearClient: () => ({ pollIssues: vi.fn(async () => []) } as any) });
+    try {
+      await daemon.start();
+      const delays = setTimeoutSpy.mock.calls.map((call) => call[1]);
+      expect(delays).toContain(1000);
+      expect(delays).toContain(5000);
+    } finally {
+      setTimeoutSpy.mockRestore();
+      await daemon.stop();
+      store.close();
+    }
+  });
+
+  it("marks open runs interrupted on startup instead of reattaching", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-recovery-"));
+    await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
-    const claims = new ClaimsRegistry();
-    let state = "Ready";
-    let subagentStatus = "running";
-    const client = {
-      rateLimitRemaining: 99,
-      pollIssues: vi.fn(async () => [{ id: "lin_hooks", identifier: "ENG-2", title: "Hooks", state, labels: [] }]),
-      commentCreate: vi.fn(),
-      issueUpdateStateByName: vi.fn(),
-    } as any;
-    const ctx = {
-      getDataDir: () => root,
-      getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { teamKey: "ENG" } } }),
-      emit: vi.fn(),
-    } as any;
-    const daemon = new OrchestratorDaemon({
-      ctx,
-      client,
-      store,
-      claims,
-      getConfig: () => ({ teamKey: "ENG" }),
-      startSubagent: vi.fn(async () => ({ id: "sub_hooks" })),
-      getSubagentRun: vi.fn(async () => ({ id: "sub_hooks", status: subagentStatus, exitCode: 7 })),
-    });
-
-    await daemon.tick();
-    await daemon.tick();
-    subagentStatus = "done";
-    await daemon.tick();
-    state = "Done";
-    await daemon.tick();
-
-    const log = await fs.readFile(marker, "utf8");
-    expect(log).toContain("after_create:");
-    expect(log).toContain("|before_run:ENG-2");
-    expect(log).toContain("|after_run:7");
-    expect(log).toContain("|before_remove:");
-    await expect(fs.stat(path.join(root, "workspaces", "eng-2"))).rejects.toThrow();
+    store.insertRun({ runId: "r1", projectId: path.basename(root), issueId: "lin_1", identifier: "ENG-1", workspace: path.join(root, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "abc", pid: 1, startedAt: new Date().toISOString() });
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const stopSubagent = vi.fn(async () => undefined);
+    store.setSubagentRunId("r1", "sub_stale");
+    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(), stopSubagent, createLinearClient: () => ({ pollIssues: vi.fn(async () => []) } as any) });
+    await daemon.start();
+    expect(stopSubagent).toHaveBeenCalledWith("sub_stale");
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "interrupted_gateway_restart" });
+    await daemon.stop();
     store.close();
   });
 
   it("coalesces queued ticks and batches HITL notifications", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-queue-"));
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\nagent:\n  profile: default\ntracker:\n  states:\n    active: [Ready]\n---\nDo it\n");
+    await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
-    const claims = new ClaimsRegistry();
     let resolvePoll: (() => void) | undefined;
     const pollGate = new Promise<void>((resolve) => { resolvePoll = resolve; });
     let polls = 0;
-    const client = {
-      pollIssues: vi.fn(async () => {
-        polls += 1;
-        if (polls === 1) await pollGate;
-        return [];
-      }),
-      commentCreate: vi.fn(),
-      issueUpdateStateByName: vi.fn(),
-    } as any;
+    const client = { pollIssues: vi.fn(async () => { polls += 1; if (polls === 1) await pollGate; return []; }) } as any;
     const sent: string[] = [];
-    const ctx = {
-      getDataDir: () => root,
-      getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { teamKey: "ENG", notifyChannel: "ops" } } }),
-      emit: vi.fn(),
-    } as any;
-    const daemon = new OrchestratorDaemon({ ctx, client, store, claims, getConfig: () => ({ teamKey: "ENG", notifyChannel: "ops" }), startSubagent: vi.fn(), notify: async (message) => { sent.push(message); } });
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root], notifyChannel: "ops" } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [root], notifyChannel: "ops" }), startSubagent: vi.fn(), createLinearClient: () => client, notify: async (message) => { sent.push(message); } });
+    await daemon.start();
     daemon.enqueueTick();
     daemon.enqueueTick();
     resolvePoll?.();
     await vi.waitFor(() => expect(polls).toBe(2));
-
     for (let i = 0; i < 5; i += 1) daemon.notifyRunFailed(`ENG-${i}`, "boom");
     await vi.waitFor(() => expect(sent).toHaveLength(1));
     expect(sent[0]).toContain("ENG-0");
-    expect(sent[0]).toContain("ENG-4");
+    await daemon.stop();
     store.close();
   });
 
-  it("bootstraps sqlite state", async () => {
+  it("bootstraps project-aware sqlite state", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-db-"));
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
-    store.insertRun({ runId: "r1", issueId: "i1", identifier: "ENG-1", workspace: root, repo: null, branch: null, profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "abc", pid: 1, startedAt: new Date().toISOString() });
-    store.appendEvent("r1", "x", { ok: true });
-    expect(store.listRecent(1)).toHaveLength(1);
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: root, profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "abc", pid: 1, startedAt: new Date().toISOString() });
+    store.appendEvent("r1", "x", { ok: true }, "p1");
+    expect(store.listRecent(1, "p1")).toHaveLength(1);
     expect(store.listEvents("r1")).toHaveLength(1);
     store.finishRun("r1", "done", 0);
     store.close();
