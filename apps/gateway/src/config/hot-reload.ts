@@ -7,6 +7,7 @@ import {
 } from "@aihub/extension-scheduler";
 import type { GatewayConfig } from "@aihub/shared";
 import { getConfigPath, reloadConfig, setLoadedConfig } from "./index.js";
+import { resolveStartupConfig } from "./validate.js";
 
 export const HOT_RELOAD_INTERVAL_MS = 5000;
 
@@ -53,8 +54,13 @@ export function startGatewayHotReload(
       const currentSignature = signature(lastConfig);
       if (currentSignature === lastSignature) return;
 
-      const nextConfig = reloadConfig();
+      const rawConfig = reloadConfig();
+      const nextConfig = await resolveStartupConfig(rawConfig);
       const nextSignature = signature(nextConfig);
+      // resolveStartupConfig returns a new object; reloadConfig left the raw
+      // config in the cache, so install the resolved one (with $env: refs
+      // interpolated) before anything reads it via getAgent()/loadConfig().
+      setLoadedConfig(nextConfig);
       lastConfig = nextConfig;
       lastSignature = nextSignature;
       if (nextConfig.extensions?.scheduler && hasSchedulerContext()) {
