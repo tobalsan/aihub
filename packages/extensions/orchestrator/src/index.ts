@@ -130,7 +130,7 @@ async function projectDescriptors() {
 }
 
 function register(app: Hono) {
-  app.get("/orchestrator/health", (c) => c.json({ status: enabled() ? "ok" : "disabled", lastTickAt: daemon?.lastTickAt, activeClaims: claims.list().length }));
+  app.get("/orchestrator/health", (c) => c.json({ status: enabled() ? "ok" : "disabled", lastTickAt: daemon?.lastTickAt, activeClaims: claims.list().length, rateLimitRemaining: daemon?.rateLimitRemaining }));
   app.use("/orchestrator/*", async (c, next) => {
     if (c.req.path.endsWith("/health")) return next();
     if (!enabled()) return unavailable(c);

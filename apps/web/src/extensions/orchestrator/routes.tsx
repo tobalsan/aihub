@@ -284,6 +284,10 @@ function OrchestratorDashboard(): ReturnType<Component> {
             <span class="orch-stat-num">{relTime(health()?.lastTickAt, now())}</span>
             <span class="orch-stat-label">last tick</span>
           </div>
+          <div class="orch-stat">
+            <span class="orch-stat-num">{health()?.rateLimitRemaining ?? "—"}</span>
+            <span class="orch-stat-label">rate limit</span>
+          </div>
           <button class="orch-btn" onClick={() => void load()}>Refresh</button>
         </div>
       </header>
@@ -331,8 +335,9 @@ function OrchestratorDashboard(): ReturnType<Component> {
                         </span>
                       </div>
                     </div>
-                    <div class="orch-live-elapsed" title={absTime(claim.claimedAt)}>
-                      {relTime(claim.claimedAt, now())}
+                    <div class="orch-live-elapsed" title={`Last activity ${absTime(claim.lastEventAt ?? claim.claimedAt)}`}>
+                      <span class="orch-live-elapsed-label">activity</span>
+                      {relTime(claim.lastEventAt ?? claim.claimedAt, now())}
                     </div>
                     <div class="orch-row-actions" onClick={(e) => e.stopPropagation()}>
                       <button class="orch-btn" onClick={() => setSelected(claim)}>Open</button>
@@ -574,8 +579,13 @@ const ORCH_STYLES = `
 .orch-live-id { font-size: 14px; font-weight: 600; color: var(--text-primary); }
 .orch-live-meta { display: flex; align-items: center; gap: 8px; flex-wrap: wrap; }
 .orch-live-elapsed {
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
   font-size: 13px; font-weight: 600; font-variant-numeric: tabular-nums;
   color: var(--text-secondary); flex-shrink: 0;
+}
+.orch-live-elapsed-label {
+  font-size: 10px; font-weight: 500; letter-spacing: .03em; text-transform: uppercase;
+  color: var(--text-tertiary);
 }
 
 .orch-chip {

@@ -4,6 +4,7 @@ export type OrchestratorHealth = {
   status: string;
   lastTickAt?: string;
   activeClaims?: number;
+  rateLimitRemaining?: number;
 };
 
 export type OrchestratorProject = {
@@ -17,6 +18,7 @@ export type OrchestratorClaim = {
   issueId: string;
   runId: string;
   claimedAt?: string;
+  lastEventAt?: string;
   [key: string]: unknown;
 };
 

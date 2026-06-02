@@ -252,6 +252,7 @@ describe("orchestrator daemon", () => {
     const claims = new ClaimsRegistry();
     let state = "Ready";
     const client = {
+      rateLimitRemaining: 7,
       pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state, labels: [], projectSlug: "proj-a" }]),
       commentCreate: vi.fn(),
       issueUpdateStateByName: vi.fn(),
@@ -262,6 +263,7 @@ describe("orchestrator daemon", () => {
 
     await daemon.start();
     await daemon.tick();
+    expect(daemon.rateLimitRemaining).toBe(7);
     expect(claims.list()).toHaveLength(1);
     expect(started).toHaveBeenCalledWith(expect.objectContaining({ profile: "default", cwd: path.join(root, "workspaces", "eng-1"), prompt: expect.stringContaining(`Linear GraphQL tool calls must pass project: ${path.basename(root)}`) }));
     expect(store.listRecent(5)).toHaveLength(1);

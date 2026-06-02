@@ -63,6 +63,7 @@ export class OrchestratorDaemon {
   private watchers: Array<{ close: () => void }> = [];
   private readonly workflowLoader: WorkflowLoader;
   lastTickAt: string | undefined;
+  rateLimitRemaining: number | undefined;
 
   constructor(
     private readonly deps: {
@@ -186,6 +187,7 @@ export class OrchestratorDaemon {
       const client = this.clientFor(project, workflow);
       const states = workflow.config.tracker;
       const issues = await client.pollIssues({ projectSlug: states.projectSlug, activeStates: [...new Set([...states.activeStates, ...states.terminalStates, states.needsHuman])] });
+      this.updateRateLimit(client.rateLimitRemaining);
       const projectLimiter = new ConcurrencyLimiter(workflow.config.agent.max_concurrent ?? 3);
       for (const claim of this.deps.claims.list({ projectId: project.id })) projectLimiter.tryReserve({ issueId: claim.issueId });
 
@@ -207,6 +209,11 @@ export class OrchestratorDaemon {
 
   private clientFor(project: ProjectDescriptor, workflow: WorkflowSnapshot): LinearClient {
     return this.deps.createLinearClient?.({ apiKey: workflow.config.tracker.apiKey, endpoint: workflow.config.tracker.endpoint, project }) ?? this.deps.client!;
+  }
+
+  private updateRateLimit(remaining: number | undefined): void {
+    if (remaining === undefined || Number.isNaN(remaining)) return;
+    this.rateLimitRemaining = this.rateLimitRemaining === undefined ? remaining : Math.min(this.rateLimitRemaining, remaining);
   }
 
   private async dispatch(project: ProjectDescriptor, workflow: WorkflowSnapshot, issue: LinearIssue, client: LinearClient): Promise<boolean> {
