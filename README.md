@@ -679,6 +679,7 @@ openclaw sessions list
 | `/api/agents/:id/history`                        | GET             | Session history (?sessionKey=main&view=simple\|full)  |
 | `/api/schedules`                                 | GET/POST        | List/create schedules                                 |
 | `/api/schedules/:agentId/:id`                    | PATCH/DELETE    | Update/delete schedule                                |
+| `/api/schedules/:agentId/:id/run`                | POST            | Run schedule immediately                             |
 | `/api/projects`                                  | GET/POST        | List/create projects                                  |
 | `/api/projects/:id`                              | GET/PATCH       | Get/update project                                    |
 | `/api/projects/:id/space`                        | GET             | Get project Space state                               |
@@ -817,11 +818,12 @@ aihub scheduler add my-agent --cron "0 9 * * *" --tz America/New_York \
   --provider anthropic --model claude-sonnet-4
 
 aihub scheduler list --agent my-agent
+aihub scheduler run my-agent <job-id>
 aihub scheduler rm my-agent <job-id> -y
 aihub scheduler tail my-agent <job-id>
 ```
 
-Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`. Optional job-level `model: { provider, model }` overrides the agent default for scheduled fires. When scheduler is enabled, agents also get self-only scheduler tools to create/list/update/delete jobs and read latest output. Gateway polls config, agent YAML, and cron job files every 5 seconds for hot reload.
+Jobs live in `<agent-workspace>/cron/jobs.json`; each run writes hybrid markdown output under `<agent-workspace>/cron/output/<job-id>/`. Optional job-level `model: { provider, model }` overrides the agent default for scheduled fires. Manual `scheduler run` fires use the same execution path and output location as cron fires, work even when the job is disabled, and do not change the next scheduled fire time. A second run of the same job is rejected while that job is already executing; if a scheduled fire collides with a manual run of the same job, that scheduled fire is skipped and the next cron fire is recomputed. When scheduler is enabled, agents also get self-only scheduler tools to create/list/update/delete jobs and read latest output. Gateway polls config, agent YAML, and cron job files every 5 seconds for hot reload.
 
 Or directly via the HTTP API:
 
@@ -833,6 +835,8 @@ curl -X POST localhost:4000/api/schedules -H "Content-Type: application/json" -d
   "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
   "payload": { "message": "Run hourly check" }
 }'
+
+curl -X POST localhost:4000/api/schedules/my-agent/<job-id>/run
 ```
 
 ## Channels

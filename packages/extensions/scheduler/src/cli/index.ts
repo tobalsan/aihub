@@ -5,7 +5,7 @@ import type {
   ScheduleJob,
   UpdateScheduleRequest,
 } from "@aihub/shared";
-import { SchedulerApiClient } from "./client.js";
+import { SchedulerApiClient, SchedulerApiError } from "./client.js";
 import {
   buildScheduleFromOpts,
   defaultJobName,
@@ -41,12 +41,29 @@ type DeleteOpts = {
 };
 
 type ListOpts = { agent?: string; json?: boolean };
+type RunOpts = { json?: boolean };
 type TailOpts = { lines?: string };
 
 function fail(err: unknown): never {
   if (err instanceof Error) console.error(err.message);
   else console.error("Request failed");
   process.exit(1);
+}
+
+function failedRunOutputPath(err: unknown): string | undefined {
+  if (typeof err !== "object" || err === null || !("data" in err)) {
+    return undefined;
+  }
+  const data = (err as { data?: unknown }).data;
+  if (typeof data !== "object" || data === null || !("result" in data)) {
+    return undefined;
+  }
+  const result = (data as { result?: unknown }).result;
+  if (typeof result !== "object" || result === null || !("outputPath" in result)) {
+    return undefined;
+  }
+  const outputPath = (result as { outputPath?: unknown }).outputPath;
+  return typeof outputPath === "string" ? outputPath : undefined;
 }
 
 function getClient(): SchedulerApiClient {
@@ -221,6 +238,32 @@ export function registerSchedulerCommands(program: Command): Command {
         }
         console.log(`Deleted schedule ${agentId}/${id}`);
       } catch (err) {
+        fail(err);
+      }
+    });
+
+  program
+    .command("run")
+    .description("Run a schedule immediately")
+    .argument("<agent-id>", "Agent id")
+    .argument("<job-id>", "Schedule id")
+    .option("-j, --json", "JSON output")
+    .action(async (agentId: string, id: string, opts: RunOpts) => {
+      try {
+        const result = await getClient().runSchedule(agentId, id);
+        if (opts.json) {
+          console.log(JSON.stringify(result, null, 2));
+          return;
+        }
+        console.log(`Ran schedule ${agentId}/${id}: ${result.status}`);
+        if (result.outputPath) console.log(`Output: ${result.outputPath}`);
+      } catch (err) {
+        if (err instanceof SchedulerApiError || failedRunOutputPath(err)) {
+          const outputPath = failedRunOutputPath(err);
+          console.error(err instanceof Error ? err.message : "Request failed");
+          if (outputPath) console.error(`Output: ${outputPath}`);
+          process.exit(1);
+        }
         fail(err);
       }
     });
