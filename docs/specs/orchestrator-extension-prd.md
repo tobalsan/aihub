@@ -114,7 +114,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 - **RepoResolver** (deep, pure): given issue labels + config, returns `{ name, path, baseBranch }` or no-repo. First `repo:*` label alphabetically on multi-repo; emits warning event.
 - **WorkspaceLayout** (deep): sanitizes identifiers, creates and removes git worktrees, handles no-repo `mkdir -p`. v1 supports `worktree` and `no-repo` modes only — the old `none`/`main-run`/`clone` modes are dropped.
 - **SubagentRunner** (deep): starts and observes AIHub `subagents` runs with `source: "orchestrator"`, `parent: "orchestrator:<issueId>"`, resolved `cwd`, rendered prompt, and selected profile. It does not own CLI lifecycle directly.
-- **ProfileResolver** (deep, pure): chooses a configured `extensions.subagents.profiles[]` entry from workflow `agent.profile`. If missing or unknown, park the issue in `Needs Human` with a comment.
+- **ProfileResolver** (deep, pure): chooses a configured `extensions.subagents.profiles[]` entry from workflow `agent.profile`. If missing or unknown, park the issue in `Needs Human` with a comment. Any orchestrator-owned `Needs Human` transition while a subagent run exists must interrupt the run before releasing the claim.
 - **ConcurrencyLimiter** (deep, pure): enforces global `max_concurrent` defaulting to 3 and one active claim per issue. Future per-profile/per-repo limits are left as schema-compatible extensions.
 - **StateStore** (deep, SQLite via `better-sqlite3`): `insertRun / finishRun / appendEvent / listRecent / listEvents / markOrphaned`. Tables: `runs`, `events`, `claims`, `heartbeats`.
 - **ClaimsRegistry** (deep): in-memory `Map<issueId, ClaimState>` with a mutex around `set`. First writer wins; second returns HTTP 409 on manual claim race.
@@ -129,7 +129,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 
 ### Routes
 
-`GET /api/orchestrator/runs` · `GET /api/orchestrator/runs/:issueId` · `GET /api/orchestrator/runs/:issueId/logs?since=N&follow=1` · `POST /api/orchestrator/runs/:issueId/release` · `POST /api/orchestrator/runs/:issueId/interrupt` · `POST /api/orchestrator/runs/:issueId/kill` · `POST /api/orchestrator/issues/:issueId/claim` · `GET /api/orchestrator/workflow?repo=<name>` · `POST /api/orchestrator/export[?team=KEY]` · `GET /api/orchestrator/health`.
+`GET /api/orchestrator/runs` · `GET /api/orchestrator/runs/:issueId` · `GET /api/orchestrator/runs/:issueId/logs?since=N&follow=1` · `POST /api/orchestrator/runs/:issueId/release` · `POST /api/orchestrator/runs/:issueId/interrupt` · `POST /api/orchestrator/runs/:issueId/kill` · `POST /api/orchestrator/issues/:issueId/claim` · `GET /api/orchestrator/workflow?repo=<name>` · `POST /api/orchestrator/export[?team=KEY]` · `GET /api/orchestrator/health`. Manual release is claim-only by design; operators use interrupt or kill when they also want to stop a worker.
 
 ### WebSocket events
 

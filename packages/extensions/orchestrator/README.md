@@ -144,7 +144,7 @@ Work only inside the issue workspace. If repositories are needed, clone or use t
 - `project_slug`: required Linear project `slugId`. Candidate issues are filtered by this.
 - `active_states`: states eligible for worker dispatch. Default `[Todo, In Progress]`.
 - `terminal_states`: states that release claims and optionally clean workspaces. Default `[Closed, Cancelled, Canceled, Duplicate, Done]`.
-- `needs_human`: exceptional park state. Default `Needs Human`.
+- `needs_human`: exceptional park state. Default `Needs Human`. Orchestrator-owned transitions into this state are hard stops for any active worker run.
 
 ### `polling`
 
@@ -184,6 +184,8 @@ Hook commands run in the issue workspace.
 - `before_run`: before worker starts. Non-zero exit aborts dispatch.
 - `after_run`: after worker attempt completes or claim releases.
 - `before_remove`: before workspace removal.
+
+Manual run release only clears the orchestrator claim. Use interrupt or kill when the active worker should also stop; orchestrator-owned `Needs Human` parks stop the worker before the claim is released.
 
 Hook env includes:
 

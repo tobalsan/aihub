@@ -16,10 +16,13 @@ Two cooperating components.
 `RetryPolicy` is a pure module keyed on `(issueId, kind)` where `kind ∈ {"dispatch", "tool_call"}`. Curve: `30 s, 60 s, 120 s, 240 s, …` capped at 30 minutes. Reset on the next successful exit. Failed dispatches register a backoff so the next tick skips the issue until `nextAttempt`. Failed `linear_graphql` tool calls register a per-issue tool-call backoff that the `LinearGraphqlTool` consults before issuing a request.
 
 `StallDetector` runs as part of the tick. For each active claim, if `(now - lastEventAt) > workflow.agent.stall_timeout_ms`, the daemon:
+
 1. Posts a comment via `linear_graphql` describing the stall.
 2. Sets the issue state to `Needs Human` (via `linear_graphql`).
 3. Kills the worker (interrupt + workspace preserved).
 4. Releases the claim and emits `orchestrator.run.stalled`.
+
+The same hard-stop rule applies to any orchestrator-owned `Needs Human` transition for an active run, including terminal worker errors.
 
 ## Acceptance criteria
 

@@ -82,7 +82,7 @@ Remove repo label routing, repo maps, default repo behavior, global `WORKFLOW.md
 - Restart recovery follows Symphony semantics: poll tracker, reuse filesystem workspaces, mark prior active runs interrupted/orphaned for history, and start fresh runs for still-active issues.
 - Manual claim must be updated for project-scoped dispatch instead of repo/label dispatch.
 - Symphony has no profile concept. AIHub keeps profiles only as a runner adapter: workflow `agent.profile` selects one configured subagent profile, while future closer-Symphony fields such as command, approval policy, sandbox, and max turns may map directly into a generated subagent profile.
-- `Needs Human` remains an exceptional park state, not a normal review state.
+- `Needs Human` remains an exceptional park state, not a normal review state. When the orchestrator moves an active run there, the gateway-owned worker must be stopped before the claim is released.
 - Synchronous reviewer, if added later, should remain worker-visible substep/events, not a second daemon stage in this PRD.
 
 ## Testing Decisions
