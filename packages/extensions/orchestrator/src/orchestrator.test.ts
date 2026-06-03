@@ -330,13 +330,40 @@ describe("orchestrator daemon", () => {
     const claims = new ClaimsRegistry();
     const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_error" })), getSubagentRun: vi.fn(async () => ({ status: "error", exitCode: 1 })), createLinearClient: () => client });
+    const stopSubagent = vi.fn(async () => undefined);
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_error" })), getSubagentRun: vi.fn(async () => ({ status: "error", exitCode: 1 })), stopSubagent, createLinearClient: () => client });
     await daemon.start();
     await daemon.tick();
     await daemon.tick();
     expect(client.commentCreate).toHaveBeenCalledWith("lin_1", "Orchestrator parked issue: worker exited with error (exit 1)");
     expect(client.issueUpdateStateByName).toHaveBeenCalledWith("lin_1", "Needs Human");
-    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "error" });
+    expect(stopSubagent).toHaveBeenCalledWith("sub_error");
+    expect(claims.list()).toHaveLength(0);
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "error", process_alive: 0, subagent_run_id: "sub_error" });
+    await daemon.stop();
+    store.close();
+  });
+
+  it("stops active subagent when claimed issue is observed in Needs Human", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-hitl-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    let state = "Ready";
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state, labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const stopSubagent = vi.fn(async () => undefined);
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_needs_human" })), stopSubagent, createLinearClient: () => client });
+    await daemon.start();
+    await daemon.tick();
+
+    state = "Needs Human";
+    await daemon.tick();
+
+    expect(stopSubagent).toHaveBeenCalledWith("sub_needs_human");
+    expect(claims.list()).toHaveLength(0);
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "needs_human", process_alive: 0, subagent_run_id: "sub_needs_human" });
     await daemon.stop();
     store.close();
   });

@@ -193,6 +193,7 @@ export class OrchestratorDaemon {
 
       for (const issue of issues) {
         const claim = this.deps.claims.get(issue.id, project.id);
+        if (claim && issue.state === states.needsHuman) { await this.release(project.id, issue.id, "needs_human"); released += 1; continue; }
         if (claim && states.terminalStates.includes(issue.state)) { await this.release(project.id, issue.id, "terminal"); released += 1; continue; }
         if (completedThisTick.has(`${project.id}:${issue.id}`) || !states.activeStates.includes(issue.state) || claim) { skipped += 1; continue; }
         const next = this.retry.nextAttempt(`${project.id}:${issue.id}`, "dispatch");
@@ -258,9 +259,10 @@ export class OrchestratorDaemon {
     return { AIHUB_PROJECT_ID: projectId, AIHUB_ISSUE_ID: issue.id, AIHUB_ISSUE_IDENTIFIER: issue.identifier, AIHUB_WORKSPACE: workspace, LINEAR_API_KEY: undefined };
   }
 
-  private async park(client: LinearClient, issue: LinearIssue, needsHuman: string, reason: string): Promise<void> {
+  private async park(client: LinearClient, issue: LinearIssue, needsHuman: string, reason: string, options: { subagentRunId?: string } = {}): Promise<void> {
     await client.commentCreate(issue.id, `Orchestrator parked issue: ${reason}`).catch(() => undefined);
     await client.issueUpdateStateByName(issue.id, needsHuman).catch(() => undefined);
+    if (options.subagentRunId) await this.deps.stopSubagent?.(options.subagentRunId).catch(() => undefined);
     this.deps.ctx.emit("orchestrator.run.needs_human", { issueId: issue.id, reason });
     this.notifyHitl(`Orchestrator needs human for ${issue.identifier}: ${reason}`);
   }
@@ -278,7 +280,7 @@ export class OrchestratorDaemon {
       await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, run.project.id), exitCode: terminal.exitCode }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, run.project.id));
       this.runs.set(key, run);
       if (terminal.status === "error") {
-        await this.park(this.clientFor(run.project, run.workflow), run.issue, run.workflow.config.tracker.needsHuman, `worker exited with error${terminal.exitCode === undefined ? "" : ` (exit ${terminal.exitCode})`}`);
+        await this.park(this.clientFor(run.project, run.workflow), run.issue, run.workflow.config.tracker.needsHuman, `worker exited with error${terminal.exitCode === undefined ? "" : ` (exit ${terminal.exitCode})`}`, { subagentRunId: run.subagentRunId });
       }
       await this.release(run.project.id, run.issue.id, terminal.status === "done" ? "completed" : terminal.status);
       completed.add(key);
@@ -310,7 +312,7 @@ export class OrchestratorDaemon {
     const claim = this.deps.claims.get(issueId, projectId);
     if (!claim) return;
     const run = this.runs.get(`${projectId}:${issueId}`);
-    if (outcome === "terminal" && run?.subagentRunId) await this.deps.stopSubagent?.(run.subagentRunId).catch(() => undefined);
+    if ((outcome === "terminal" || outcome === "needs_human") && run?.subagentRunId) await this.deps.stopSubagent?.(run.subagentRunId).catch(() => undefined);
     if (run && !run.afterRunFired) {
       run.afterRunFired = true;
       await runHook({ command: run.workflow.config.hooks?.after_run, phase: "after_run", cwd: run.workspace, runId: claim.runId, store: this.deps.store, env: this.hookEnv(run.issue, run.workspace, projectId) }).catch((error) => this.deps.store.appendEvent(claim.runId, "hook.after_run.error", { error: error instanceof Error ? error.message : String(error) }, projectId));
