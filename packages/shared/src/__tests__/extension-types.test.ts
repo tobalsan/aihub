@@ -65,6 +65,10 @@ describe("extension config schemas", () => {
       subagents: {
         profiles: [{ name: "Worker", cli: "codex" }],
       },
+      orchestrator: {
+        projectsRoot: "~/projects",
+        projects: ["~/projects/aihub"],
+      },
       langfuse: {
         enabled: true,
         publicKey: "$env:LANGFUSE_PUBLIC_KEY",
@@ -77,6 +81,7 @@ describe("extension config schemas", () => {
     }
     expect(result.scheduler?.enabled).toBe(true);
     expect(result.projects?.root).toBe("~/projects");
+    expect(result.orchestrator?.projectsRoot).toBe("~/projects");
     expect(result.subagents?.profiles[0]?.cli).toBe("codex");
     expect(result.langfuse?.enabled).toBe(true);
   });

@@ -1,7 +1,10 @@
 import fs from "node:fs/promises";
+import os from "node:os";
 import path from "node:path";
 import { Command } from "commander";
+import { expandPath, getDefaultConfigPath } from "@aihub/shared";
 import { OrchestratorApiClient } from "./client.js";
+import { LinearClient } from "../linear/client.js";
 
 function printJson(value: unknown): void {
   console.log(JSON.stringify(value, null, 2));
@@ -67,6 +70,109 @@ async function initWorkflow(projectPath: string, opts: { projectSlug?: string; p
   return workflowPath;
 }
 
+function safeProjectName(name: string): string {
+  const safe = name
+    .trim()
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/[\u0300-\u036f]/g, "")
+    .replace(/[^a-z0-9]+/g, "-")
+    .replace(/^-+|-+$/g, "");
+  if (!safe) throw new Error("Project name must contain at least one letter or number");
+  return safe;
+}
+
+async function pathExists(filePath: string): Promise<boolean> {
+  return fs.access(filePath).then(() => true).catch(() => false);
+}
+
+type AihubConfigFile = {
+  extensions?: {
+    orchestrator?: {
+      projectsRoot?: string;
+      projects?: string[];
+      [key: string]: unknown;
+    };
+    [key: string]: unknown;
+  };
+  [key: string]: unknown;
+};
+
+type LinearProjectBootstrapClient = Pick<LinearClient, "createProject" | "deleteProject" | "findProjectByName" | "inferProjectTeamIds">;
+
+async function readAihubConfig(configPath = getDefaultConfigPath()): Promise<{ path: string; config: AihubConfigFile }> {
+  try {
+    return { path: configPath, config: JSON.parse(await fs.readFile(configPath, "utf8")) as AihubConfigFile };
+  } catch (error) {
+    if ((error as NodeJS.ErrnoException).code === "ENOENT") return { path: configPath, config: {} };
+    throw error;
+  }
+}
+
+function resolveProjectsRoot(config: AihubConfigFile): string {
+  const root = config.extensions?.orchestrator?.projectsRoot?.trim() || "~/projects";
+  return expandPath(root);
+}
+
+function projectRegistrationList(config: AihubConfigFile): { orchestrator: NonNullable<NonNullable<AihubConfigFile["extensions"]>["orchestrator"]>; projects: string[] } {
+  config.extensions ??= {};
+  config.extensions.orchestrator ??= {};
+  const orchestrator = config.extensions.orchestrator;
+  const projects = orchestrator.projects ?? [];
+  if (!Array.isArray(projects)) throw new Error("extensions.orchestrator.projects must be an array before init-project can register a project");
+  return { orchestrator, projects };
+}
+
+async function registerProject(configPath: string, config: AihubConfigFile, projectPath: string): Promise<void> {
+  const { orchestrator, projects } = projectRegistrationList(config);
+  if (!projects.includes(projectPath)) projects.push(projectPath);
+  orchestrator.projects = projects;
+  await fs.mkdir(path.dirname(configPath), { recursive: true });
+  await fs.writeFile(configPath, `${JSON.stringify(config, null, 2)}\n`, "utf8");
+}
+
+async function initProject(
+  title: string,
+  opts: { profile?: string; linearClient?: LinearProjectBootstrapClient; configPath?: string } = {}
+): Promise<{ projectPath: string; workflowPath: string; linearProject: { id: string; name: string; slugId: string }; configPath: string }> {
+  const projectName = title.trim();
+  const { path: configPath, config } = await readAihubConfig(opts.configPath);
+  const projectsRoot = resolveProjectsRoot(config);
+  const projectPath = path.join(projectsRoot, safeProjectName(projectName));
+  projectRegistrationList(config);
+  if (await pathExists(projectPath)) throw new Error(`Project folder already exists: ${projectPath}`);
+  await fs.mkdir(projectsRoot, { recursive: true });
+
+  const apiKey = process.env.LINEAR_API_KEY?.trim();
+  if (!apiKey && !opts.linearClient) throw new Error("Missing LINEAR_API_KEY for Linear project creation");
+  const linear = opts.linearClient ?? new LinearClient(apiKey!);
+
+  const duplicate = await linear.findProjectByName(projectName);
+  if (duplicate) throw new Error(`Linear project already exists: ${duplicate.name} (${duplicate.slugId})`);
+
+  const teamIds = await linear.inferProjectTeamIds();
+  await fs.mkdir(projectPath, { recursive: false });
+  let linearProject: { id: string; name: string; slugId: string } | undefined;
+  try {
+    linearProject = await linear.createProject({ name: projectName, teamIds });
+    const workflowPath = await initWorkflow(projectPath, { projectSlug: linearProject.slugId, profile: opts.profile ?? "worker" });
+    await registerProject(configPath, config, projectPath);
+    return { projectPath, workflowPath, linearProject, configPath };
+  } catch (error) {
+    const rollbackErrors: string[] = [];
+    if (linearProject) {
+      await linear.deleteProject(linearProject.id).catch((rollbackError) => {
+        rollbackErrors.push(`Linear rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+      });
+    }
+    await fs.rm(projectPath, { recursive: true, force: true }).catch((rollbackError) => {
+      rollbackErrors.push(`local rollback failed: ${rollbackError instanceof Error ? rollbackError.message : String(rollbackError)}`);
+    });
+    if (rollbackErrors.length > 0) throw new Error(`${error instanceof Error ? error.message : String(error)} (${rollbackErrors.join("; ")})`);
+    throw error;
+  }
+}
+
 async function pipeResponse(response: Response): Promise<void> {
   if (!response.ok) {
     const body = await response.text().catch(() => "");
@@ -104,6 +210,21 @@ export function registerOrchestratorCommands(command: Command, client?: Orchestr
     .option("--profile <name>", "subagent profile", "worker")
     .option("--force", "overwrite existing WORKFLOW.md")
     .action(async (opts) => console.log(`Created ${await initWorkflow(opts.project, { projectSlug: opts.projectSlug, profile: opts.profile, force: opts.force })}`));
+
+  command
+    .command("init-project <name>")
+    .description("Create a Linear project, local project folder, and WORKFLOW.md")
+    .option("--profile <name>", "subagent profile", "worker")
+    .action(async (name, opts) => {
+      const result = await initProject(name, { profile: opts.profile });
+      console.log([
+        `Created Linear project ${result.linearProject.name} (${result.linearProject.slugId})`,
+        `Created ${result.projectPath}`,
+        `Created ${result.workflowPath}`,
+        `Updated ${result.configPath}`,
+        "Restart the gateway for the project registration to take effect.",
+      ].join(os.EOL));
+    });
 
   command
     .command("runs")
@@ -160,4 +281,4 @@ export function registerOrchestratorCommands(command: Command, client?: Orchestr
 }
 
 export { OrchestratorApiClient } from "./client.js";
-export { initWorkflow, workflowTemplate };
+export { initProject, initWorkflow, safeProjectName, workflowTemplate };

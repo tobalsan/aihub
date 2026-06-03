@@ -14,6 +14,7 @@ AIHub config lists project folders and supervisor limits only:
     },
     "orchestrator": {
       "projects": ["./projects/aihub"],
+      "projectsRoot": "~/projects",
       "concurrency": { "global": 3 }
     }
   }
@@ -30,6 +31,7 @@ Full schema:
 {
   "enabled": true,
   "projects": ["./projects/aihub"],
+  "projectsRoot": "~/projects",
   "concurrency": { "global": 3 },
   "validation": { "strict": true },
   "notifyChannel": "ops",
@@ -46,6 +48,7 @@ Fields:
 
 - `enabled` optional boolean. Enables/disables extension when present in config.
 - `projects` required in practice, optional in schema. Project folders containing `WORKFLOW.md`. Default `[]`.
+- `projectsRoot` optional string. Root folder used by `orchestrator init-project` for newly scaffolded projects. Default `~/projects`.
 - `concurrency.global` optional positive integer. Max workers across all projects. Default `3` at runtime.
 - `validation.strict` optional boolean. Fail startup on invalid configured project. Default `true`.
 - `notifyChannel` optional string. Notification channel for HITL/stall/startup errors.
@@ -54,7 +57,25 @@ Fields:
 - `webhook.path` optional string. Reserved webhook path metadata; route is mounted under `/api/orchestrator/webhook`.
 - `webhook.secret` optional string. HMAC secret for Linear webhook verification.
 
-No orchestrator `teamKey`, repo map, default repo, worktree, poll interval, or `workspacesRoot` settings live in `aihub.json`. Project runtime settings live in each project `WORKFLOW.md`.
+No orchestrator repo map, default repo, worktree, poll interval, or `workspacesRoot` settings live in `aihub.json`. Project runtime settings live in each project `WORKFLOW.md`.
+
+## Create Linear Project + WORKFLOW.md
+
+Bootstrap a Linear project and local orchestrator project folder:
+
+```bash
+pnpm aihub:dev orchestrator init-project "Foo Bar" --profile worker
+```
+
+The command:
+
+- Reads `extensions.orchestrator.projectsRoot`, defaulting to `~/projects`.
+- Creates a Linear project named `Foo Bar`.
+- Creates `<projectsRoot>/foo-bar`.
+- Writes `WORKFLOW.md` with `tracker.project_slug` set to the created Linear project's `slugId`.
+- Appends the project folder path to `extensions.orchestrator.projects` in `$AIHUB_HOME/aihub.json`.
+
+The folder must not already exist and a Linear project with the same name must not already exist. Because project registration is read at gateway startup, restart the gateway after running `init-project`.
 
 ## Create WORKFLOW.md
 
