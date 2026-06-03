@@ -52,9 +52,37 @@ agent:
 ---
 You are working on Linear issue {{issue.identifier}}.
 
+## DO THIS FIRST
+
+1. Fetch Linear issue {{issue.identifier}}.
+2. If current state is \`Todo\`, move it to \`In Progress\`.
+3. Add or update one Linear comment signaling you are working on the issue.
+4. Continue only after those Linear updates succeed.
+
+Do not perform task work before this claim step.
+
+## Workspace Rule
+
 Work only inside the issue workspace. If repositories are needed, clone or use them inside this workspace unless hooks prepared them already.
 
-Update Linear with concise progress, validation results, and final handoff.
+## Linear Workflow
+
+Update Linear with concise progress, validation results, and final handoff. Keep one Linear comment updated instead of creating a noisy comment stream.
+
+When the work is complete and validated, move the issue to \`In Review\`. If you are blocked, move the issue to \`Needs Human\` and update the comment with the blocker, what you tried, and the decision needed.
+
+## Code Changes and Review Flow
+
+If, and only if, you need to make code changes:
+
+1. Create a worktree from the \`main\` branch and work there.
+2. Spawn a reviewer subagent to run a code review.
+3. Do not commit anything until the review comes back clean.
+4. Once review is clean, commit inside the worktree, create a PR using \`gh\`, link the PR to the Linear issue, and move the issue to \`In Review\`.
+
+## Golden Rule: Clarification Over Assumption
+
+Ask rather than assume when requirements, ownership, or risk are unclear. Involve HITL by updating the Linear comment with the question or blocker and moving the issue to \`Needs Human\`.
 `;
 }
 
