@@ -616,6 +616,7 @@ export type SessionsExtensionConfig = z.infer<
 export const OrchestratorExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   projects: z.array(z.string()).optional().default([]),
+  projectsRoot: z.string().optional(),
   concurrency: z
     .object({
       global: z.number().int().positive().optional(),

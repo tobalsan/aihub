@@ -90,6 +90,53 @@ export class LinearClient {
     return this.pollIssues({ projectSlug: input.projectSlug, activeStates: input.terminalStates });
   }
 
+  async findProjectByName(name: string): Promise<{ id: string; name: string; slugId: string } | undefined> {
+    const data = await this.graphql<{ projects: { nodes: Array<{ id: string; name: string; slugId: string }> } }>(
+      `query AihubProjectByName($name: String!) { projects(filter: { name: { eq: $name } }, first: 1) { nodes { id name slugId } } }`,
+      { name }
+    );
+    return data.projects.nodes[0];
+  }
+
+  async createProject(input: { name: string; teamIds: string[] }): Promise<{ id: string; name: string; slugId: string }> {
+    const data = await this.graphql<{ projectCreate: { success: boolean; project: { id: string; name: string; slugId: string } } }>(
+      `mutation AihubProjectCreate($input: ProjectCreateInput!) { projectCreate(input: $input) { success project { id name slugId } } }`,
+      { input }
+    );
+    if (!data.projectCreate.success) throw new Error(`Linear project creation failed: ${input.name}`);
+    return data.projectCreate.project;
+  }
+
+  async deleteProject(id: string): Promise<void> {
+    const data = await this.graphql<{ projectDelete: { success: boolean } }>(
+      `mutation AihubProjectDelete($id: String!) { projectDelete(id: $id) { success } }`,
+      { id }
+    );
+    if (!data.projectDelete.success) throw new Error(`Linear project deletion failed: ${id}`);
+  }
+
+  async inferProjectTeamIds(): Promise<string[]> {
+    const data = await this.graphql<{ teams: { nodes: Array<{ id: string; name: string; key: string; archivedAt?: string | null }> } }>(
+      `query AihubProjectTeams { teams(first: 100) { nodes { id name key archivedAt } } }`
+    );
+    const teams = data.teams.nodes.filter((team) => !team.archivedAt);
+    const envTeamId = process.env.LINEAR_TEAM_ID?.trim();
+    if (envTeamId) {
+      if (!teams.some((team) => team.id === envTeamId)) throw new Error(`LINEAR_TEAM_ID does not match an active Linear team: ${envTeamId}`);
+      return [envTeamId];
+    }
+    const envTeamKey = process.env.LINEAR_TEAM_KEY?.trim();
+    if (envTeamKey) {
+      const team = teams.find((item) => item.key.toLowerCase() === envTeamKey.toLowerCase());
+      if (!team) throw new Error(`LINEAR_TEAM_KEY does not match an active Linear team: ${envTeamKey}`);
+      return [team.id];
+    }
+    if (teams.length === 1) return [teams[0]!.id];
+    const nonPersonal = teams.filter((team) => team.key.toLowerCase() !== "per" && team.name.toLowerCase() !== "personal");
+    if (nonPersonal.length === 1) return [nonPersonal[0]!.id];
+    throw new Error("Could not infer a Linear team for project creation. Set LINEAR_TEAM_ID or LINEAR_TEAM_KEY.");
+  }
+
   async getIssue(idOrIdentifier: string): Promise<LinearIssue | undefined> {
     const issueFields = `id identifier title description url state { name } labels { nodes { name } } project { name slugId } parent { id }`;
     if (/^[A-Z][A-Z0-9]*-\d+$/.test(idOrIdentifier)) {

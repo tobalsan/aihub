@@ -4,7 +4,7 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Command } from "commander";
 import { OrchestratorApiClient } from "./client.js";
-import { initWorkflow, registerOrchestratorCommands } from "./index.js";
+import { initProject, initWorkflow, registerOrchestratorCommands, safeProjectName } from "./index.js";
 
 describe("orchestrator CLI client", () => {
   const calls: string[] = [];
@@ -57,6 +57,7 @@ describe("registerOrchestratorCommands", () => {
       "claim",
       "events",
       "export",
+      "init-project",
       "init-workflow",
       "interrupt",
       "kill",
@@ -82,5 +83,104 @@ describe("registerOrchestratorCommands", () => {
     expect(content).toContain("api_key: $LINEAR_API_KEY");
     expect(content).toContain("profile: worker");
     await expect(initWorkflow(project, { projectSlug: "aihub" })).rejects.toThrow("WORKFLOW.md already exists");
+  });
+
+  it("sanitizes project names for folder creation", () => {
+    expect(safeProjectName("Foo Bar")).toBe("foo-bar");
+    expect(safeProjectName("  Déjà Vu / 2026!  ")).toBe("deja-vu-2026");
+    expect(() => safeProjectName("!!!")).toThrow("Project name must contain at least one letter or number");
+  });
+
+  it("creates Linear project, folder, workflow, and registers config", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-project-"));
+    const projectsRoot = path.join(root, "projects");
+    const configPath = path.join(root, "aihub.json");
+    await fs.writeFile(configPath, JSON.stringify({ extensions: { orchestrator: { projectsRoot, projects: [] } } }), "utf8");
+    const linear = {
+      findProjectByName: vi.fn(async () => undefined),
+      inferProjectTeamIds: vi.fn(async () => ["team-1"]),
+      createProject: vi.fn(async () => ({ id: "project-1", name: "Foo Bar", slugId: "foo-bar-linear" })),
+    };
+
+    const result = await initProject("Foo Bar", { profile: "reviewer", linearClient: linear as any, configPath });
+    const workflow = await fs.readFile(result.workflowPath, "utf8");
+    const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+
+    expect(result.projectPath).toBe(path.join(projectsRoot, "foo-bar"));
+    expect(workflow).toContain("project_slug: foo-bar-linear");
+    expect(workflow).toContain("profile: reviewer");
+    expect(config.extensions.orchestrator.projects).toEqual([path.join(projectsRoot, "foo-bar")]);
+    expect(linear.createProject).toHaveBeenCalledWith({ name: "Foo Bar", teamIds: ["team-1"] });
+  });
+
+  it("defaults projectsRoot to ~/projects", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-home-"));
+    const homedir = vi.spyOn(os, "homedir").mockReturnValue(home);
+    const configPath = path.join(home, ".aihub", "aihub.json");
+    const linear = {
+      findProjectByName: vi.fn(async () => undefined),
+      inferProjectTeamIds: vi.fn(async () => ["team-1"]),
+      createProject: vi.fn(async () => ({ id: "project-1", name: "Default Root", slugId: "default-root" })),
+    };
+    try {
+      const result = await initProject("Default Root", { linearClient: linear as any, configPath });
+      expect(result.projectPath).toBe(path.join(home, "projects", "default-root"));
+    } finally {
+      homedir.mockRestore();
+    }
+  });
+
+  it("fails before Linear creation when the folder already exists", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-exists-"));
+    const projectsRoot = path.join(root, "projects");
+    const configPath = path.join(root, "aihub.json");
+    await fs.mkdir(path.join(projectsRoot, "foo-bar"), { recursive: true });
+    await fs.writeFile(configPath, JSON.stringify({ extensions: { orchestrator: { projectsRoot } } }), "utf8");
+    const linear = {
+      findProjectByName: vi.fn(),
+      inferProjectTeamIds: vi.fn(),
+      createProject: vi.fn(),
+    };
+
+    await expect(initProject("Foo Bar", { linearClient: linear as any, configPath })).rejects.toThrow("Project folder already exists");
+    expect(linear.findProjectByName).not.toHaveBeenCalled();
+    expect(linear.createProject).not.toHaveBeenCalled();
+  });
+
+  it("fails before local scaffolding when Linear project already exists", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-duplicate-"));
+    const projectsRoot = path.join(root, "projects");
+    const configPath = path.join(root, "aihub.json");
+    await fs.writeFile(configPath, JSON.stringify({ extensions: { orchestrator: { projectsRoot } } }), "utf8");
+    const linear = {
+      findProjectByName: vi.fn(async () => ({ id: "project-1", name: "Foo Bar", slugId: "foo-bar" })),
+      inferProjectTeamIds: vi.fn(),
+      createProject: vi.fn(),
+    };
+
+    await expect(initProject("Foo Bar", { linearClient: linear as any, configPath })).rejects.toThrow("Linear project already exists");
+    await expect(fs.access(path.join(projectsRoot, "foo-bar"))).rejects.toThrow();
+    expect(linear.createProject).not.toHaveBeenCalled();
+  });
+
+  it("rolls back Linear project and local folder when registration fails after creation", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-rollback-"));
+    const projectsRoot = path.join(root, "projects");
+    const configPath = path.join(root, "aihub.json");
+    await fs.writeFile(configPath, JSON.stringify({ extensions: { orchestrator: { projectsRoot, projects: [] } } }), "utf8");
+    await fs.chmod(configPath, 0o444);
+    const linear = {
+      findProjectByName: vi.fn(async () => undefined),
+      inferProjectTeamIds: vi.fn(async () => ["team-1"]),
+      createProject: vi.fn(async () => ({ id: "project-1", name: "Foo Bar", slugId: "foo-bar" })),
+      deleteProject: vi.fn(async () => undefined),
+    };
+    try {
+      await expect(initProject("Foo Bar", { linearClient: linear as any, configPath })).rejects.toThrow();
+      expect(linear.deleteProject).toHaveBeenCalledWith("project-1");
+      await expect(fs.access(path.join(projectsRoot, "foo-bar"))).rejects.toThrow();
+    } finally {
+      await fs.chmod(configPath, 0o644).catch(() => undefined);
+    }
   });
 });
