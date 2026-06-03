@@ -82,6 +82,16 @@ describe("registerOrchestratorCommands", () => {
     expect(content).toContain("project_slug: aihub");
     expect(content).toContain("api_key: $LINEAR_API_KEY");
     expect(content).toContain("profile: worker");
+    expect(content).toContain("## DO THIS FIRST");
+    expect(content).toContain("Fetch Linear issue {{issue.identifier}}.");
+    expect(content).toContain("Do not perform task work before this claim step.");
+    expect(content).toContain("## Workspace Rule");
+    expect(content).toContain("## Linear Workflow");
+    expect(content).toContain("move the issue to `In Review`");
+    expect(content).toContain("## Code Changes and Review Flow");
+    expect(content).toContain("Create a worktree from the `main` branch");
+    expect(content).toContain("Spawn a reviewer subagent");
+    expect(content).toContain("## Golden Rule: Clarification Over Assumption");
     await expect(initWorkflow(project, { projectSlug: "aihub" })).rejects.toThrow("WORKFLOW.md already exists");
   });
 
@@ -109,6 +119,9 @@ describe("registerOrchestratorCommands", () => {
     expect(result.projectPath).toBe(path.join(projectsRoot, "foo-bar"));
     expect(workflow).toContain("project_slug: foo-bar-linear");
     expect(workflow).toContain("profile: reviewer");
+    expect(workflow).toContain("## DO THIS FIRST");
+    expect(workflow).toContain("## Code Changes and Review Flow");
+    expect(workflow).toContain("## Golden Rule: Clarification Over Assumption");
     expect(config.extensions.orchestrator.projects).toEqual([path.join(projectsRoot, "foo-bar")]);
     expect(linear.createProject).toHaveBeenCalledWith({ name: "Foo Bar", teamIds: ["team-1"] });
   });
