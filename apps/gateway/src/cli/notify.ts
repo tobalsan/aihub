@@ -8,6 +8,7 @@ type NotifyCommandOptions = {
   message?: string;
   surface?: string;
   mention?: string;
+  from?: string;
 };
 
 type NotifyCommandDeps = {
@@ -24,6 +25,14 @@ function printNotifyResults(summary: NotifySummary): void {
   }
 }
 
+function resolveNotifyAgentId(options: NotifyCommandOptions): string | undefined {
+  const explicit = options.from?.trim();
+  if (explicit) return explicit;
+
+  const envAgentId = process.env.AIHUB_AGENT_ID?.trim();
+  return envAgentId || undefined;
+}
+
 export async function runNotifyCommand(
   options: NotifyCommandOptions,
   deps: NotifyCommandDeps = {}
@@ -33,14 +42,22 @@ export async function runNotifyCommand(
 
   const rawConfig = (deps.loadConfig ?? loadConfig)();
   const config = await (deps.resolveConfig ?? resolveStartupConfig)(rawConfig);
+  const agentId = resolveNotifyAgentId(options);
+  const agent = agentId
+    ? config.agents.find((candidate) => candidate.id === agentId)
+    : undefined;
+  if (agentId && !agent) {
+    throw new Error(`Unknown notify agent "${agentId}"`);
+  }
+
   const summary = await (deps.notifyImpl ?? notify)({
     config: config.notifications,
     channel: options.channel,
     message: options.message,
     surface: options.surface,
     mention: options.mention,
-    discordToken: config.extensions?.discord?.token,
-    slackToken: config.extensions?.slack?.token,
+    discordToken: agent?.discord?.token ?? config.extensions?.discord?.token,
+    slackToken: agent?.slack?.token ?? config.extensions?.slack?.token,
   });
 
   printNotifyResults(summary);
@@ -58,6 +75,7 @@ export function registerNotifyCommand(
     .requiredOption("--message <text>", "Message text")
     .option("--surface <surface>", "discord, slack, or both", "both")
     .option("--mention <userId>", "Mention user id")
+    .option("--from <agentId>", "Resolve bot tokens from an agent config")
     .action(async (options: NotifyCommandOptions) => {
       try {
         const summary = await runNotifyCommand(options, deps);
