@@ -10,8 +10,13 @@ import {
   type DiscordBot,
 } from "./bot.js";
 import { clearDiscordContext, setDiscordContext } from "./context.js";
-
-const activeBots = new Map<string, DiscordBot>();
+import {
+  clearActiveBots,
+  getActiveBot,
+  getActiveBots,
+  registerActiveBot,
+} from "./bot-registry.js";
+import { clearDiscordClientCache, discordAgentTools } from "./agent-tools.js";
 
 export async function startDiscordBots(
   ctx: ExtensionContext,
@@ -25,7 +30,7 @@ export async function startDiscordBots(
 
     try {
       await bot.start();
-      activeBots.set(bot.agentId, bot);
+      registerActiveBot(bot.agentId, bot);
       console.log("[discord] Started component bot");
     } catch (err) {
       console.error("[discord] Failed to start component bot:", err);
@@ -44,7 +49,7 @@ export async function startDiscordBots(
 
     try {
       await bot.start();
-      activeBots.set(agent.id, bot);
+      registerActiveBot(agent.id, bot);
       console.log(`[discord] Started bot for agent: ${agent.id}`);
     } catch (err) {
       console.error(`[discord] Failed to start bot for agent ${agent.id}:`, err);
@@ -53,7 +58,7 @@ export async function startDiscordBots(
 }
 
 export async function stopDiscordBots(): Promise<void> {
-  for (const [agentId, bot] of activeBots) {
+  for (const [agentId, bot] of getActiveBots()) {
     try {
       await bot.stop();
       console.log(`[discord] Stopped bot for agent: ${agentId}`);
@@ -61,11 +66,8 @@ export async function stopDiscordBots(): Promise<void> {
       console.error(`[discord] Failed to stop bot for agent ${agentId}:`, err);
     }
   }
-  activeBots.clear();
-}
-
-export function getActiveBot(agentId: string): DiscordBot | undefined {
-  return activeBots.get(agentId);
+  clearActiveBots();
+  clearDiscordClientCache();
 }
 
 const discordExtension: Extension = {
@@ -94,6 +96,10 @@ const discordExtension: Extension = {
     };
   },
   registerRoutes() {},
+  getAgentTools(_agent, context) {
+    if (context?.config.extensions?.discord?.enabled === false) return [];
+    return discordAgentTools();
+  },
   async start(ctx) {
     const rawConfig = ctx.getConfig().extensions?.discord;
 
@@ -116,3 +122,4 @@ const discordExtension: Extension = {
 };
 
 export { discordExtension, createDiscordBot, type DiscordBot };
+export { getActiveBot };
