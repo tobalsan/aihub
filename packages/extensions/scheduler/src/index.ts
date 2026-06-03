@@ -9,6 +9,7 @@ import {
 import { z } from "zod";
 import type { Hono } from "hono";
 import {
+  ScheduleAlreadyRunningError,
   SchedulerService,
   clearSchedulerContext,
   getScheduler,
@@ -276,6 +277,24 @@ const schedulerExtension: Extension = {
       const latest = await readLatestOutputFile(ctx.resolveWorkspaceDir(agent), id);
       if (!latest) return c.json({ error: "Output not found" }, 404);
       return c.json(latest);
+    });
+
+    app.post("/schedules/:agentId/:id/run", async (c) => {
+      const agentId = c.req.param("agentId");
+      const id = c.req.param("id");
+      const scheduler = getScheduler();
+      try {
+        const result = await scheduler.runNow(agentId, id);
+        if (result.status === "error") {
+          return c.json({ error: result.error ?? "Schedule run failed", result }, 500);
+        }
+        return c.json(result, result.status === "skipped" ? 202 : 200);
+      } catch (error) {
+        if (error instanceof ScheduleAlreadyRunningError) {
+          return c.json({ error: error.message }, 409);
+        }
+        return c.json({ error: "Schedule not found" }, 404);
+      }
     });
 
     app.patch("/schedules/:agentId/:id", async (c) => {

@@ -20,9 +20,26 @@ export type SchedulerState = {
   lastError?: string;
 };
 
+export type SchedulerRunResult = {
+  job: ScheduleJob;
+  status: "ok" | "error" | "skipped";
+  firedAt: string;
+  finishedAt: string;
+  sessionId?: string;
+  outputPath?: string;
+  error?: string;
+};
+
 type JobWithState = ScheduleJob & { state?: SchedulerState };
 
 let schedulerCtx: ExtensionContext | null = null;
+
+export class ScheduleAlreadyRunningError extends Error {
+  constructor(agentId: string, id: string) {
+    super(`Schedule already running: ${agentId}/${id}`);
+    this.name = "ScheduleAlreadyRunningError";
+  }
+}
 
 function uuidv7(): string {
   const bytes = crypto.randomBytes(16);
@@ -65,6 +82,8 @@ export class SchedulerService {
   private timer: NodeJS.Timeout | null = null;
   private running = false;
   private loaded = false;
+  private executingJobs = new Set<string>();
+  private skippedScheduledFireKeys = new Set<string>();
 
   constructor() {
     const ctx = getSchedulerContext();
@@ -181,6 +200,30 @@ export class SchedulerService {
     return { removed };
   }
 
+  async runNow(agentId: string, id: string): Promise<SchedulerRunResult> {
+    await this.load();
+    const job = this.findJob(agentId, id);
+    if (!job) throw new Error(`Schedule not found: ${agentId}/${id}`);
+
+    const key = this.executionKey(job);
+    const previousNextRunAtMs = job.state?.nextRunAtMs;
+    const result = await this.executeJob(job);
+    const skippedScheduledFire = this.skippedScheduledFireKeys.delete(key);
+
+    if (!skippedScheduledFire) {
+      job.state = job.state ?? {};
+      if (previousNextRunAtMs === undefined) {
+        delete job.state.nextRunAtMs;
+      } else {
+        job.state.nextRunAtMs = previousNextRunAtMs;
+      }
+    }
+    await this.saveAgent(agentId);
+    this.armTimer();
+
+    return result;
+  }
+
   private async load() {
     if (this.loaded) return;
     this.store = await this.jobStore.load();
@@ -254,94 +297,152 @@ export class SchedulerService {
     });
 
     for (const job of due) {
-      await this.executeJob(job);
+      try {
+        await this.executeJob(job);
+      } catch (error) {
+        if (error instanceof ScheduleAlreadyRunningError) {
+          getSchedulerContext().logger.warn(error.message);
+          job.state = job.state ?? {};
+          job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+          this.skippedScheduledFireKeys.add(this.executionKey(job));
+          await this.saveAgent(job.agentId);
+          continue;
+        }
+        throw error;
+      }
     }
   }
 
-  private async executeJob(job: JobWithState) {
+  private executionKey(job: Pick<ScheduleJob, "agentId" | "id">): string {
+    return `${job.agentId}/${job.id}`;
+  }
+
+  private async executeJob(job: JobWithState): Promise<SchedulerRunResult> {
+    const key = this.executionKey(job);
+    if (this.executingJobs.has(key)) {
+      throw new ScheduleAlreadyRunningError(job.agentId, job.id);
+    }
+    this.executingJobs.add(key);
+
     const ctx = getSchedulerContext();
     const agent = ctx.getAgent(job.agentId);
     const firedAt = new Date();
     const sessionId = job.payload.sessionId ?? `scheduler:${job.id}:${uuidv7()}`;
-    if (!agent) {
-      console.error(`[scheduler] Agent not found: ${job.agentId}`);
-      job.state = job.state ?? {};
-      job.state.lastStatus = "error";
-      job.state.lastError = "Agent not found";
+    try {
+      if (!agent) {
+        console.error(`[scheduler] Agent not found: ${job.agentId}`);
+        job.state = job.state ?? {};
+        job.state.lastStatus = "error";
+        job.state.lastError = "Agent not found";
+        job.state.lastRunAtMs = firedAt.getTime();
+        job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+        return {
+          job,
+          status: "error",
+          firedAt: firedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          sessionId,
+          error: "Agent not found",
+        };
+      }
+
+      // Skip if agent not active (single-agent mode filter)
+      if (!ctx.isAgentActive(job.agentId)) {
+        job.state = job.state ?? {};
+        job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+        return {
+          job,
+          status: "skipped",
+          firedAt: firedAt.toISOString(),
+          finishedAt: new Date().toISOString(),
+          sessionId,
+          error: "Agent not active",
+        };
+      }
+
+      console.log(`[scheduler] Running job: ${job.name} -> ${agent.name}`);
+
+      let runStatus: SchedulerRunResult["status"] = "ok";
+      let runSessionId = sessionId;
+      let outputPath: string | undefined;
+      let runError: string | undefined;
+
+      try {
+        const result = await ctx.runAgent({
+          agentId: job.agentId,
+          message: job.payload.message,
+          sessionId,
+          model: job.model,
+          source: "scheduler",
+        });
+
+        runSessionId = result.meta.sessionId;
+        job.state = job.state ?? {};
+        job.state.lastStatus = "ok";
+        job.state.lastError = undefined;
+        outputPath = await writeCronRunOutput({
+          workspaceDir: ctx.resolveWorkspaceDir(agent),
+          jobId: job.id,
+          agentId: job.agentId,
+          sessionId: result.meta.sessionId,
+          model: job.model ?? {
+            provider: agent.model.provider ?? "",
+            model: agent.model.model,
+          },
+          runType: "cron",
+          name: job.name,
+          prompt: job.payload.message,
+          schedule: formatScheduleForOutput(job.schedule),
+          firedAt,
+          finishedAt: new Date(),
+          status: "ok",
+          durationMs: Date.now() - firedAt.getTime(),
+          response: latestAssistantText(result.payloads),
+        });
+      } catch (err) {
+        runStatus = "error";
+        runError = err instanceof Error ? err.message : String(err);
+        job.state = job.state ?? {};
+        job.state.lastStatus = "error";
+        job.state.lastError = runError;
+        console.error(`[scheduler] Job failed: ${job.name}`, err);
+        outputPath = await writeCronRunOutput({
+          workspaceDir: ctx.resolveWorkspaceDir(agent),
+          jobId: job.id,
+          agentId: job.agentId,
+          sessionId,
+          model: job.model ?? {
+            provider: agent.model.provider ?? "",
+            model: agent.model.model,
+          },
+          runType: "cron",
+          name: job.name,
+          prompt: job.payload.message,
+          schedule: formatScheduleForOutput(job.schedule),
+          firedAt,
+          finishedAt: new Date(),
+          status: "error",
+          durationMs: Date.now() - firedAt.getTime(),
+          error: err,
+        });
+      }
+
+      const finishedAt = new Date();
       job.state.lastRunAtMs = firedAt.getTime();
       job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-      return;
+      await this.saveAgent(job.agentId);
+      return {
+        job,
+        status: runStatus,
+        firedAt: firedAt.toISOString(),
+        finishedAt: finishedAt.toISOString(),
+        sessionId: runSessionId,
+        outputPath,
+        error: runError,
+      };
+    } finally {
+      this.executingJobs.delete(key);
     }
-
-    // Skip if agent not active (single-agent mode filter)
-    if (!ctx.isAgentActive(job.agentId)) {
-      job.state = job.state ?? {};
-      job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-      return;
-    }
-
-    console.log(`[scheduler] Running job: ${job.name} -> ${agent.name}`);
-
-    try {
-      const result = await ctx.runAgent({
-        agentId: job.agentId,
-        message: job.payload.message,
-        sessionId,
-        model: job.model,
-        source: "scheduler",
-      });
-
-      job.state = job.state ?? {};
-      job.state.lastStatus = "ok";
-      job.state.lastError = undefined;
-      await writeCronRunOutput({
-        workspaceDir: ctx.resolveWorkspaceDir(agent),
-        jobId: job.id,
-        agentId: job.agentId,
-        sessionId: result.meta.sessionId,
-        model: job.model ?? {
-          provider: agent.model.provider ?? "",
-          model: agent.model.model,
-        },
-        runType: "cron",
-        name: job.name,
-        prompt: job.payload.message,
-        schedule: formatScheduleForOutput(job.schedule),
-        firedAt,
-        finishedAt: new Date(),
-        status: "ok",
-        durationMs: Date.now() - firedAt.getTime(),
-        response: latestAssistantText(result.payloads),
-      });
-    } catch (err) {
-      job.state = job.state ?? {};
-      job.state.lastStatus = "error";
-      job.state.lastError = err instanceof Error ? err.message : String(err);
-      console.error(`[scheduler] Job failed: ${job.name}`, err);
-      await writeCronRunOutput({
-        workspaceDir: ctx.resolveWorkspaceDir(agent),
-        jobId: job.id,
-        agentId: job.agentId,
-        sessionId,
-        model: job.model ?? {
-          provider: agent.model.provider ?? "",
-          model: agent.model.model,
-        },
-        runType: "cron",
-        name: job.name,
-        prompt: job.payload.message,
-        schedule: formatScheduleForOutput(job.schedule),
-        firedAt,
-        finishedAt: new Date(),
-        status: "error",
-        durationMs: Date.now() - firedAt.getTime(),
-        error: err,
-      });
-    }
-
-    job.state.lastRunAtMs = firedAt.getTime();
-    job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-    await this.saveAgent(job.agentId);
   }
 }
 

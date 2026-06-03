@@ -1,5 +1,14 @@
-import { describe, expect, it } from "vitest";
-import { buildCreateBody, buildUpdateBody } from "./index.js";
+import { Command } from "commander";
+import { afterEach, describe, expect, it, vi } from "vitest";
+import { buildCreateBody, buildUpdateBody, registerSchedulerCommands } from "./index.js";
+
+const originalApiUrl = process.env.AIHUB_API_URL;
+
+afterEach(() => {
+  if (originalApiUrl === undefined) delete process.env.AIHUB_API_URL;
+  else process.env.AIHUB_API_URL = originalApiUrl;
+  vi.restoreAllMocks();
+});
 
 describe("buildCreateBody", () => {
   it("defaults the name from agent + schedule", () => {
@@ -116,5 +125,73 @@ describe("buildUpdateBody", () => {
 
   it("renames", () => {
     expect(buildUpdateBody({ name: "renamed" })).toEqual({ name: "renamed" });
+  });
+});
+
+describe("scheduler run command", () => {
+  it("posts to the manual run endpoint and prints the output path", async () => {
+    process.env.AIHUB_API_URL = "http://localhost:4521";
+    const fetchMock = vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          status: "ok",
+          firedAt: "2026-06-03T00:00:00.000Z",
+          finishedAt: "2026-06-03T00:00:01.000Z",
+          sessionId: "session-1",
+          outputPath: "/tmp/alpha/cron/output/job-1/run.md",
+          job: { id: "job-1", agentId: "alpha" },
+        }),
+        { status: 200, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const log = vi.spyOn(console, "log").mockImplementation(() => {});
+    const program = new Command();
+    program.exitOverride();
+    registerSchedulerCommands(program);
+
+    await program.parseAsync(["node", "scheduler", "run", "alpha", "job-1"]);
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "http://localhost:4521/api/schedules/alpha/job-1/run",
+      expect.objectContaining({ method: "POST" })
+    );
+    expect(log).toHaveBeenNthCalledWith(1, "Ran schedule alpha/job-1: ok");
+    expect(log).toHaveBeenNthCalledWith(
+      2,
+      "Output: /tmp/alpha/cron/output/job-1/run.md"
+    );
+  });
+
+  it("prints failed run output path before exiting non-zero", async () => {
+    process.env.AIHUB_API_URL = "http://localhost:4521";
+    vi.spyOn(globalThis, "fetch").mockResolvedValue(
+      new Response(
+        JSON.stringify({
+          error: "agent failed",
+          result: {
+            status: "error",
+            outputPath: "/tmp/alpha/cron/output/job-1/failed.md",
+          },
+        }),
+        { status: 500, headers: { "Content-Type": "application/json" } }
+      )
+    );
+    const error = vi.spyOn(console, "error").mockImplementation(() => {});
+    vi.spyOn(process, "exit").mockImplementation(((code?: string | number | null) => {
+      throw new Error(`exit ${code}`);
+    }) as never);
+    const program = new Command();
+    program.exitOverride();
+    registerSchedulerCommands(program);
+
+    await expect(
+      program.parseAsync(["node", "scheduler", "run", "alpha", "job-1"])
+    ).rejects.toThrow("exit 1");
+
+    expect(error).toHaveBeenNthCalledWith(1, "agent failed");
+    expect(error).toHaveBeenNthCalledWith(
+      2,
+      "Output: /tmp/alpha/cron/output/job-1/failed.md"
+    );
   });
 });

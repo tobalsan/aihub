@@ -3,6 +3,7 @@ import type {
   ScheduleJob,
   UpdateScheduleRequest,
 } from "@aihub/shared";
+import type { SchedulerRunResult } from "../service.js";
 import { resolveConfig } from "./config.js";
 
 type HttpMethod = "GET" | "POST" | "PATCH" | "DELETE";
@@ -11,6 +12,17 @@ type RequestOptions = {
   method?: HttpMethod;
   body?: unknown;
 };
+
+export class SchedulerApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+    readonly data: unknown
+  ) {
+    super(message);
+    this.name = "SchedulerApiError";
+  }
+}
 
 export class SchedulerApiClient {
   private readonly baseUrl: string;
@@ -52,7 +64,7 @@ export class SchedulerApiClient {
         typeof (data as { error: unknown }).error === "string"
           ? (data as { error: string }).error
           : `Request failed (${res.status})`;
-      throw new Error(error);
+      throw new SchedulerApiError(error, res.status, data);
     }
     return data as T;
   }
@@ -88,6 +100,15 @@ export class SchedulerApiClient {
       `/schedules/${encodeURIComponent(agentId)}/${encodeURIComponent(id)}`,
       {
         method: "DELETE",
+      }
+    );
+  }
+
+  runSchedule(agentId: string, id: string): Promise<SchedulerRunResult> {
+    return this.request<SchedulerRunResult>(
+      `/schedules/${encodeURIComponent(agentId)}/${encodeURIComponent(id)}/run`,
+      {
+        method: "POST",
       }
     );
   }
