@@ -578,6 +578,7 @@ discord: {
 - **Context enrichment**: Channel topic, thread starter, message history (ring buffer)
 - **Reactions**: `reactionNotifications` modes: off, all, own (bot's messages), allowlist
 - **Slash commands**: `/new`, `/abort`, `/help`, `/ping` (when `applicationId` set)
+- **Agent tools**: `discord.send_message`, `discord.list_channels`, and `discord.list_users` let scheduled/proactive agents discover reachable Discord targets and send channel or DM messages without waiting for inbound Discord events. The tools prefer a running bot client and fall back to the configured bot token.
 - **Typing indicator**: Starts on inbound, 5s keep-alive, stops on done/error, 30s TTL for queued
 - **Chunking**: 2000 char limit with code fence preservation
 
