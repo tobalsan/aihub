@@ -99,6 +99,7 @@ export class OrchestratorDaemon {
     for (const timer of this.timers.values()) clearTimeout(timer);
     this.timers.clear();
     for (const run of this.runs.values()) if (run.worker) await this.runner().abort(run.worker).catch(() => undefined);
+    await this.runner().shutdown?.().catch(() => undefined);
     for (const watcher of this.watchers) watcher.close();
     this.watchers = [];
     this.deps.store.markActiveProcessStopped();
@@ -252,7 +253,21 @@ export class OrchestratorDaemon {
       if (workspace.created) await runHook({ command: resolvedWorkflow.config.hooks?.after_create, phase: "after_create", cwd: workspace.path, runId, store: this.deps.store, env }).catch((error) => this.deps.store.appendEvent(runId, "hook.after_create.error", { error: error instanceof Error ? error.message : String(error) }, project.id));
       const before = await runHook({ command: resolvedWorkflow.config.hooks?.before_run, phase: "before_run", cwd: workspace.path, runId, store: this.deps.store, env });
       if (before !== 0) { this.deps.store.finishRun(runId, "hook_failed", before); await this.release(project.id, issue.id, "hook_failed"); return false; }
-      const worker = await this.runner().start({ runId, project, issue, workspace: workspace.path, prompt: promptFor(project, issue, resolvedWorkflow.body), label, profile: profile.profile, workflow: resolvedWorkflow.config });
+      const worker = await this.runner().start({
+        runId,
+        project,
+        issue,
+        workspace: workspace.path,
+        prompt: promptFor(project, issue, resolvedWorkflow.body),
+        label,
+        profile: profile.profile,
+        workflow: resolvedWorkflow.config,
+        emitEvent: (type, payload) => {
+          this.deps.store.appendEvent(runId, type, payload, project.id);
+          this.deps.claims.touch(issue.id, undefined, project.id);
+          this.deps.ctx.emit("orchestrator.run.event", { type, runId, projectId: project.id, issueId: issue.id, payload });
+        },
+      });
       this.runs.set(`${project.id}:${issue.id}`, { runId, project, issue, workspace: workspace.path, worker, workflow: resolvedWorkflow });
       this.deps.store.setSubagentRunId(runId, worker.id);
       this.deps.store.setRunPid(runId, worker.pid);

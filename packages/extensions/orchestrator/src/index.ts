@@ -270,4 +270,5 @@ export { StateStore } from "./state/store.js";
 export { RetryPolicy } from "./retry/policy.js";
 export { OrchestratorDaemon } from "./daemon/daemon.js";
 export { WorkflowWorkerRunner, SubagentFallbackRunner, FakeWorkerRunner, CliWorkerRunner } from "./worker-runner/runner.js";
+export { CodexAppServerRunner } from "./worker-runner/codex-app-server.js";
 export type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStatus, WorkerRunnerStartInput } from "./worker-runner/runner.js";

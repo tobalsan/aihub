@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { ClaimsRegistry, CliWorkerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
+import { ClaimsRegistry, CliWorkerRunner, CodexAppServerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
 
@@ -152,6 +152,12 @@ Run
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: cli\n  command: [\" node \", \"-v\"]\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { command: ["node", "-v"] } } });
+
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: codex\n---\nRun\n");
+    await expect(new WorkflowLoader(root).resolve({ projectPath: root })).rejects.toThrow("agent.command must provide an executable when agent.runner is codex");
+
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: codex\n  command: [\" node \", \"mock-app-server.mjs\"]\n---\nRun\n");
+    await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "codex", command: ["node", "mock-app-server.mjs"] } } });
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: fake\n  max_turns: 0\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).rejects.toThrow("agent.max_turns must be a positive number");
@@ -301,6 +307,269 @@ describe("orchestrator Linear client", () => {
     await expect(client.graphql("query")).resolves.toEqual({ ok: true });
     expect(sleeps).toEqual([3_000, 2_000]);
     expect(client.rateLimitRemaining).toBe(9);
+  });
+});
+
+async function writeMockCodexAppServer(dir: string): Promise<string> {
+  const script = path.join(dir, "mock-codex-app-server.mjs");
+  await fs.writeFile(script, `
+import fs from "node:fs";
+import readline from "node:readline";
+
+const mode = process.env.MOCK_CODEX_MODE ?? "complete";
+const logPath = process.env.MOCK_CODEX_LOG;
+const rl = readline.createInterface({ input: process.stdin });
+
+function write(message) {
+  process.stdout.write(JSON.stringify({ jsonrpc: "2.0", ...message }) + "\\n");
+}
+
+function log(message) {
+  if (logPath) fs.appendFileSync(logPath, JSON.stringify(message) + "\\n");
+}
+
+rl.on("line", (line) => {
+  const message = JSON.parse(line);
+  log(message);
+  if (message.id === "approval_1" && !message.method) {
+    write({ method: "serverRequest/resolved", params: { threadId: "thr_mock", requestId: "approval_1" } });
+    write({ method: "item/completed", params: { item: { id: "tool_approval", type: "commandExecution", command: ["git", "status"], cwd: process.cwd(), status: "declined" } } });
+    write({ method: "turn/completed", params: { turn: { id: "turn_mock", status: "completed" } } });
+  } else if (message.method === "initialize") {
+    write({ id: message.id, result: {} });
+  } else if (message.method === "initialized") {
+  } else if (message.method === "thread/start") {
+    write({ method: "thread/started", params: { thread: { id: "thr_mock", sessionId: "thr_mock" } } });
+    write({ id: message.id, result: { thread: { id: "thr_mock", sessionId: "thr_mock" } } });
+  } else if (message.method === "turn/start") {
+    write({ method: "turn/started", params: { turn: { id: "turn_mock", status: "inProgress", items: [] } } });
+    write({ id: message.id, result: { turn: { id: "turn_mock", status: "inProgress" } } });
+    write({ method: "item/started", params: { item: { id: "msg_1", type: "agentMessage", text: "", phase: "commentary" } } });
+    write({ method: "item/agentMessage/delta", params: { itemId: "msg_1", delta: "Working" } });
+    write({ method: "item/completed", params: { item: { id: "tool_1", type: "commandExecution", command: ["pnpm", "test"], cwd: process.cwd(), status: "completed", exitCode: 0 } } });
+    write({ method: "item/completed", params: { item: { id: "change_1", type: "fileChange", changes: [{ path: "src/index.ts", kind: "modify", diff: "@@" }], status: "completed" } } });
+    write({ method: "turn/diff/updated", params: { threadId: "thr_mock", turnId: "turn_mock", diff: "@@" } });
+    write({ method: "thread/tokenUsage/updated", params: { threadId: "thr_mock", usage: { totalTokens: 42 } } });
+    if (mode === "fail") {
+      write({ method: "error", params: { error: { message: "rate limited", codexErrorInfo: { type: "UsageLimitExceeded", httpStatusCode: 429 } } } });
+      write({ method: "turn/completed", params: { turn: { id: "turn_mock", status: "failed", error: { message: "rate limited" } } } });
+    } else if (mode === "approval") {
+      write({ id: "approval_1", method: "item/commandExecution/requestApproval", params: { itemId: "tool_approval", threadId: "thr_mock", turnId: "turn_mock", availableDecisions: ["cancel"] } });
+    } else if (mode === "complete") {
+      write({ method: "turn/completed", params: { turn: { id: "turn_mock", status: "completed" } } });
+    }
+  } else if (message.method === "turn/steer") {
+    write({ id: message.id, result: {} });
+  } else if (message.method === "turn/interrupt") {
+    if (mode !== "wedged") {
+      write({ id: message.id, result: {} });
+      write({ method: "turn/completed", params: { turn: { id: "turn_mock", status: "interrupted" } } });
+    }
+  }
+});
+`);
+  return script;
+}
+
+function codexRunnerInput(root: string, command: string[], extra: Partial<Parameters<CodexAppServerRunner["start"]>[0]> = {}): Parameters<CodexAppServerRunner["start"]>[0] {
+  return {
+    runId: "r-codex",
+    project: { id: "project", path: root, workflowPath: path.join(root, "WORKFLOW.md") },
+    issue: { id: "lin_1", identifier: "ENG-1", title: "Codex", state: "Ready", labels: [] },
+    workspace: root,
+    prompt: "Initial rendered workflow instructions",
+    label: "ENG-1",
+    profile: { name: "default", cli: "codex", model: "gpt-5" },
+    workflow: {
+      tracker: { kind: "linear", endpoint: "x", apiKey: "x", projectSlug: "proj-a", activeStates: ["Ready"], terminalStates: ["Done"], needsHuman: "Needs Human" },
+      workspace: { root, cleanupOnTerminal: false, reuse: true },
+      polling: { intervalMs: 1000, jitterMs: 0 },
+      agent: { runner: "codex", command, model: "gpt-5-mini" },
+      hooks: {},
+      server: undefined,
+      linear: undefined,
+    },
+    ...extra,
+  };
+}
+
+describe("Codex app-server worker runner", () => {
+  it("starts a mocked app-server session and maps messages, tools, tokens, and completion events", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-complete-"));
+    const script = await writeMockCodexAppServer(root);
+    const logPath = path.join(root, "rpc.log");
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CODEX_MODE = "complete";
+    process.env.MOCK_CODEX_LOG = logPath;
+    const runner = new CodexAppServerRunner({ idleCleanupMs: 20, terminalRetentionMs: 50 });
+    try {
+      const handle = await runner.start(codexRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }));
+      expect(handle).toMatchObject({ kind: "codex", raw: { threadId: "thr_mock", turnId: "turn_mock" } });
+      expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
+        "worker.codex.initialized",
+        "worker.codex.thread.started",
+        "worker.codex.message",
+        "worker.codex.tool",
+        "worker.codex.tokens",
+        "worker.codex.turn.completed",
+      ]));
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { method: string; params?: any });
+      expect(sent.find((message) => message.method === "thread/start")?.params).toMatchObject({ model: "gpt-5-mini", serviceName: "aihub-orchestrator" });
+      expect(sent.find((message) => message.method === "turn/start")?.params).toMatchObject({ cwd: root, model: "gpt-5-mini", input: [{ type: "text", text: "Initial rendered workflow instructions" }] });
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      delete process.env.MOCK_CODEX_LOG;
+    }
+  });
+
+  it("reuses a live Codex thread for continuation guidance", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-continue-"));
+    const script = await writeMockCodexAppServer(root);
+    const logPath = path.join(root, "rpc.log");
+    process.env.MOCK_CODEX_MODE = "hold";
+    process.env.MOCK_CODEX_LOG = logPath;
+    const runner = new CodexAppServerRunner();
+    try {
+      const first = await runner.start(codexRunnerInput(root, [process.execPath, script]));
+      const second = await runner.start(codexRunnerInput(root, [process.execPath, script], { prompt: "This full prompt must not be resent" }));
+
+      expect(second.id).toBe(first.id);
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { method: string; params?: any });
+      const starts = sent.filter((message) => message.method === "turn/start");
+      const steer = sent.find((message) => message.method === "turn/steer");
+      expect(starts).toHaveLength(1);
+      expect(steer?.params.expectedTurnId).toBe("turn_mock");
+      expect(steer?.params.input[0].text).toContain("Continue the active orchestrator work for ENG-1");
+      expect(steer?.params.input[0].text).not.toContain("This full prompt must not be resent");
+      await runner.abort(first);
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      delete process.env.MOCK_CODEX_LOG;
+    }
+  });
+
+  it("reuses a completed but live Codex thread before idle cleanup and later cleans it up", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-idle-"));
+    const script = await writeMockCodexAppServer(root);
+    const logPath = path.join(root, "rpc.log");
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CODEX_MODE = "complete";
+    process.env.MOCK_CODEX_LOG = logPath;
+    const runner = new CodexAppServerRunner({ idleCleanupMs: 200, terminalRetentionMs: 40 });
+    try {
+      const first = await runner.start(codexRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await vi.waitFor(async () => expect(await runner.status(first)).toMatchObject({ status: "done" }));
+      const second = await runner.start(codexRunnerInput(root, [process.execPath, script], { prompt: "Do not resend this full prompt" }));
+      expect(second.id).toBe(first.id);
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { method?: string; params?: any });
+      const starts = sent.filter((message) => message.method === "turn/start");
+      expect(starts).toHaveLength(2);
+      expect(starts[1]?.params.input[0].text).toContain("Continue the active orchestrator work for ENG-1");
+      expect(starts[1]?.params.input[0].text).not.toContain("Do not resend this full prompt");
+      await vi.waitFor(() => expect(events.map((event) => event.type)).toContain("worker.codex.session.removed"), { timeout: 1000 });
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      delete process.env.MOCK_CODEX_LOG;
+    }
+  });
+
+  it("responds to server-initiated approval requests", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-approval-"));
+    const script = await writeMockCodexAppServer(root);
+    const logPath = path.join(root, "rpc.log");
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CODEX_MODE = "approval";
+    process.env.MOCK_CODEX_LOG = logPath;
+    const runner = new CodexAppServerRunner({ idleCleanupMs: 20, terminalRetentionMs: 50 });
+    try {
+      const handle = await runner.start(codexRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }));
+      expect(events.map((event) => event.type)).toEqual(expect.arrayContaining(["worker.codex.server_request", "worker.codex.tool"]));
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { id?: string; result?: unknown });
+      expect(sent.some((message) => message.id === "approval_1" && message.result === "cancel")).toBe(true);
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      delete process.env.MOCK_CODEX_LOG;
+    }
+  });
+
+  it("maps failed turns and protocol-native aborts", async () => {
+    const failRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-fail-"));
+    const failScript = await writeMockCodexAppServer(failRoot);
+    process.env.MOCK_CODEX_MODE = "fail";
+    const failEvents: Array<{ type: string; payload: unknown }> = [];
+    const failed = new CodexAppServerRunner();
+    try {
+      const failedHandle = await failed.start(codexRunnerInput(failRoot, [process.execPath, failScript], {
+        emitEvent: (type, payload) => failEvents.push({ type, payload }),
+      }));
+      await vi.waitFor(async () => expect(await failed.status(failedHandle)).toMatchObject({ status: "error" }));
+      expect(failEvents.map((event) => event.type)).toContain("worker.codex.rate_limit");
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+    }
+
+    const abortRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-abort-"));
+    const abortScript = await writeMockCodexAppServer(abortRoot);
+    const logPath = path.join(abortRoot, "rpc.log");
+    process.env.MOCK_CODEX_MODE = "hold";
+    process.env.MOCK_CODEX_LOG = logPath;
+    const aborting = new CodexAppServerRunner();
+    try {
+      const abortHandle = await aborting.start(codexRunnerInput(abortRoot, [process.execPath, abortScript]));
+      await aborting.abort(abortHandle);
+      await vi.waitFor(async () => expect(await aborting.status(abortHandle)).toMatchObject({ status: "interrupted" }));
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { method: string });
+      expect(sent.some((message) => message.method === "turn/interrupt")).toBe(true);
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      delete process.env.MOCK_CODEX_LOG;
+    }
+  });
+
+  it("falls back to process cleanup when protocol interrupt does not respond", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-wedged-"));
+    const script = await writeMockCodexAppServer(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CODEX_MODE = "wedged";
+    const runner = new CodexAppServerRunner({ interruptTimeoutMs: 20 });
+    try {
+      const handle = await runner.start(codexRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await runner.abort(handle);
+      expect(await runner.status(handle)).toMatchObject({ status: "interrupted" });
+      expect(events.map((event) => event.type)).toContain("worker.codex.interrupt.timeout");
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+    }
+  });
+
+  it("shuts down retained completed sessions immediately", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-shutdown-"));
+    const script = await writeMockCodexAppServer(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CODEX_MODE = "complete";
+    const runner = new CodexAppServerRunner({ idleCleanupMs: 10_000, terminalRetentionMs: 10_000 });
+    try {
+      const handle = await runner.start(codexRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }));
+      await runner.shutdown();
+      expect(events.map((event) => event.type)).toContain("worker.codex.session.removed");
+      expect(await runner.status(handle)).toBeUndefined();
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+    }
   });
 });
 
