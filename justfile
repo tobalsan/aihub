@@ -33,4 +33,4 @@ deploy:
     @just unreleased
     @echo
     @echo "Deploying to ams..."
-    ssh ams 'cd ~/code/aihub && git pull && aihub gateway restart'
+    ssh ams 'cd ~/code/aihub && git pull && pnpm install && pnpm build && pnpm build:web && aihub gateway restart'
