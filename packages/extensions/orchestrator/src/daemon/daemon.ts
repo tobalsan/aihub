@@ -317,7 +317,7 @@ export class OrchestratorDaemon {
     const now = Date.now();
     for (const claim of this.deps.claims.list()) {
       const run = this.runs.get(`${claim.projectId}:${claim.issueId}`);
-      const timeout = run?.workflow.config.agent.stall_timeout_ms ?? 1_800_000;
+      const timeout = run?.workflow.config.agent.stall_timeout_ms ?? 300_000;
       if (now - Date.parse(claim.lastEventAt) <= timeout || !run) continue;
       const client = this.clientFor(run.project, run.workflow);
       await client.commentCreate(claim.issueId, `Orchestrator stalled: no events for ${timeout}ms`).catch(() => undefined);

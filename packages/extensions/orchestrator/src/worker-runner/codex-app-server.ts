@@ -31,9 +31,8 @@ type CodexSession = {
 };
 
 function commandParts(command: string | string[] | undefined): [string, ...string[]] {
-  if (!command) throw new Error("agent.command is required for codex runner");
-  const [cmd, ...args] = Array.isArray(command) ? command : [command];
-  if (!cmd) throw new Error("agent.command is required for codex runner");
+  const [cmd, ...args] = Array.isArray(command) ? command : command ? [command] : [];
+  if (!cmd) return ["codex", "app-server"];
   return [cmd, ...args];
 }
 

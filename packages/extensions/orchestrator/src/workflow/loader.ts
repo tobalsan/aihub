@@ -75,7 +75,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
   const runner = agent.runner ?? agent.kind ?? "pi";
   if (runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
   const cliCommand = normalizeCliCommand(agent.command);
-  if ((runner === "cli" || runner === "codex") && !cliCommand) throw new Error(`agent.command must provide an executable when agent.runner is ${runner}`);
+  if (runner === "cli" && !cliCommand) throw new Error(`agent.command must provide an executable when agent.runner is ${runner}`);
   for (const [key, value] of Object.entries({
     "agent.max_turns": agent.max_turns,
     "agent.turn_timeout_ms": agent.turn_timeout_ms,
