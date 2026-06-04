@@ -259,6 +259,7 @@ Extensions own optional gateway routes, lifecycle hooks, prompt contributions, a
 - Discovery follows real directories and symlinked extension directories.
 - The helper for migrated tool bundles exports from `packages/shared/src/tool-extension.ts`.
 - Gateway startup resolves extension secrets, validates configured mounts, warns on missing extension ids, and fails early on invalid config or missing required secrets.
+- Agents can define gateway-side secret aliases in `agents/<id>/.env` next to `agent.yaml`. Extension tools receive the resolved per-agent map as `ctx.env`, with precedence `agent/.env > $AIHUB_HOME/.env > aihub.json env > process.env`, so agents can reuse standard names such as `SLACK_TOKEN` without leaking values to other agents.
 - Extensions can append system-prompt guidance and expose Zod-object-backed tools to Pi agents. AIHub includes sanitized extension tool aliases in Pi's tool allowlist so tools like Board scratchpad are callable in-process and in Pi containers. Pi container runs serialize extension prompt/tool metadata and execute tools through `/internal/tools`; sandbox Claude fails loudly if extension tools are configured.
 - The Board extension stores user content in `$AIHUB_HOME` by default. Set `extensions.board.contentRoot` to use a custom content directory. Its `/api/board/projects` endpoint keeps a short in-memory stale-refresh cache for project rows and lifecycle counts; use `?profile=true` to return `X-Profile-Ms`. Project README frontmatter can explicitly attach ad-hoc worktrees with `worktrees: [{"repo":"~/code/aihub","branch":"feat/example"}]` or path strings.
 
@@ -358,8 +359,8 @@ OneCLI proxy config lives in the top-level `onecli` block (see [OneCLI](#onecli)
 | `network`           | From global `sandbox.network.name` | Docker network name                                                    |
 | `memory`            | `2g`                               | Memory limit                                                           |
 | `cpus`              | `1`                                | CPU limit                                                              |
-| `maxRunTime`        | `1800`                             | Max seconds before the container is stopped and killed                  |
-| `timeout`           | *(legacy alias)*                   | Deprecated; equivalent to `maxRunTime` when `maxRunTime` is unset        |
+| `maxRunTime`        | `1800`                             | Max seconds before the container is stopped and killed                 |
+| `timeout`           | _(legacy alias)_                   | Deprecated; equivalent to `maxRunTime` when `maxRunTime` is unset      |
 | `workspaceWritable` | `false`                            | Allow the agent to write to its workspace mount                        |
 | `env`               | `{}`                               | Extra environment variables (secret values are automatically filtered) |
 | `mounts`            | `[]`                               | Additional bind mounts (validated against the allowlist)               |
@@ -617,7 +618,11 @@ model: { provider: openai-codex, model: gpt-5.3-codex-spark }
 
 ```json
 // $AIHUB_HOME/aihub.json
-{ "version": 3, "agents": "./agents/*", "env": { "OPENROUTER_API_KEY": "sk-or-..." } }
+{
+  "version": 3,
+  "agents": "./agents/*",
+  "env": { "OPENROUTER_API_KEY": "sk-or-..." }
+}
 ```
 
 ```yaml
@@ -680,7 +685,7 @@ openclaw sessions list
 | `/api/agents/:id/history`                        | GET             | Session history (?sessionKey=main&view=simple\|full)  |
 | `/api/schedules`                                 | GET/POST        | List/create schedules                                 |
 | `/api/schedules/:agentId/:id`                    | PATCH/DELETE    | Update/delete schedule                                |
-| `/api/schedules/:agentId/:id/run`                | POST            | Run schedule immediately                             |
+| `/api/schedules/:agentId/:id/run`                | POST            | Run schedule immediately                              |
 | `/api/projects`                                  | GET/POST        | List/create projects                                  |
 | `/api/projects/:id`                              | GET/PATCH       | Get/update project                                    |
 | `/api/projects/:id/space`                        | GET             | Get project Space state                               |
@@ -746,7 +751,7 @@ Project lead-session titles can be generated with `extensions.sessions.autoTitle
 | ------------------ | ------------------------------------------------------------------------------------ |
 | `id`               | Unique identifier                                                                    |
 | `name`             | Display name                                                                         |
-| `system_files`     | Ordered prompt files; `AGENTS.md` is always prepended when present                  |
+| `system_files`     | Ordered prompt files; `AGENTS.md` is always prepended when present                   |
 | `sdk`              | Agent SDK: `pi` (default), `claude`, or `openclaw`                                   |
 | `model.provider`   | Model provider (required for Pi SDK)                                                 |
 | `model.model`      | Model name                                                                           |
@@ -803,6 +808,8 @@ Set env vars in config (applied at load time, only if not already set):
 ```
 
 Shell env vars take precedence over config values.
+
+Per-agent `.env` files are gateway-side aliases for extension tools. Trusted native adapters that spawn child processes can pass the resolved map as child env without mutating global `process.env`; in-process adapters keep aliases in explicit contexts only. They are not sandbox secret injection: sandbox containers do not receive `$AIHUB_HOME/.env` or `agents/<id>/.env`, and workspace `.env` files are still shadow-mounted to `/dev/null`.
 
 ## Scheduling
 

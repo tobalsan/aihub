@@ -4,6 +4,7 @@ import {
   ExtensionBaseConfigSchema,
   type AgentConfig,
   type Extension,
+  type ExtensionAgentToolContext,
   type ExtensionAgentTool,
   type GatewayConfig,
   type ValidationResult,
@@ -20,7 +21,10 @@ export interface ToolExtensionTool {
   name: string;
   description: string;
   parameters: z.AnyZodObject;
-  execute(params: unknown): Promise<unknown>;
+  execute(
+    params: unknown,
+    context: ExtensionAgentToolContext
+  ): Promise<unknown>;
 }
 
 export interface ToolExtensionDefinition {
@@ -161,7 +165,10 @@ function renderMountedToolNames(
     "AIHub exposes this extension's tools with these exact names:",
     ...definition
       .createTools(resolved)
-      .map((tool) => `- ${getMountedToolName(definition, tool.name)}: ${tool.description}`),
+      .map(
+        (tool) =>
+          `- ${getMountedToolName(definition, tool.name)}: ${tool.description}`
+      ),
   ].join("\n");
 }
 
@@ -226,7 +233,7 @@ export function defineToolExtension(
         parameters: zodToJsonSchema(tool.parameters, {
           $refStrategy: "none",
         }) as Record<string, unknown>,
-        execute: (params) => tool.execute(params),
+        execute: (params, context) => tool.execute(params, context),
       }));
     },
   };

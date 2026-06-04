@@ -1,4 +1,4 @@
-import { describe, expect, it } from "vitest";
+import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineToolExtension } from "../tool-extension.js";
 import { GatewayConfigSchema } from "../types.js";
@@ -107,6 +107,48 @@ describe("tool extensions", () => {
 
     expect(extension.getAgentTools?.(config.agents[0]!, { config })).toEqual(
       []
+    );
+  });
+
+  it("forwards extension tool context env to tool implementations", async () => {
+    const execute = vi.fn(async (_params, context) => context.env?.SLACK_TOKEN);
+    const extension = defineToolExtension({
+      id: "sample",
+      displayName: "Sample",
+      description: "Sample tool extension",
+      configSchema: z.object({}),
+      requiredSecrets: [],
+      createTools: () => [
+        {
+          name: "ping",
+          description: "Ping",
+          parameters: z.object({}),
+          execute,
+        },
+      ],
+    });
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: "~/agents/main",
+          model: { provider: "anthropic", model: "claude" },
+          extensions: { sample: {} },
+        },
+      ],
+      extensions: { sample: {} },
+    });
+    const agent = config.agents[0]!;
+    const tools = await extension.getAgentTools?.(agent, { config });
+
+    await expect(
+      tools?.[0]?.execute({}, { agent, config, env: { SLACK_TOKEN: "agent" } })
+    ).resolves.toBe("agent");
+    expect(execute).toHaveBeenCalledWith(
+      {},
+      { agent, config, env: { SLACK_TOKEN: "agent" } }
     );
   });
 

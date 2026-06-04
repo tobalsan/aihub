@@ -4,6 +4,7 @@ import type {
   ExtensionAgentTool,
   GatewayConfig,
 } from "@aihub/shared";
+import { resolveAgentEnv } from "../config/index.js";
 
 export type LoadedExtensionAgentTool = ExtensionAgentTool & {
   extensionId: string;
@@ -139,7 +140,8 @@ export class ExtensionRuntime {
   ): Promise<LoadedExtensionAgentTool[]> {
     const groups = await Promise.all(
       this.#extensions.map(async (extension) => {
-        const tools = (await extension.getAgentTools?.(agent, { config })) ?? [];
+        const tools =
+          (await extension.getAgentTools?.(agent, { config })) ?? [];
         return tools.map((tool) => ({ ...tool, extensionId: extension.id }));
       })
     );
@@ -172,9 +174,10 @@ export class ExtensionRuntime {
   ): Promise<{ found: boolean; result?: unknown }> {
     const tool = await this.getTool(agent, toolName, config);
     if (!tool) return { found: false };
+    const env = resolveAgentEnv(agent, config);
     return {
       found: true,
-      result: await tool.execute(args, { agent, config }),
+      result: await tool.execute(args, { agent, config, env }),
     };
   }
 

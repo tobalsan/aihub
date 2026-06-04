@@ -108,9 +108,9 @@ describe("ExtensionRuntime", () => {
       }),
     ]);
 
-    await expect(runtime.getPromptContributions(agent, config)).resolves.toEqual(
-      ["Use sample."]
-    );
+    await expect(
+      runtime.getPromptContributions(agent, config)
+    ).resolves.toEqual(["Use sample."]);
     await expect(runtime.getTools(agent, config)).resolves.toMatchObject([
       { extensionId: "sample", name: "sample_run" },
     ]);
@@ -119,7 +119,11 @@ describe("ExtensionRuntime", () => {
     ).resolves.toEqual({ found: true, result: { ok: true } });
     expect(execute).toHaveBeenCalledWith(
       { value: 1 },
-      { agent, config }
+      expect.objectContaining({
+        agent,
+        config,
+        env: expect.objectContaining(process.env),
+      })
     );
   });
 

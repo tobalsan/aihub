@@ -42,14 +42,15 @@ function toolError(error: unknown) {
  */
 function resolveSlackToken(
   agent: AgentConfig,
-  config: GatewayConfig
+  config: GatewayConfig,
+  env?: Record<string, string>
 ): string | undefined {
   const agentSlack = agent.slack as SlackAgentConfig | undefined;
   if (agentSlack?.token) return agentSlack.token;
   const component = config.extensions?.slack as
     | SlackComponentConfig
     | undefined;
-  return component?.token;
+  return component?.token ?? env?.SLACK_TOKEN;
 }
 
 const clientCache = new Map<string, WebClient>();
@@ -62,14 +63,15 @@ const clientCache = new Map<string, WebClient>();
  */
 function resolveSlackClient(
   agent: AgentConfig,
-  config: GatewayConfig
+  config: GatewayConfig,
+  env?: Record<string, string>
 ): SlackWebClient | undefined {
   const activeBot = getActiveBot(agent.id) ?? getActiveBot("slack");
   if (activeBot) {
     return activeBot.app.client as unknown as SlackWebClient;
   }
 
-  const token = resolveSlackToken(agent, config);
+  const token = resolveSlackToken(agent, config, env);
   if (!token) return undefined;
 
   let client = clientCache.get(token);
@@ -111,10 +113,10 @@ export function slackAgentTools(): ExtensionAgentTool[] {
         required: ["channel", "text"],
         additionalProperties: false,
       },
-      async execute(args, { agent, config }) {
+      async execute(args, { agent, config, env }) {
         try {
           const input = sendMessageSchema.parse(args);
-          const client = resolveSlackClient(agent, config);
+          const client = resolveSlackClient(agent, config, env);
           if (!client) {
             return {
               ok: false,
@@ -158,10 +160,10 @@ export function slackAgentTools(): ExtensionAgentTool[] {
         },
         additionalProperties: false,
       },
-      async execute(args, { agent, config }) {
+      async execute(args, { agent, config, env }) {
         try {
           const input = listChannelsSchema.parse(args);
-          const client = resolveSlackClient(agent, config);
+          const client = resolveSlackClient(agent, config, env);
           if (!client?.conversations?.list) {
             return {
               ok: false,
@@ -181,7 +183,8 @@ export function slackAgentTools(): ExtensionAgentTool[] {
             });
             for (const channel of page.channels ?? []) {
               if (!channel.id || !channel.name) continue;
-              if (query && !channel.name.toLowerCase().includes(query)) continue;
+              if (query && !channel.name.toLowerCase().includes(query))
+                continue;
               channels.push({ id: channel.id, name: channel.name });
               if (channels.length >= limit) break;
             }
@@ -212,10 +215,10 @@ export function slackAgentTools(): ExtensionAgentTool[] {
         },
         additionalProperties: false,
       },
-      async execute(args, { agent, config }) {
+      async execute(args, { agent, config, env }) {
         try {
           const input = listUsersSchema.parse(args);
-          const client = resolveSlackClient(agent, config);
+          const client = resolveSlackClient(agent, config, env);
           if (!client?.users?.list) {
             return {
               ok: false,
