@@ -244,12 +244,14 @@ describe("orchestrator Linear client", () => {
     const fetchImpl = vi.fn(async (_url: string, init: RequestInit) => {
       const body = JSON.parse(String(init.body)) as { query: string; variables: Record<string, unknown> };
       calls.push(body);
-      return new Response(JSON.stringify({ data: { issues: { nodes: [] } } }), { status: 200, headers: { "content-type": "application/json" } });
+      return new Response(JSON.stringify({ data: { issues: { nodes: [{ id: "lin_2", identifier: "ENG-2", title: "Blocked", description: null, url: "https://linear.test/ENG-2", state: { name: "Ready" }, labels: { nodes: [] }, inverseRelations: { nodes: [{ type: "blocks", issue: { id: "lin_1", identifier: "ENG-1", state: { name: "Ready" } } }, { type: "related", issue: { id: "lin_3", identifier: "ENG-3", state: { name: "Ready" } } }] }, project: { name: "Project A", slugId: "proj-a" }, parent: null }] } } }), { status: 200, headers: { "content-type": "application/json" } });
     }) as unknown as typeof fetch;
     const client = new LinearClient("test", { fetchImpl });
-    await client.pollIssues({ projectSlug: "proj-a", activeStates: ["Ready"] });
+    const issues = await client.pollIssues({ projectSlug: "proj-a", activeStates: ["Ready"] });
     expect(calls[0]?.query).toContain("slugId");
+    expect(calls[0]?.query).toContain("inverseRelations");
     expect(calls[0]?.variables).toEqual({ projectSlug: "proj-a", states: ["Ready"] });
+    expect(issues[0]?.blocked_by).toEqual([{ id: "lin_1", identifier: "ENG-1", state: "Ready" }]);
   });
 
   it("waits on exhausted bucket and retries one 429 after reset", async () => {
@@ -269,6 +271,55 @@ describe("orchestrator Linear client", () => {
 });
 
 describe("orchestrator daemon", () => {
+  it("skips issues with pending blockers", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-blocked-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    const client = {
+      pollIssues: vi.fn(async () => [{ id: "lin_2", identifier: "ENG-2", title: "Blocked", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a", blocked_by: [{ id: "lin_1", identifier: "ENG-1", state: "Ready" }] }]),
+      commentCreate: vi.fn(),
+      issueUpdateStateByName: vi.fn(),
+    } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const started = vi.fn(async () => ({ id: "sub_blocked" }));
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+
+    await daemon.start();
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 0, skipped: 1 });
+
+    expect(started).not.toHaveBeenCalled();
+    expect(claims.list()).toHaveLength(0);
+    expect(ctx.emit).toHaveBeenCalledWith("orchestrator.run.event", expect.objectContaining({ type: "dispatch.skipped", reason: "blocked_by_pending", issueId: "lin_2", pendingBlockerIds: ["ENG-1"] }));
+    await daemon.stop();
+    store.close();
+  });
+
+  it("dispatches issues when all blockers are terminal", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-unblocked-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    const client = {
+      pollIssues: vi.fn(async () => [{ id: "lin_2", identifier: "ENG-2", title: "Ready", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a", blocked_by: [{ id: "lin_1", identifier: "ENG-1", state: "Done" }] }]),
+      commentCreate: vi.fn(),
+      issueUpdateStateByName: vi.fn(),
+    } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const started = vi.fn(async () => ({ id: "sub_unblocked" }));
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+
+    await daemon.start();
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1, skipped: 0 });
+
+    expect(started).toHaveBeenCalledOnce();
+    expect(claims.list()).toHaveLength(1);
+    await daemon.stop();
+    store.close();
+  });
+
   it("ticks configured project, dispatches in issue workspace, and releases terminal", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-daemon-"));
     await writeWorkflow(root);

@@ -24,6 +24,7 @@ export class LinearClient {
   }
 
   private mapIssue(node: any): LinearIssue {
+    const blockingRelations = node.inverseRelations?.nodes?.filter((relation: any) => relation.type === "blocks") ?? [];
     return {
       id: node.id,
       identifier: node.identifier,
@@ -32,6 +33,11 @@ export class LinearClient {
       url: node.url,
       state: node.state?.name ?? "",
       labels: node.labels?.nodes?.map((label: { name: string }) => label.name) ?? [],
+      blocked_by: blockingRelations.map((relation: any) => ({
+        id: relation.issue?.id,
+        identifier: relation.issue?.identifier,
+        state: relation.issue?.state?.name ?? null,
+      })),
       projectName: node.project?.name,
       projectSlug: node.project?.slugId,
       parentId: node.parent?.id,
@@ -80,7 +86,7 @@ export class LinearClient {
 
   async pollIssues(input: { projectSlug: string; activeStates: string[] }): Promise<LinearIssue[]> {
     const data = await this.graphql<{ issues: { nodes: Array<any> } }>(
-      `query AihubPoll($projectSlug: String!, $states: [String!]) { issues(filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { in: $states } } }) { nodes { id identifier title description url state { name } labels { nodes { name } } project { name slugId } parent { id } } } }`,
+      `query AihubPoll($projectSlug: String!, $states: [String!]) { issues(filter: { project: { slugId: { eq: $projectSlug } }, state: { name: { in: $states } } }) { nodes { id identifier title description url state { name } labels { nodes { name } } inverseRelations { nodes { type issue { id identifier state { name } } } } project { name slugId } parent { id } } } }`,
       { projectSlug: input.projectSlug, states: input.activeStates }
     );
     return data.issues.nodes.map((node) => this.mapIssue(node));
@@ -138,7 +144,7 @@ export class LinearClient {
   }
 
   async getIssue(idOrIdentifier: string): Promise<LinearIssue | undefined> {
-    const issueFields = `id identifier title description url state { name } labels { nodes { name } } project { name slugId } parent { id }`;
+    const issueFields = `id identifier title description url state { name } labels { nodes { name } } inverseRelations { nodes { type issue { id identifier state { name } } } } project { name slugId } parent { id }`;
     if (/^[A-Z][A-Z0-9]*-\d+$/.test(idOrIdentifier)) {
       const data = await this.graphql<{ issues: { nodes: Array<any> } }>(
         `query AihubIssueByIdentifier($identifier: String!) { issues(filter: { identifier: { eq: $identifier } }, first: 1) { nodes { ${issueFields} } } }`,

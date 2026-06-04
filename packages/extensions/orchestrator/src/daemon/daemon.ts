@@ -51,6 +51,13 @@ function subagentTerminalStatus(status: unknown): { status: "done" | "error" | "
   return { status: value, exitCode: typeof record.exitCode === "number" ? record.exitCode : undefined };
 }
 
+function pendingBlockerIds(issue: LinearIssue, terminalStates: string[]): string[] {
+  return (issue.blocked_by ?? [])
+    .filter((blocker) => !blocker.state || !terminalStates.includes(blocker.state))
+    .map((blocker) => blocker.identifier ?? blocker.id)
+    .filter((id): id is string => Boolean(id));
+}
+
 export class OrchestratorDaemon {
   private readonly timers = new Map<string, NodeJS.Timeout>();
   private readonly runs = new Map<string, RunMeta>();
@@ -196,6 +203,12 @@ export class OrchestratorDaemon {
         if (claim && issue.state === states.needsHuman) { await this.release(project.id, issue.id, "needs_human"); released += 1; continue; }
         if (claim && states.terminalStates.includes(issue.state)) { await this.release(project.id, issue.id, "terminal"); released += 1; continue; }
         if (completedThisTick.has(`${project.id}:${issue.id}`) || !states.activeStates.includes(issue.state) || claim) { skipped += 1; continue; }
+        const pendingBlockers = pendingBlockerIds(issue, states.terminalStates);
+        if (pendingBlockers.length > 0) {
+          this.logDispatchSkip(project, issue, "blocked_by_pending", { pendingBlockerIds: pendingBlockers });
+          skipped += 1;
+          continue;
+        }
         const next = this.retry.nextAttempt(`${project.id}:${issue.id}`, "dispatch");
         if (next && next > Date.now()) { skipped += 1; continue; }
         const global = globalLimiter.tryReserve({ issueId: issue.id });
@@ -217,7 +230,12 @@ export class OrchestratorDaemon {
     this.rateLimitRemaining = this.rateLimitRemaining === undefined ? remaining : Math.min(this.rateLimitRemaining, remaining);
   }
 
+  private logDispatchSkip(project: ProjectDescriptor, issue: LinearIssue, reason: string, extra: Record<string, unknown> = {}): void {
+    this.deps.ctx.emit("orchestrator.run.event", { type: "dispatch.skipped", reason, issueId: issue.id, identifier: issue.identifier, projectId: project.id, ...extra });
+  }
+
   private async dispatch(project: ProjectDescriptor, workflow: WorkflowSnapshot, issue: LinearIssue, client: LinearClient): Promise<boolean> {
+    if (pendingBlockerIds(issue, workflow.config.tracker.terminalStates).length > 0) return false;
     if (this.deps.claims.get(issue.id)) return false;
     const previousRuns = this.deps.store.countRunsByIssue(issue.id, project.id);
     const attempt = previousRuns === 0 ? null : previousRuns + 1;
