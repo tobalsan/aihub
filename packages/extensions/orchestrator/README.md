@@ -186,7 +186,7 @@ Each configured project has its own polling schedule.
 ### `workspace`
 
 - `root`: per-issue workspace root. Default `./workspaces`.
-- `cleanup_on_terminal`: remove issue workspace when issue reaches terminal state. Default `false`.
+- `cleanup_on_terminal`: remove issue workspace only for release outcomes `terminal`, `hook_failed`, and `dispatch_failed`. Default `false`.
 - `reuse`: preserve/reuse existing issue workspace. Default `true`.
 
 Path rules:
@@ -196,6 +196,7 @@ Path rules:
 - `$AIHUB_HOME` and `$AIHUB_HOME/...` are supported.
 - Worker cwd is `<workspace.root>/<sanitized-issue-identifier>`.
 - Core orchestrator only creates directories. It does not clone repos or create worktrees.
+- Workspaces are preserved for `needs_human`, worker `completed`, worker `error`, worker `interrupted`, and `stalled` releases so operators can inspect or retry them.
 
 ### `agent`
 
@@ -213,7 +214,7 @@ Hook commands run in the issue workspace.
 - `after_create`: after new workspace directory is created.
 - `before_run`: before worker starts. Non-zero exit aborts dispatch.
 - `after_run`: after worker attempt completes or claim releases.
-- `before_remove`: before workspace removal.
+- `before_remove`: before workspace removal for `terminal`, `hook_failed`, and `dispatch_failed` releases when `workspace.cleanup_on_terminal` is true.
 
 Manual run release only clears the orchestrator claim. Use interrupt or kill when the active worker should also stop; orchestrator-owned `Needs Human` parks stop the worker before the claim is released.
 

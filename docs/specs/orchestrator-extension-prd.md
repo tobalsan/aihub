@@ -53,7 +53,7 @@ Outcome: substantial project/board code removed, one work unit instead of two, n
 9. As a developer, I want an issue with no `repo:*` label to run in "no-repo mode" (plain directory, no git), so that I can use the orchestrator for tasks that aren't tied to a codebase (e.g. server config, scripts).
 10. As a developer, I want each claimed issue to run in its own git worktree on branch `aihub/<sanitized-identifier>`, so that multiple issues against the same repo don't collide.
 11. As a developer, I want worktree workspaces to survive across runs by default, so that resuming an issue reuses the same checkout instead of re-cloning state.
-12. As a developer, I want the workspace lifecycle to be controllable via `cleanup_on_terminal`, so that I can choose between "keep history" and "always start fresh".
+12. As a developer, I want the workspace lifecycle to be controllable via `cleanup_on_terminal`, so that issue workspaces are removed only for `terminal`, `hook_failed`, and `dispatch_failed` releases and preserved for inspection after HITL, worker completion/error/interruption, or stall handling.
 13. As a developer, I want lifecycle hooks (`after_create`, `before_run`, `after_run`, `before_remove`), so that I can run `pnpm install`, lint, format, or cleanup at well-defined points.
 14. As a developer, I want hook stdout and stderr appended to the run's event log, so that I can debug what `pnpm install` printed without scraping shell history.
 15. As an agent author, I want a single GraphQL tool (`orchestrator.linear_graphql`) instead of a fleet of typed helpers, so that I can express anything Linear's API supports without waiting for AIHub to wrap it.
