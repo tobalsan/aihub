@@ -1308,10 +1308,14 @@ export function ChatView() {
 
   const handleViewChange = (mode: HistoryViewMode) => {
     if (mode !== viewMode()) {
-      const path =
+      const basePath =
         mode === "full"
           ? `/chat/${params.agentId}/full`
           : `/chat/${params.agentId}`;
+      const session = explicitSessionId();
+      const path = session
+        ? `${basePath}?session=${encodeURIComponent(session)}`
+        : basePath;
       navigate(path, { replace: true });
     }
   };
