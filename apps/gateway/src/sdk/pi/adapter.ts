@@ -13,7 +13,7 @@ import type {
   SdkRunResult,
   HistoryEvent,
 } from "../types.js";
-import { CONFIG_DIR, loadConfig } from "../../config/index.js";
+import { CONFIG_DIR, loadConfig, resolveAgentEnv } from "../../config/index.js";
 import { buildOnecliEnv } from "../../config/onecli.js";
 import { resolveSystemFiles } from "@aihub/shared/node/system-files";
 import {
@@ -90,6 +90,7 @@ async function createPiExtensionTools(
   params: SdkRunParams
 ): Promise<AgentTool[]> {
   const config = loadConfig();
+  const env = resolveAgentEnv(agent, config);
   const tools = params.extensionRuntime
     ? await getExtensionAgentTools(agent, config, params.extensionRuntime)
     : await getExtensionAgentTools(agent, config);
@@ -99,7 +100,7 @@ async function createPiExtensionTools(
     description: tool.description,
     parameters: tool.parameters as unknown as AgentTool["parameters"],
     execute: async (_toolCallId, params) => {
-      const result = await tool.execute(params, { agent, config });
+      const result = await tool.execute(params, { agent, config, env });
       return {
         content: [{ type: "text", text: stringifyToolResult(result) }],
         details: result,
@@ -201,7 +202,10 @@ export const piAdapter: SdkAdapter = {
           `Pi SDK requires model.provider to be set for agent: ${agent.id}`
         );
       }
-      const model = modelRegistry.find(effectiveModel.provider, effectiveModel.model);
+      const model = modelRegistry.find(
+        effectiveModel.provider,
+        effectiveModel.model
+      );
 
       if (!model) {
         throw new Error(
@@ -278,14 +282,13 @@ export const piAdapter: SdkAdapter = {
         ...builtInTools,
         ...extensionTools.map((tool) => tool.name),
       ];
-      const extensionPrompts =
-        params.extensionRuntime
-          ? await getExtensionSystemPromptContributions(
-              agent,
-              loadConfig(),
-              params.extensionRuntime
-            )
-          : await getExtensionSystemPromptContributions(agent);
+      const extensionPrompts = params.extensionRuntime
+        ? await getExtensionSystemPromptContributions(
+            agent,
+            loadConfig(),
+            params.extensionRuntime
+          )
+        : await getExtensionSystemPromptContributions(agent);
       const renderedContext = params.context
         ? renderAgentContext(params.context)
         : "";
@@ -519,7 +522,10 @@ export const piAdapter: SdkAdapter = {
               stopReason: assistantMsg.stopReason as string | undefined,
               timestamp: Date.now(),
             });
-            params.onHistoryEvent({ type: "turn_end", timestamp: Date.now() });
+            params.onHistoryEvent({
+              type: "turn_end",
+              timestamp: Date.now(),
+            });
           }
         }
       });

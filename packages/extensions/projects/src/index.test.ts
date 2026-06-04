@@ -3,7 +3,10 @@ import os from "node:os";
 import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { GatewayConfig, AgentConfig } from "@aihub/shared";
-import { interruptCancelledOrchestratorRuns, projectsExtension } from "./index.js";
+import {
+  interruptCancelledOrchestratorRuns,
+  projectsExtension,
+} from "./index.js";
 import { clearProjectsContext, setProjectsContext } from "./context.js";
 
 let tmpDir: string | undefined;
@@ -68,7 +71,7 @@ describe("projects extension agent tools", () => {
 
     const created = await createTool?.execute(
       { title: "Extension Tool Project", pitch: "Initial pitch" },
-      { agent, config }
+      { agent, config, env: {} }
     );
     expect(created).toMatchObject({
       id: "PRO-1",
@@ -77,7 +80,7 @@ describe("projects extension agent tools", () => {
 
     const fetched = await getTool?.execute(
       { projectId: "PRO-1" },
-      { agent, config }
+      { agent, config, env: {} }
     );
     expect(fetched).toMatchObject({
       id: "PRO-1",
@@ -86,7 +89,7 @@ describe("projects extension agent tools", () => {
 
     const updated = await updateTool?.execute(
       { projectId: "PRO-1", updates: { title: "Updated Extension Project" } },
-      { agent, config }
+      { agent, config, env: {} }
     );
     expect(updated).toMatchObject({
       id: "PRO-1",
@@ -102,10 +105,30 @@ describe("cancel interrupt filtering", () => {
       ok: true as const,
       data: {
         items: [
-          { slug: "match", source: "orchestrator", status: "running", sliceId: "S-1" },
-          { slug: "manual", source: "manual", status: "running", sliceId: "S-1" },
-          { slug: "idle", source: "orchestrator", status: "idle", sliceId: "S-1" },
-          { slug: "other-slice", source: "orchestrator", status: "running", sliceId: "S-2" },
+          {
+            slug: "match",
+            source: "orchestrator",
+            status: "running",
+            sliceId: "S-1",
+          },
+          {
+            slug: "manual",
+            source: "manual",
+            status: "running",
+            sliceId: "S-1",
+          },
+          {
+            slug: "idle",
+            source: "orchestrator",
+            status: "idle",
+            sliceId: "S-1",
+          },
+          {
+            slug: "other-slice",
+            source: "orchestrator",
+            status: "running",
+            sliceId: "S-2",
+          },
         ],
       },
     }));

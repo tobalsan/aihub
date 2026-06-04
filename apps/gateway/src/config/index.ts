@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { parseEnv } from "node:util";
 import fg from "fast-glob";
 import yaml from "js-yaml";
 import {
@@ -27,7 +28,9 @@ function resolvePathFromConfig(input: string, configDir: string): string {
   const expanded = input.startsWith("~")
     ? path.join(os.homedir(), input.slice(1))
     : input.replace(/^\$AIHUB_HOME(?=\/|$)/, CONFIG_DIR);
-  return path.isAbsolute(expanded) ? expanded : path.resolve(configDir, expanded);
+  return path.isAbsolute(expanded)
+    ? expanded
+    : path.resolve(configDir, expanded);
 }
 
 function hasGlobMagic(input: string): boolean {
@@ -45,8 +48,12 @@ function globToDirs(pattern: string, configDir: string): string[] {
   });
 }
 
-function discoverAgents(agentGlobs: string | string[] | undefined, configDir: string): AgentConfig[] {
-  const patterns = typeof agentGlobs === "string" ? [agentGlobs] : agentGlobs ?? [];
+function discoverAgents(
+  agentGlobs: string | string[] | undefined,
+  configDir: string
+): AgentConfig[] {
+  const patterns =
+    typeof agentGlobs === "string" ? [agentGlobs] : (agentGlobs ?? []);
   const agents: AgentConfig[] = [];
   const seen = new Map<string, string>();
 
@@ -61,7 +68,9 @@ function discoverAgents(agentGlobs: string | string[] | undefined, configDir: st
       try {
         parsedYaml = yaml.load(fs.readFileSync(agentPath, "utf8"));
       } catch (error) {
-        console.warn(`[config] failed to read ${agentPath}: ${(error as Error).message}`);
+        console.warn(
+          `[config] failed to read ${agentPath}: ${(error as Error).message}`
+        );
         continue;
       }
       const parsed = AgentYamlConfigSchema.safeParse(parsedYaml);
@@ -71,11 +80,15 @@ function discoverAgents(agentGlobs: string | string[] | undefined, configDir: st
       }
       const folderName = path.basename(workspaceDir);
       if (parsed.data.id !== folderName) {
-        throw new Error(`agent.yaml id mismatch in ${agentPath}: id "${parsed.data.id}" must match folder "${folderName}"`);
+        throw new Error(
+          `agent.yaml id mismatch in ${agentPath}: id "${parsed.data.id}" must match folder "${folderName}"`
+        );
       }
       const duplicate = seen.get(parsed.data.id);
       if (duplicate) {
-        throw new Error(`Duplicate agent id "${parsed.data.id}" in ${duplicate} and ${agentPath}`);
+        throw new Error(
+          `Duplicate agent id "${parsed.data.id}" in ${duplicate} and ${agentPath}`
+        );
       }
       seen.set(parsed.data.id, agentPath);
       agents.push({ ...parsed.data, workspace: workspaceDir, workspaceDir });
@@ -83,6 +96,49 @@ function discoverAgents(agentGlobs: string | string[] | undefined, configDir: st
   }
 
   return agents.sort((a, b) => a.id.localeCompare(b.id));
+}
+
+function readEnvFile(envPath: string): Record<string, string> {
+  if (!fs.existsSync(envPath)) return {};
+  return Object.fromEntries(
+    Object.entries(parseEnv(fs.readFileSync(envPath, "utf8"))).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+}
+
+function processEnvRecord(): Record<string, string> {
+  return Object.fromEntries(
+    Object.entries(process.env).filter(
+      (entry): entry is [string, string] => typeof entry[1] === "string"
+    )
+  );
+}
+
+export function resolveAgentEnv(
+  agent: AgentConfig,
+  config: GatewayConfig = loadConfig()
+): Record<string, string> {
+  const configDir = path.dirname(getConfigPath());
+  const homeEnv = readEnvFile(path.join(configDir, ".env"));
+  const agentDir = resolveWorkspaceDir(agent.workspaceDir ?? agent.workspace);
+  const agentEnvPath = path.join(agentDir, ".env");
+  const agentEnv = readEnvFile(agentEnvPath);
+
+  if (Object.keys(agentEnv).length > 0) {
+    console.log(
+      `[config] loaded agent env for "${agent.id}": ${Object.keys(agentEnv)
+        .sort()
+        .join(", ")}`
+    );
+  }
+
+  return {
+    ...processEnvRecord(),
+    ...(config.env ?? {}),
+    ...homeEnv,
+    ...agentEnv,
+  };
 }
 
 export function loadConfig(): GatewayConfig {
@@ -109,22 +165,24 @@ export function loadConfig(): GatewayConfig {
         (agent: unknown) => typeof agent === "object" && agent !== null
       ))
   ) {
-    throw new Error("aihub.json is version 2. Run `aihub agents migrate` to upgrade to version 3.");
+    throw new Error(
+      "aihub.json is version 2. Run `aihub agents migrate` to upgrade to version 3."
+    );
   }
   const parsed = GatewayRootConfigSchema.parse(json);
   const configDir = path.dirname(configPath);
   const result: GatewayConfig = {
     ...parsed,
     version: 3,
-    agents: discoverAgents(parsed.agents as string | string[] | undefined, configDir),
+    agents: discoverAgents(
+      parsed.agents as string | string[] | undefined,
+      configDir
+    ),
   };
 
   // Validate OneCLI CA file path at startup if configured
   if (result.onecli?.enabled && result.onecli.ca?.source === "file") {
-    result.onecli.ca.path = result.onecli.ca.path.replace(
-      /^~/,
-      os.homedir()
-    );
+    result.onecli.ca.path = result.onecli.ca.path.replace(/^~/, os.homedir());
     if (!fs.existsSync(result.onecli.ca.path)) {
       console.warn(
         `[onecli] CA file not found: ${result.onecli.ca.path}. OneCLI proxy may fail until the CA is installed.`

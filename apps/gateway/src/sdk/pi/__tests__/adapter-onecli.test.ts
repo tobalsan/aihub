@@ -1,3 +1,6 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { AgentConfig, Extension, GatewayConfig } from "@aihub/shared";
 import type { SdkRunParams } from "../../types.js";
@@ -15,6 +18,7 @@ const mockGetLoadedExtensions = vi.fn<() => Partial<Extension>[]>(() => []);
 const mockGetExtensionAgentTools = vi.fn<() => Promise<unknown[]>>(
   async () => []
 );
+const tempDirs: string[] = [];
 
 vi.mock("../../agents/workspace.js", () => ({
   FIRST_RUN_BOOTSTRAP_PROMPT: "first run bootstrap",
@@ -28,7 +32,9 @@ vi.mock("../../sessions/store.js", () => ({
 }));
 
 vi.mock("../../sessions/files.js", () => ({
-  resolveSessionDataFile: vi.fn(async () => "/tmp/aihub-test/sessions/session-1.jsonl"),
+  resolveSessionDataFile: vi.fn(
+    async () => "/tmp/aihub-test/sessions/session-1.jsonl"
+  ),
 }));
 
 vi.mock("../../extensions/registry.js", () => ({
@@ -60,7 +66,10 @@ vi.mock("@earendil-works/pi-coding-agent", () => ({
   ModelRegistry: {
     create: vi.fn(() => ({
       find: vi.fn(() => ({ provider: "anthropic" })),
-      getApiKeyAndHeaders: vi.fn(async () => ({ ok: true, apiKey: "runtime-key" })),
+      getApiKeyAndHeaders: vi.fn(async () => ({
+        ok: true,
+        apiKey: "runtime-key",
+      })),
     })),
   },
   DefaultResourceLoader: class {
@@ -109,8 +118,12 @@ describe("pi adapter onecli env wiring", () => {
   });
 
   afterEach(() => {
+    vi.restoreAllMocks();
     clearConfigCacheForTests();
     process.env = { ...originalEnv };
+    for (const dir of tempDirs.splice(0)) {
+      fs.rmSync(dir, { recursive: true, force: true });
+    }
   });
 
   it("sets proxy env before session creation and restores it after the run", async () => {
@@ -228,9 +241,82 @@ describe("pi adapter onecli env wiring", () => {
     expect(process.env.NODE_EXTRA_CA_CERTS).toBe("/tmp/unchanged-ca.pem");
   });
 
+  it("keeps agent env out of process.env while passing it to extension tools", async () => {
+    const root = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-pi-agent-env-"));
+    tempDirs.push(root);
+    const workspace = path.join(root, "agents", "pi-agent");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.writeFileSync(path.join(root, ".env"), "SLACK_TOKEN=home\n");
+    fs.writeFileSync(path.join(workspace, ".env"), "SLACK_TOKEN=agent\n");
+    fs.writeFileSync(
+      path.join(root, "aihub.json"),
+      JSON.stringify({ version: 3, agents: [] })
+    );
+    const agent = { ...makeAgent(), workspace } as AgentConfig;
+    const config = {
+      agents: [agent],
+      env: { SLACK_TOKEN: "config" },
+    } as unknown as GatewayConfig;
+    const session = {
+      messages: [{ role: "assistant", content: "done" }],
+      agent: { state: { messages: [] } },
+      subscribe: vi.fn(() => vi.fn()),
+      prompt: vi.fn(async () => undefined),
+      abort: vi.fn(),
+      dispose: vi.fn(),
+    };
+    const captured: Array<string | undefined> = [];
+    const execute = vi.fn(async () => ({ ok: true }));
+
+    process.env.AIHUB_HOME = root;
+    process.env.SLACK_TOKEN = "process";
+    setLoadedConfig(config);
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    mockGetExtensionAgentTools.mockResolvedValue([
+      {
+        extensionId: "slack",
+        name: "slack.check",
+        description: "Check env",
+        parameters: { type: "object", properties: {} },
+        execute,
+      },
+    ]);
+    mockCreateAgentSession.mockImplementation(async () => {
+      captured.push(process.env.SLACK_TOKEN);
+      return { session };
+    });
+
+    const { piAdapter } = await import("../adapter.js");
+    await piAdapter.run(makeRunParams(agent));
+
+    expect(captured).toEqual(["process"]);
+    expect(process.env.SLACK_TOKEN).toBe("process");
+    const options = mockCreateAgentSession.mock.calls[0]?.[0] as {
+      customTools?: Array<{
+        name: string;
+        execute: (_id: string, params: unknown) => Promise<unknown>;
+      }>;
+    };
+    await options.customTools?.[0]?.execute("tool-1", {});
+    expect(execute).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        agent,
+        config,
+        env: expect.objectContaining({ SLACK_TOKEN: "agent" }),
+      })
+    );
+  });
+
   it("serializes concurrent runs so onecli env mutations do not overlap", async () => {
-    const firstAgent = { ...makeAgent("pi-agent-1"), onecliToken: "token-1" } as AgentConfig;
-    const secondAgent = { ...makeAgent("pi-agent-2"), onecliToken: "token-2" } as AgentConfig;
+    const firstAgent = {
+      ...makeAgent("pi-agent-1"),
+      onecliToken: "token-1",
+    } as AgentConfig;
+    const secondAgent = {
+      ...makeAgent("pi-agent-2"),
+      onecliToken: "token-2",
+    } as AgentConfig;
     const config = {
       agents: [firstAgent, secondAgent],
       onecli: {
@@ -249,37 +335,41 @@ describe("pi adapter onecli env wiring", () => {
       completeFirstPrompt = resolve;
     });
     const createOrder: string[] = [];
-    const envSnapshots: Array<{ agentId: string; httpProxy: string | undefined }> =
-      [];
+    const envSnapshots: Array<{
+      agentId: string;
+      httpProxy: string | undefined;
+    }> = [];
 
     setLoadedConfig(config);
-    mockCreateAgentSession.mockImplementation(async ({ model }: { model: { provider: string } }) => {
-      const agentId =
-        process.env.HTTP_PROXY === "http://onecli:token-1@localhost:10255"
-          ? firstAgent.id
-          : secondAgent.id;
-      createOrder.push(agentId);
-      envSnapshots.push({
-        agentId,
-        httpProxy: process.env.HTTP_PROXY,
-      });
+    mockCreateAgentSession.mockImplementation(
+      async ({ model }: { model: { provider: string } }) => {
+        const agentId =
+          process.env.HTTP_PROXY === "http://onecli:token-1@localhost:10255"
+            ? firstAgent.id
+            : secondAgent.id;
+        createOrder.push(agentId);
+        envSnapshots.push({
+          agentId,
+          httpProxy: process.env.HTTP_PROXY,
+        });
 
-      return {
-        session: {
-          messages: [{ role: "assistant", content: agentId }],
-          agent: { state: { messages: [] } },
-          subscribe: vi.fn(() => vi.fn()),
-          prompt: vi.fn(async () => {
-            if (model.provider && agentId === firstAgent.id) {
-              completeFirstPrompt?.();
-              await firstPromptStarted;
-            }
-          }),
-          abort: vi.fn(),
-          dispose: vi.fn(),
-        },
-      };
-    });
+        return {
+          session: {
+            messages: [{ role: "assistant", content: agentId }],
+            agent: { state: { messages: [] } },
+            subscribe: vi.fn(() => vi.fn()),
+            prompt: vi.fn(async () => {
+              if (model.provider && agentId === firstAgent.id) {
+                completeFirstPrompt?.();
+                await firstPromptStarted;
+              }
+            }),
+            abort: vi.fn(),
+            dispose: vi.fn(),
+          },
+        };
+      }
+    );
 
     const { piAdapter } = await import("../adapter.js");
     const firstRun = piAdapter.run(makeRunParams(firstAgent));
@@ -292,11 +382,16 @@ describe("pi adapter onecli env wiring", () => {
 
     await Promise.resolve();
     expect(createOrder).toEqual([firstAgent.id]);
-    expect(process.env.HTTP_PROXY).toBe("http://onecli:token-1@localhost:10255");
+    expect(process.env.HTTP_PROXY).toBe(
+      "http://onecli:token-1@localhost:10255"
+    );
 
     releaseFirstPrompt?.();
 
-    const [firstResult, secondResult] = await Promise.all([firstRun, secondRun]);
+    const [firstResult, secondResult] = await Promise.all([
+      firstRun,
+      secondRun,
+    ]);
 
     expect(firstResult).toEqual({ text: firstAgent.id, aborted: false });
     expect(secondResult).toEqual({ text: secondAgent.id, aborted: false });
@@ -432,6 +527,13 @@ describe("pi adapter onecli env wiring", () => {
     );
     expect(tool).toBeDefined();
     await tool?.execute("tool-1", {});
-    expect(execute).toHaveBeenCalledWith({}, { agent, config });
+    expect(execute).toHaveBeenCalledWith(
+      {},
+      expect.objectContaining({
+        agent,
+        config,
+        env: expect.any(Object),
+      })
+    );
   });
 });

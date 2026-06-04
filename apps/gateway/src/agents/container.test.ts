@@ -349,6 +349,60 @@ describe("buildContainerArgs", () => {
     );
   });
 
+  it("does not pass AIHUB_HOME or per-agent .env secrets into sandbox env", () => {
+    const root = tmpDir();
+    const aihubHome = path.join(root, "aihub");
+    const workspace = path.join(root, "agents", "cloud");
+    fs.mkdirSync(workspace, { recursive: true });
+    fs.mkdirSync(aihubHome, { recursive: true });
+    fs.writeFileSync(
+      path.join(aihubHome, ".env"),
+      "GLOBAL_SECRET=home-secret\n"
+    );
+    fs.writeFileSync(
+      path.join(workspace, ".env"),
+      "SLACK_TOKEN=agent-secret\n"
+    );
+
+    const agent = AgentConfigSchema.parse({
+      id: "cloud",
+      name: "Cloud",
+      workspace,
+      model: { provider: "anthropic", model: "claude" },
+      sandbox: {},
+    });
+    const mounts = buildVolumeMounts(agent, {}, aihubHome);
+    const args = buildContainerArgs(
+      agent,
+      {},
+      mounts,
+      aihubHome,
+      undefined,
+      undefined,
+      {
+        SAFE_FLAG: "visible",
+        GLOBAL_SECRET: "config-secret",
+      }
+    );
+
+    expect(mounts).toEqual(
+      expect.arrayContaining<ContainerVolumeMount>([
+        { source: "/dev/null", target: "/workspace/.env", readonly: true },
+      ])
+    );
+    expect(argValues(args, "--env")).toEqual(
+      expect.arrayContaining([
+        "GATEWAY_URL=http://gateway:4000",
+        "SAFE_FLAG=visible",
+      ])
+    );
+    expect(argValues(args, "--env")).not.toContain("SLACK_TOKEN=agent-secret");
+    expect(argValues(args, "--env")).not.toContain("GLOBAL_SECRET=home-secret");
+    expect(argValues(args, "--env")).not.toContain(
+      "GLOBAL_SECRET=config-secret"
+    );
+  });
+
   it("omits onecli env when onecli config is absent", () => {
     vi.spyOn(Date, "now").mockReturnValue(123456);
 
