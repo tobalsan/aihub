@@ -78,6 +78,10 @@ function runSubagentId(id: string, projectId?: string): string | undefined {
   return typeof value === "string" && value ? value : undefined;
 }
 
+function isSubagentHandle(id: string | undefined): id is string {
+  return Boolean(id && !id.startsWith("fake:") && !id.startsWith("cli:"));
+}
+
 async function runBeforeRemove(row: Record<string, unknown> | undefined) {
   if (!row || !store || !ctx) return;
   const workspace = typeof row.workspace === "string" ? row.workspace : undefined;
@@ -159,14 +163,19 @@ function register(app: Hono) {
   });
   app.get("/orchestrator/runs/:id/logs", async (c) => {
     const subagentRunId = runSubagentId(c.req.param("id"), c.req.query("project"));
-    if (!subagentRunId) return c.json({ error: "subagent run not found" }, 404);
+    if (!isSubagentHandle(subagentRunId)) return c.json({ error: "worker logs unavailable" }, 404);
     const since = c.req.query("since") ?? "0";
     return c.json(await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}/logs?since=${encodeURIComponent(since)}`));
   });
   app.post("/orchestrator/runs/:issueId/release", (c) => { const id = c.req.param("issueId"); const project = c.req.query("project"); claims.release(id, project); store?.release(id, project); return c.json({ ok: true }); });
   app.post("/orchestrator/runs/:id/interrupt", async (c) => {
-    const subagentRunId = runSubagentId(c.req.param("id"), c.req.query("project"));
-    if (!subagentRunId) return c.json({ error: "subagent run not found" }, 404);
+    const id = c.req.param("id");
+    const project = c.req.query("project");
+    const subagentRunId = runSubagentId(id, project);
+    if (!isSubagentHandle(subagentRunId)) {
+      await daemon?.interruptSubagent(id, project);
+      return c.json({ ok: true });
+    }
     return c.json(await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}/interrupt`, { method: "POST" }));
   });
   app.post("/orchestrator/runs/:id/kill", async (c) => {
@@ -174,7 +183,8 @@ function register(app: Hono) {
     const project = c.req.query("project");
     const row = store?.getRun(id, project);
     const subagentRunId = runSubagentId(id, project);
-    if (subagentRunId) await stopSubagent(subagentRunId).catch(() => undefined);
+    if (isSubagentHandle(subagentRunId)) await stopSubagent(subagentRunId).catch(() => undefined);
+    else await daemon?.interruptSubagent(id, project).catch(() => undefined);
     await runBeforeRemove(row);
     const identifier = typeof row?.identifier === "string" ? row.identifier : undefined;
     const workflowPath = typeof row?.workflow_path === "string" ? row.workflow_path : undefined;
@@ -259,3 +269,5 @@ export { ClaimsRegistry } from "./daemon/claims.js";
 export { StateStore } from "./state/store.js";
 export { RetryPolicy } from "./retry/policy.js";
 export { OrchestratorDaemon } from "./daemon/daemon.js";
+export { WorkflowWorkerRunner, SubagentFallbackRunner, FakeWorkerRunner, CliWorkerRunner } from "./worker-runner/runner.js";
+export type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStatus, WorkerRunnerStartInput } from "./worker-runner/runner.js";

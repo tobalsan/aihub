@@ -1,0 +1,178 @@
+import { spawn, type ChildProcess } from "node:child_process";
+import type { SubagentRuntimeProfile } from "@aihub/shared";
+import type { LinearIssue, ProjectDescriptor, WorkflowConfig } from "../types.js";
+
+export type WorkerRunnerKind = "subagent" | "fake" | "cli";
+
+export type WorkerRunnerStatus = {
+  status: "running" | "done" | "error" | "interrupted";
+  exitCode?: number;
+  raw?: unknown;
+};
+
+export type WorkerRunnerStartInput = {
+  runId: string;
+  project: ProjectDescriptor;
+  issue: LinearIssue;
+  workspace: string;
+  prompt: string;
+  label: string;
+  profile: SubagentRuntimeProfile;
+  workflow: WorkflowConfig;
+};
+
+export type WorkerRunnerHandle = {
+  id: string;
+  kind: WorkerRunnerKind;
+  pid?: number;
+  raw?: unknown;
+};
+
+export interface WorkerRunner {
+  start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle>;
+  status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined>;
+  abort(handle: WorkerRunnerHandle): Promise<void>;
+}
+
+export type SubagentStartBody = Record<string, unknown>;
+export type SubagentStarter = (body: SubagentStartBody) => Promise<unknown>;
+export type SubagentStatusReader = (runId: string) => Promise<unknown>;
+
+export function terminalWorkerStatus(status: unknown): WorkerRunnerStatus | undefined {
+  if (!status || typeof status !== "object") return undefined;
+  const record = status as Record<string, unknown>;
+  const value = record.status;
+  if (value !== "done" && value !== "error" && value !== "interrupted") return undefined;
+  return {
+    status: value,
+    exitCode: typeof record.exitCode === "number" ? record.exitCode : undefined,
+    raw: status,
+  };
+}
+
+export class SubagentFallbackRunner implements WorkerRunner {
+  constructor(
+    private readonly deps: {
+      startSubagent: SubagentStarter;
+      getSubagentRun?: SubagentStatusReader;
+      stopSubagent?: (runId: string) => Promise<unknown>;
+    }
+  ) {}
+
+  async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    const response = await this.deps.startSubagent({
+      profile: input.profile.name,
+      cli: input.profile.cli,
+      cwd: input.workspace,
+      prompt: input.prompt,
+      label: input.profile.labelPrefix ? `${input.profile.labelPrefix}-${input.label}` : input.label,
+      parent: { type: "orchestrator", id: `${input.project.id}:${input.issue.id}` },
+      source: "orchestrator",
+      model: input.workflow.agent.model ?? input.profile.model,
+      reasoningEffort: input.profile.reasoningEffort ?? input.profile.reasoning,
+      maxTurns: input.workflow.agent.max_turns,
+      turnTimeoutMs: input.workflow.agent.turn_timeout_ms,
+      settings: input.workflow.agent.settings,
+    });
+    const id = typeof response === "object" && response && "id" in response ? String((response as { id: unknown }).id) : `subagent:${input.runId}`;
+    return { id, kind: "subagent", raw: response };
+  }
+
+  async status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {
+    if (!this.deps.getSubagentRun) return undefined;
+    return terminalWorkerStatus(await this.deps.getSubagentRun(handle.id).catch(() => undefined));
+  }
+
+  async abort(handle: WorkerRunnerHandle): Promise<void> {
+    await this.deps.stopSubagent?.(handle.id);
+  }
+}
+
+export class FakeWorkerRunner implements WorkerRunner {
+  async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    return { id: `fake:${input.runId}`, kind: "fake", raw: { status: "done" } };
+  }
+
+  async status(): Promise<WorkerRunnerStatus> {
+    return { status: "done", exitCode: 0 };
+  }
+
+  async abort(): Promise<void> {}
+}
+
+export class CliWorkerRunner implements WorkerRunner {
+  private readonly processes = new Map<string, { child: ChildProcess; status: WorkerRunnerStatus }>();
+
+  async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    const command = input.workflow.agent.command;
+    if (!command) throw new Error("agent.command is required for cli runner");
+    const [cmd, ...args] = Array.isArray(command) ? command : [command];
+    if (!cmd) throw new Error("agent.command is required for cli runner");
+    const child = spawn(cmd, args, {
+      cwd: input.workspace,
+      env: {
+        ...process.env,
+        AIHUB_RUN_ID: input.runId,
+        AIHUB_PROJECT_ID: input.project.id,
+        AIHUB_ISSUE_ID: input.issue.id,
+        AIHUB_ISSUE_IDENTIFIER: input.issue.identifier,
+        AIHUB_WORKER_PROMPT: input.prompt,
+        AIHUB_WORKER_MODEL: input.workflow.agent.model,
+      },
+      stdio: "ignore",
+      detached: false,
+    });
+    const handle: WorkerRunnerHandle = { id: `cli:${input.runId}:${child.pid ?? "unknown"}`, kind: "cli", pid: child.pid, raw: { pid: child.pid } };
+    const record: { child: ChildProcess; status: WorkerRunnerStatus } = { child, status: { status: "running", raw: { pid: child.pid } } };
+    this.processes.set(handle.id, record);
+    child.once("error", (error) => {
+      record.status = { status: "error", raw: { message: error.message, code: (error as NodeJS.ErrnoException).code } };
+    });
+    child.once("exit", (code, signal) => {
+      record.status = signal === "SIGTERM" || signal === "SIGINT"
+        ? { status: "interrupted", exitCode: code ?? undefined, raw: { code, signal } }
+        : code === 0
+          ? { status: "done", exitCode: 0, raw: { code, signal } }
+          : { status: "error", exitCode: code ?? undefined, raw: { code, signal } };
+    });
+    return handle;
+  }
+
+  async status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {
+    return this.processes.get(handle.id)?.status;
+  }
+
+  async abort(handle: WorkerRunnerHandle): Promise<void> {
+    const record = this.processes.get(handle.id);
+    if (!record || record.status.status !== "running") return;
+    record.child.kill("SIGTERM");
+  }
+}
+
+export class WorkflowWorkerRunner implements WorkerRunner {
+  private readonly subagent: SubagentFallbackRunner;
+  private readonly fake = new FakeWorkerRunner();
+  private readonly cli = new CliWorkerRunner();
+
+  constructor(deps: ConstructorParameters<typeof SubagentFallbackRunner>[0]) {
+    this.subagent = new SubagentFallbackRunner(deps);
+  }
+
+  private runner(kind: WorkerRunnerKind): WorkerRunner {
+    if (kind === "fake") return this.fake;
+    if (kind === "cli") return this.cli;
+    return this.subagent;
+  }
+
+  start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    return this.runner(input.workflow.agent.runner ?? "subagent").start(input);
+  }
+
+  status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {
+    return this.runner(handle.kind).status(handle);
+  }
+
+  abort(handle: WorkerRunnerHandle): Promise<void> {
+    return this.runner(handle.kind).abort(handle);
+  }
+}
