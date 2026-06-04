@@ -1,8 +1,6 @@
 {
   "version": 3,
-  "agents": ["agents/*"],
   "extensions": {
-    "board": {},
     "subagents": {
       "profiles": [
         {
@@ -34,28 +32,13 @@
         }
       ]
     },
-    "projects": {
-      "orchestrator": {
-        "enabled": true,
-        "poll_interval_ms": 15000,
-        "failure_cooldown_ms": 60000,
-        "hitl_channel": "default",
-        "statuses": {
-          "todo": {
-            "profile": "Worker",
-            "max_concurrent": 1
-          },
-          "review": {
-            "profile": "Reviewer",
-            "max_concurrent": 1
-          },
-          "ready_to_merge": {
-            "profile": "Merger",
-            "max_concurrent": 2
-          }
-        }
-      },
-      "root": __PROJECTS_ROOT__
+    "scheduler": {},
+    "orchestrator": {
+      "projectsRoot": "./projects",
+      "projects": [
+        "./projects/projectA",
+        "./projects/projectB"
+      ]
     }
   },
   "notifications": {
@@ -76,5 +59,8 @@
     "bind": "loopback",
     "port": __UI_PORT__
   },
-  "apiUrl": "http://127.0.0.1:__GATEWAY_PORT__/aihub"
+  "apiUrl": "http://127.0.0.1:__GATEWAY_PORT__/aihub",
+  "agents": [
+    "agents/devagent"
+  ]
 }
