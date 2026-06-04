@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { ClaimsRegistry, CliWorkerRunner, CodexAppServerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, PiRpcRunner, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
+import { ClaimsRegistry, ClaudeRpcRunner, CliWorkerRunner, CodexAppServerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, PiRpcRunner, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
 
@@ -161,6 +161,9 @@ Run
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  kind: pi\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "pi" } } });
+
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: claude\n  kind: claude\n---\nRun\n");
+    await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "claude" } } });
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: fake\n  max_turns: 0\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).rejects.toThrow("agent.max_turns must be a positive number");
@@ -852,6 +855,335 @@ describe("Pi RPC worker runner", () => {
       expect(events.map((event) => event.type)).toContain("worker.pi.abort.timeout");
     } finally {
       delete process.env.MOCK_PI_MODE;
+      await wedged.shutdown();
+    }
+  });
+});
+
+async function writeMockClaudeRpcShim(dir: string): Promise<string> {
+  const script = path.join(dir, "mock-claude-rpc-shim.mjs");
+  await fs.writeFile(script, `
+import fs from "node:fs";
+
+const mode = process.env.MOCK_CLAUDE_MODE ?? "complete";
+const logPath = process.env.MOCK_CLAUDE_LOG;
+let buffer = "";
+
+function write(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+function log(message) {
+  if (logPath) fs.appendFileSync(logPath, JSON.stringify(message) + "\\n");
+}
+
+function handle(message) {
+  log(message);
+  if (mode === "silent") return;
+  if (message.type === "prompt") {
+    if (mode === "reject") {
+      write({ id: message.id, type: "response", command: "prompt", success: false, error: { message: "prompt rejected" } });
+      return;
+    }
+    write({ id: message.id, type: "response", command: "prompt", success: true });
+    write({ type: "session_start", session_id: "claude_session" });
+    write({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Working" }, { type: "tool_use", id: "embedded_tool", name: "Read", input: { file_path: "package.json" } }] } });
+    write({ type: "message_delta", delta: { type: "thinking_delta", text: "Reasoning" } });
+    write({ type: "tool_use", id: "tool_1", name: "Bash", input: { command: "pnpm test" } });
+    write({ type: "tool_result", tool_use_id: "tool_1", content: "ok", is_error: false });
+    write({ type: "queue_update", pendingMessageCount: 0 });
+    if (mode === "fail") {
+      write({ type: "error", error: { message: "shim failed" } });
+    } else if (mode === "resultfail") {
+      write({ type: "result", subtype: "error", error: "failed" });
+    } else if (mode === "complete") {
+      write({ type: "result", subtype: "success", result: "done" });
+    }
+  } else if (message.type === "follow_up") {
+    if (mode === "nofollow") return;
+    write({ id: message.id, type: "response", command: "follow_up", success: true });
+    write({ type: "queue_update", pendingMessageCount: 1 });
+  } else if (message.type === "get_state") {
+    write({ id: message.id, type: "response", command: "get_state", success: true, data: { sessionId: "claude_session", sessionFile: process.cwd() + "/.aihub/claude-sessions/claude_session.jsonl", isStreaming: mode !== "complete", pendingMessageCount: 0 } });
+  } else if (message.type === "abort") {
+    if (mode !== "wedged") {
+      write({ id: message.id, type: "response", command: "abort", success: true });
+      write({ type: "error", error: { message: "aborted", reason: "aborted" } });
+    }
+  }
+}
+
+process.stdin.on("data", (chunk) => {
+  buffer += chunk.toString("utf8");
+  for (;;) {
+    const index = buffer.indexOf("\\n");
+    if (index === -1) return;
+    const line = buffer.slice(0, index).replace(/\\r$/, "");
+    buffer = buffer.slice(index + 1);
+    if (line.trim()) handle(JSON.parse(line));
+  }
+});
+`);
+  return script;
+}
+
+async function writeMockClaudeCli(dir: string): Promise<string> {
+  const script = path.join(dir, "claude");
+  await fs.writeFile(script, `#!/usr/bin/env node
+import fs from "node:fs";
+
+const logPath = process.env.MOCK_CLAUDE_CLI_LOG;
+if (logPath) fs.appendFileSync(logPath, JSON.stringify(process.argv.slice(2)) + "\\n");
+const delay = Number(process.env.MOCK_CLAUDE_CLI_DELAY_MS ?? "0");
+if (delay > 0) await new Promise((resolve) => setTimeout(resolve, delay));
+process.stdout.write(JSON.stringify({ type: "system", session_id: "shim_session" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "text", text: "Working" }] } }) + "\\n");
+if (process.env.MOCK_CLAUDE_CLI_FAIL === "1") {
+  process.stdout.write(JSON.stringify({ type: "result", subtype: "error", error: "failed" }) + "\\n");
+} else {
+  process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result: "done" }) + "\\n");
+}
+`);
+  await fs.chmod(script, 0o755);
+  return script;
+}
+
+function claudeRunnerInput(root: string, command: string[], extra: Partial<Parameters<ClaudeRpcRunner["start"]>[0]> = {}): Parameters<ClaudeRpcRunner["start"]>[0] {
+  return {
+    runId: "r-claude",
+    project: { id: "project", path: root, workflowPath: path.join(root, "WORKFLOW.md") },
+    issue: { id: "lin_1", identifier: "ENG-1", title: "Claude", state: "Ready", labels: [] },
+    workspace: root,
+    prompt: "Initial rendered workflow instructions",
+    label: "ENG-1",
+    profile: { name: "claude", cli: "claude", model: "claude-sonnet-4" },
+    workflow: {
+      tracker: { kind: "linear", endpoint: "x", apiKey: "x", projectSlug: "proj-a", activeStates: ["Ready"], terminalStates: ["Done"], needsHuman: "Needs Human" },
+      workspace: { root, cleanupOnTerminal: false, reuse: true },
+      polling: { intervalMs: 1000, jitterMs: 0 },
+      agent: { runner: "claude", command: command.length > 0 ? command : undefined, model: "claude-sonnet-4" },
+      hooks: {},
+      server: undefined,
+      linear: undefined,
+    },
+    ...extra,
+  };
+}
+
+describe("Claude RPC worker runner", () => {
+  it("uses the in-package Claude shim by default and queues active follow-up work", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-default-shim-"));
+    await writeMockClaudeCli(root);
+    const logPath = path.join(root, "claude-cli.log");
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${root}${path.delimiter}${originalPath ?? ""}`;
+    process.env.MOCK_CLAUDE_CLI_LOG = logPath;
+    process.env.MOCK_CLAUDE_CLI_DELAY_MS = "200";
+    process.env.MOCK_CLAUDE_QUEUE_DELAY_MS = "200";
+    const runner = new ClaudeRpcRunner({ idleCleanupMs: 50, terminalRetentionMs: 1_000 });
+    try {
+      const first = await runner.start(claudeRunnerInput(root, []));
+      const second = await runner.start(claudeRunnerInput(root, [], { prompt: "Do not resend this full prompt" }));
+
+      expect(second.id).toBe(first.id);
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      expect(await runner.status(first)).toMatchObject({ status: "running" });
+      await vi.waitFor(async () => expect(await runner.status(first)).toMatchObject({ status: "done" }));
+      const invocations = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string[]);
+      expect(invocations).toHaveLength(2);
+      expect(invocations[0]?.join(" ")).toContain("Initial rendered workflow instructions");
+      expect(invocations[1]?.join(" ")).toContain("Continue the active orchestrator work for ENG-1");
+      expect(invocations[1]?.join(" ")).not.toContain("Do not resend this full prompt");
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      delete process.env.MOCK_CLAUDE_CLI_LOG;
+      delete process.env.MOCK_CLAUDE_CLI_DELAY_MS;
+      delete process.env.MOCK_CLAUDE_QUEUE_DELAY_MS;
+      await runner.shutdown();
+    }
+  });
+
+  it("does not run queued Claude follow-up work after a failed default shim run", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-default-shim-fail-"));
+    await writeMockClaudeCli(root);
+    const logPath = path.join(root, "claude-cli.log");
+    const originalPath = process.env.PATH;
+    process.env.PATH = `${root}${path.delimiter}${originalPath ?? ""}`;
+    process.env.MOCK_CLAUDE_CLI_LOG = logPath;
+    process.env.MOCK_CLAUDE_CLI_DELAY_MS = "200";
+    process.env.MOCK_CLAUDE_CLI_FAIL = "1";
+    const runner = new ClaudeRpcRunner({ idleCleanupMs: 50, terminalRetentionMs: 1_000 });
+    try {
+      const first = await runner.start(claudeRunnerInput(root, []));
+      const second = await runner.start(claudeRunnerInput(root, [], { prompt: "Queued follow-up must not run" }));
+
+      expect(second.id).toBe(first.id);
+      await vi.waitFor(async () => expect(await runner.status(first)).toMatchObject({ status: "error" }));
+      await new Promise((resolve) => setTimeout(resolve, 250));
+      const invocations = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string[]);
+      expect(invocations).toHaveLength(1);
+    } finally {
+      if (originalPath === undefined) delete process.env.PATH;
+      else process.env.PATH = originalPath;
+      delete process.env.MOCK_CLAUDE_CLI_LOG;
+      delete process.env.MOCK_CLAUDE_CLI_DELAY_MS;
+      delete process.env.MOCK_CLAUDE_CLI_FAIL;
+      await runner.shutdown();
+    }
+  });
+
+  it("starts a mocked Claude shim and maps messages, thinking, tools, queue, state, and result events", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-complete-"));
+    const script = await writeMockClaudeRpcShim(root);
+    const logPath = path.join(root, "rpc.log");
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CLAUDE_MODE = "complete";
+    process.env.MOCK_CLAUDE_LOG = logPath;
+    const runner = new ClaudeRpcRunner({ idleCleanupMs: 20, terminalRetentionMs: 50 });
+    try {
+      const handle = await runner.start(claudeRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }));
+      expect(handle).toMatchObject({ kind: "claude", raw: { state: { sessionId: "claude_session" } } });
+      expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
+        "worker.claude.started",
+        "worker.claude.prompt.accepted",
+        "worker.claude.message",
+        "worker.claude.thinking",
+        "worker.claude.tool",
+        "worker.claude.queue",
+        "worker.claude.state",
+        "worker.claude.result",
+      ]));
+      expect(events.some((event) => event.type === "worker.claude.tool" && (event.payload as { type?: string }).type === "assistant")).toBe(true);
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; message?: string });
+      expect(sent.find((message) => message.type === "prompt")?.message).toBe("Initial rendered workflow instructions");
+      expect(sent.some((message) => message.type === "get_state")).toBe(true);
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      delete process.env.MOCK_CLAUDE_LOG;
+      await runner.shutdown();
+    }
+  });
+
+  it("reuses a live Claude shim session and queues continuation with follow_up", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-continue-"));
+    const script = await writeMockClaudeRpcShim(root);
+    const logPath = path.join(root, "rpc.log");
+    process.env.MOCK_CLAUDE_MODE = "hold";
+    process.env.MOCK_CLAUDE_LOG = logPath;
+    const runner = new ClaudeRpcRunner({ abortTimeoutMs: 20 });
+    try {
+      const first = await runner.start(claudeRunnerInput(root, [process.execPath, script]));
+      const second = await runner.start(claudeRunnerInput(root, [process.execPath, script], { prompt: "This full prompt must not be resent" }));
+
+      expect(second.id).toBe(first.id);
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; message?: string });
+      expect(sent.filter((message) => message.type === "prompt")).toHaveLength(1);
+      const followUp = sent.find((message) => message.type === "follow_up");
+      expect(followUp?.message).toContain("Continue the active orchestrator work for ENG-1");
+      expect(followUp?.message).not.toContain("This full prompt must not be resent");
+      await runner.abort(first);
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      delete process.env.MOCK_CLAUDE_LOG;
+      await runner.shutdown();
+    }
+  });
+
+  it("surfaces Claude shim failures and rejected commands", async () => {
+    const failRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-fail-"));
+    const failScript = await writeMockClaudeRpcShim(failRoot);
+    process.env.MOCK_CLAUDE_MODE = "fail";
+    const failed = new ClaudeRpcRunner();
+    try {
+      const failedHandle = await failed.start(claudeRunnerInput(failRoot, [process.execPath, failScript]));
+      await vi.waitFor(async () => expect(await failed.status(failedHandle)).toMatchObject({ status: "error" }));
+      expect(failedHandle.kind).toBe("claude");
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      await failed.shutdown();
+    }
+
+    const resultFailRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-result-fail-"));
+    const resultFailScript = await writeMockClaudeRpcShim(resultFailRoot);
+    process.env.MOCK_CLAUDE_MODE = "resultfail";
+    const resultFailed = new ClaudeRpcRunner();
+    try {
+      const handle = await resultFailed.start(claudeRunnerInput(resultFailRoot, [process.execPath, resultFailScript]));
+      await vi.waitFor(async () => expect(await resultFailed.status(handle)).toMatchObject({ status: "error" }));
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      await resultFailed.shutdown();
+    }
+
+    const rejectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-reject-"));
+    const rejectScript = await writeMockClaudeRpcShim(rejectRoot);
+    process.env.MOCK_CLAUDE_MODE = "reject";
+    const rejected = new ClaudeRpcRunner();
+    try {
+      const handle = await rejected.start(claudeRunnerInput(rejectRoot, [process.execPath, rejectScript]));
+      await expect(rejected.status(handle)).resolves.toMatchObject({ status: "error", raw: { message: "prompt rejected" } });
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      await rejected.shutdown();
+    }
+  });
+
+  it("times out unresponsive Claude shim startup and removes the session", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-silent-"));
+    const script = await writeMockClaudeRpcShim(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CLAUDE_MODE = "silent";
+    const runner = new ClaudeRpcRunner({ requestTimeoutMs: 200 });
+    try {
+      const handle = await runner.start(claudeRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await expect(runner.status(handle)).resolves.toMatchObject({ status: "error", raw: { message: "Claude RPC prompt timed out" } });
+      expect(events.map((event) => event.type)).toContain("worker.claude.start.error");
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("uses protocol abort and falls back to process cleanup when abort does not respond", async () => {
+    const abortRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-abort-"));
+    const abortScript = await writeMockClaudeRpcShim(abortRoot);
+    const abortLog = path.join(abortRoot, "rpc.log");
+    process.env.MOCK_CLAUDE_MODE = "hold";
+    process.env.MOCK_CLAUDE_LOG = abortLog;
+    const aborting = new ClaudeRpcRunner();
+    try {
+      const abortHandle = await aborting.start(claudeRunnerInput(abortRoot, [process.execPath, abortScript]));
+      await aborting.abort(abortHandle);
+      await vi.waitFor(async () => expect(await aborting.status(abortHandle)).toMatchObject({ status: "interrupted" }));
+      const sent = (await fs.readFile(abortLog, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string });
+      expect(sent.some((message) => message.type === "abort")).toBe(true);
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      delete process.env.MOCK_CLAUDE_LOG;
+      await aborting.shutdown();
+    }
+
+    const wedgedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-wedged-"));
+    const wedgedScript = await writeMockClaudeRpcShim(wedgedRoot);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CLAUDE_MODE = "wedged";
+    const wedged = new ClaudeRpcRunner({ abortTimeoutMs: 20 });
+    try {
+      const handle = await wedged.start(claudeRunnerInput(wedgedRoot, [process.execPath, wedgedScript], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await wedged.abort(handle);
+      expect(await wedged.status(handle)).toMatchObject({ status: "interrupted" });
+      expect(events.map((event) => event.type)).toContain("worker.claude.abort.timeout");
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
       await wedged.shutdown();
     }
   });

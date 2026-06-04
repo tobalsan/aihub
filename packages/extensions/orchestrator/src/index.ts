@@ -272,4 +272,5 @@ export { OrchestratorDaemon } from "./daemon/daemon.js";
 export { WorkflowWorkerRunner, SubagentFallbackRunner, FakeWorkerRunner, CliWorkerRunner } from "./worker-runner/runner.js";
 export { CodexAppServerRunner } from "./worker-runner/codex-app-server.js";
 export { PiRpcRunner } from "./worker-runner/pi-rpc.js";
+export { ClaudeRpcRunner } from "./worker-runner/claude-rpc.js";
 export type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStatus, WorkerRunnerStartInput } from "./worker-runner/runner.js";

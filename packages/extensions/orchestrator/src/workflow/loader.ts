@@ -73,7 +73,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
   if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
   const agent = frontmatter.agent ?? {};
   const runner = agent.runner ?? agent.kind ?? "subagent";
-  if (runner !== "subagent" && runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi") throw new Error(`Unsupported agent.runner: ${runner}`);
+  if (runner !== "subagent" && runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
   const cliCommand = normalizeCliCommand(agent.command);
   if ((runner === "cli" || runner === "codex") && !cliCommand) throw new Error(`agent.command must provide an executable when agent.runner is ${runner}`);
   for (const [key, value] of Object.entries({
@@ -104,7 +104,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
       intervalMs: frontmatter.polling?.interval_ms ?? 30_000,
       jitterMs: frontmatter.polling?.jitter_ms ?? 5_000,
     },
-    agent: { ...agent, runner, command: runner === "cli" || runner === "codex" || runner === "pi" ? cliCommand : agent.command },
+    agent: { ...agent, runner, command: runner === "cli" || runner === "codex" || runner === "pi" || runner === "claude" ? cliCommand : agent.command },
     hooks: frontmatter.hooks ?? {},
     server: frontmatter.server,
     linear: frontmatter.linear,

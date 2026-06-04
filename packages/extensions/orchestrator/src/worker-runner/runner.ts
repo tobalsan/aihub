@@ -1,10 +1,11 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import type { SubagentRuntimeProfile } from "@aihub/shared";
 import type { LinearIssue, ProjectDescriptor, WorkflowConfig } from "../types.js";
+import { ClaudeRpcRunner } from "./claude-rpc.js";
 import { CodexAppServerRunner } from "./codex-app-server.js";
 import { PiRpcRunner } from "./pi-rpc.js";
 
-export type WorkerRunnerKind = "subagent" | "fake" | "cli" | "codex" | "pi";
+export type WorkerRunnerKind = "subagent" | "fake" | "cli" | "codex" | "pi" | "claude";
 
 export type WorkerRunnerStatus = {
   status: "running" | "done" | "error" | "interrupted";
@@ -159,6 +160,7 @@ export class WorkflowWorkerRunner implements WorkerRunner {
   private readonly cli = new CliWorkerRunner();
   private readonly codex = new CodexAppServerRunner();
   private readonly pi = new PiRpcRunner();
+  private readonly claude = new ClaudeRpcRunner();
 
   constructor(deps: ConstructorParameters<typeof SubagentFallbackRunner>[0]) {
     this.subagent = new SubagentFallbackRunner(deps);
@@ -169,6 +171,7 @@ export class WorkflowWorkerRunner implements WorkerRunner {
     if (kind === "cli") return this.cli;
     if (kind === "codex") return this.codex;
     if (kind === "pi") return this.pi;
+    if (kind === "claude") return this.claude;
     return this.subagent;
   }
 
@@ -187,5 +190,6 @@ export class WorkflowWorkerRunner implements WorkerRunner {
   async shutdown(): Promise<void> {
     await this.codex.shutdown();
     await this.pi.shutdown();
+    await this.claude.shutdown();
   }
 }

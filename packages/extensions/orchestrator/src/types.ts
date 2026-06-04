@@ -53,8 +53,8 @@ export type WorkflowFrontmatter = {
   workspace?: { root?: string; cleanup_on_terminal?: boolean; reuse?: boolean };
   agent?: {
     profile?: string;
-    kind?: "subagent" | "fake" | "cli" | "codex" | "pi";
-    runner?: "subagent" | "fake" | "cli" | "codex" | "pi";
+    kind?: "subagent" | "fake" | "cli" | "codex" | "pi" | "claude";
+    runner?: "subagent" | "fake" | "cli" | "codex" | "pi" | "claude";
     command?: string | string[];
     model?: string;
     settings?: Record<string, unknown>;
