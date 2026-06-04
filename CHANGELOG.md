@@ -2,6 +2,115 @@
 
 These release notes are retro-created from commit history and handoff docs. Version tags mark product milestones for historical tracking, not npm package versions. Newest releases appear first.
 
+## v0.17.0 — Proactive messaging + scheduler ops
+
+Outbound agent messaging on Discord, agent-scoped notification tokens, on-demand scheduler runs, and orchestrator dashboard polish.
+
+### Highlights
+- Added Discord proactive agent tools so agents can initiate messages, not just reply.
+- Added a scheduler `run` command to trigger a configured job on demand.
+- Added a monitored-projects popover to the orchestrator dashboard.
+- Resolved notification bot tokens per agent scope.
+- Preserved the `session` param when toggling Simple/Full chat view.
+
+### Upgrade notes
+- Discord proactive tools require the bot to have send permissions in target channels.
+- Notification tokens now resolve per agent; multi-agent setups should confirm each agent's bot token configuration.
+
+### Known limitations
+- Manual scheduler runs reuse the job's configured payload/session semantics.
+
+## v0.16.0 — Orchestrator: Linear runtime + Symphony realignment
+
+Largest cluster: the orchestrator extension gains a first-class Linear runtime, realigns to the Symphony multi-project supervisor model, and ships a redesigned dashboard.
+
+### Highlights
+- Added a Linear runtime: polling filtered by Linear project `slugId`, rate-header parsing, and workflow-owned tracker/endpoint/auth/states config.
+- Realigned config to `extensions.orchestrator.projects[]` with global + per-project supervisor concurrency and validation settings.
+- Each configured project must contain an uppercase `WORKFLOW.md`.
+- Added `aihub orchestrator init-project` to scaffold a project end-to-end, with an expanded generated workflow template.
+- Stop workers when an issue moves to "Needs Human".
+- Redesigned the `/orchestrator` dashboard: live health data, logs rendered as agent turns, filtered/bounded recent runs, pinned/opaque log drawer.
+- Hardened live dispatch, parked failed workers, and unblocked Node 26 sandbox validation.
+
+### Upgrade notes
+- Orchestrator config moved from dispatch-scope to `projects[]`; existing configs must migrate.
+- Each project directory must contain uppercase `WORKFLOW.md`; workflow config now owns Linear `tracker.project_slug`, endpoint/auth, states, workspace root, hooks, and prompt.
+- Gateway-owned worker lifetime: startup marks open runs `interrupted_gateway_restart` instead of reattaching live sessions; restart-recovery integrations should adjust.
+- Repo-label routing and git/worktree behavior were removed from orchestrator runtime (directory-only workspace layout per issue).
+
+### Known limitations
+- SQLite state is observability/history only, not authority.
+
+## v0.15.0 — Slack agent messaging
+
+Agents can send Slack messages as a first-class tool, backed by per-agent bot configuration.
+
+### Highlights
+- Added Slack agent tools for sending messages.
+- Documented Slack bots, agent tools, and required scopes.
+- Resolved secrets correctly on gateway hot reload.
+
+### Upgrade notes
+- Slack send tools require bot tokens with the documented scopes.
+
+### Known limitations
+- Outbound only; richer Slack interactivity not yet covered.
+
+## v0.14.0 — Lead-agent session resume + chat history hardening
+
+Past agent sessions are now listable and resumable from canonical history, with session-id validation hardening.
+
+### Highlights
+- Added `GET /api/agents/sessions` listing visible past sessions from canonical history JSONL (single- and multi-user paths).
+- Added session delete/rename via `DELETE`/`PATCH /api/agents/:agentId/sessions/:sessionId`.
+- WebSocket `subscribe` accepts an explicit `sessionId` for active-turn replay and stream matching.
+- Added a searchable, recency-grouped Sessions sidebar with rename/delete; polls every 3s and on focus.
+- Compact resumed sessions and handle legacy session edits while keeping a canonical history path.
+
+### Upgrade notes
+- **Security:** session ids are validated and `..`/dot-dot ids are rejected; clients passing arbitrary session ids must conform.
+- History fetch with explicit `?sessionId=` skips `sessions.json` pointer resolution.
+- New chats come from chat flows (`/new`, idle rotation); the sidebar `+ New` affordance was removed.
+
+### Known limitations
+- Sidebar session list refreshes on a 3s poll/focus rather than live push.
+
+## v0.13.0 — Scheduler model overrides + cron agent tools
+
+Per-job model selection for scheduled runs, agent-facing cron tools, plus auth and chat-stream fixes.
+
+### Highlights
+- Added optional scheduler job `model: { provider, model }` overrides, threaded through run contract, Pi adapter, container input, and recorded in cron output.
+- Added `--provider`/`--model` to scheduler CLI add/update.
+- Added agent cron tools for managing schedules from within agent runs.
+- Respect manual scroll during streaming instead of force-scrolling.
+- Refreshed multi-user pending-approval state and moved the user-sessions storage path.
+
+### Upgrade notes
+- Scheduler job `model` requires both `provider` and `model` when set; otherwise the agent default applies.
+- User-session storage path moved; multi-user deployments should verify session persistence after upgrade.
+
+### Known limitations
+- Cron job-file edits may still require a gateway restart to take effect.
+
+## v0.12.0 — Context compaction + boot resilience
+
+Context-window compaction, clearer context-usage visibility, and more resilient gateway boot/model-source handling.
+
+### Highlights
+- Added context compaction support for long-running chats.
+- Surfaced context usage (including cache tokens) in the web UI.
+- Refreshed and added fallback model context sources; preserved model data across updates.
+- Improved gateway boot resilience and dev-extension loading.
+- `/new` and `/reset` bypass the auto-compact pre-send guard even above 80% estimated usage.
+
+### Upgrade notes
+- Model context sources changed; custom model definitions should be re-verified after upgrade.
+
+### Known limitations
+- Compaction thresholds/heuristics are fixed, not yet user-configurable.
+
 ## v0.11.0 — Current reliability + admin/media polish
 
 Current snapshot adds agent-run reliability work, admin impersonation, document upload support, and chat/streaming polish.
