@@ -48,6 +48,30 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function codexApprovalPolicy(input: WorkerRunnerStartInput): unknown {
+  return input.workflow.agent.settings?.approvalPolicy ?? input.workflow.agent.settings?.approval_policy ?? "never";
+}
+
+function codexSandboxPolicy(input: WorkerRunnerStartInput): unknown {
+  const configured = input.workflow.agent.settings?.sandboxPolicy ?? input.workflow.agent.settings?.sandbox_policy;
+  if (configured) return configured;
+  const sandbox = input.workflow.agent.settings?.sandbox ?? input.workflow.agent.settings?.sandboxMode ?? input.workflow.agent.settings?.sandbox_mode;
+  if (sandbox === "danger-full-access" || sandbox === "dangerFullAccess") return { type: "dangerFullAccess" };
+  if (sandbox === "workspace-write" || sandbox === "workspaceWrite") return { type: "workspaceWrite", writableRoots: [input.workspace], networkAccess: true };
+  if (sandbox === "read-only" || sandbox === "readOnly") return { type: "readOnly" };
+  return { type: "dangerFullAccess" };
+}
+
+function codexThreadSandbox(input: WorkerRunnerStartInput): string | undefined {
+  const policy = codexSandboxPolicy(input);
+  if (typeof policy === "string") return policy === "dangerFullAccess" ? "danger-full-access" : policy === "workspaceWrite" ? "workspace-write" : policy;
+  const type = objectValue(policy)?.type;
+  if (type === "dangerFullAccess") return "danger-full-access";
+  if (type === "workspaceWrite") return "workspace-write";
+  if (type === "readOnly") return "read-only";
+  return typeof type === "string" ? type : undefined;
+}
+
 export class CodexAppServerRunner implements WorkerRunner {
   private readonly sessions = new Map<string, CodexSession>();
 
@@ -67,6 +91,9 @@ export class CodexAppServerRunner implements WorkerRunner {
     await session.initialized;
     const thread = await this.request(session, "thread/start", {
       model: input.workflow.agent.model ?? input.profile.model,
+      cwd: input.workspace,
+      approvalPolicy: codexApprovalPolicy(input),
+      sandbox: codexThreadSandbox(input),
       serviceName: "aihub-orchestrator",
     });
     session.threadId = this.extractThreadId(thread);
@@ -182,8 +209,8 @@ export class CodexAppServerRunner implements WorkerRunner {
       input: textFromInput(prompt),
       cwd: input.workspace,
       model: input.workflow.agent.model ?? input.profile.model,
-      approvalPolicy: input.workflow.agent.settings?.approvalPolicy,
-      sandboxPolicy: input.workflow.agent.settings?.sandboxPolicy,
+      approvalPolicy: codexApprovalPolicy(input),
+      sandboxPolicy: codexSandboxPolicy(input),
       effort: input.profile.reasoningEffort ?? input.profile.reasoning,
     });
     session.turnId = this.extractTurnId(result);

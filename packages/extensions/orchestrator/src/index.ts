@@ -70,10 +70,37 @@ function eventPayload(row: Record<string, unknown>): unknown {
   try { return JSON.parse(payload); } catch { return payload; }
 }
 
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\[[0-9;]*m/g, "");
+}
+
 function eventLogText(type: string | undefined, payload: unknown): string {
-  const record = payload && typeof payload === "object" && !Array.isArray(payload) ? payload as Record<string, unknown> : undefined;
-  const text = record?.text ?? record?.message ?? record?.error;
-  return typeof text === "string" ? text : JSON.stringify({ type, payload });
+  const record = recordValue(payload);
+  const item = recordValue(record?.item);
+  const delta = recordValue(record?.delta);
+  const assistant = recordValue(record?.assistantMessageEvent);
+  const content = recordValue(record?.content);
+  const message = recordValue(record?.message);
+  const text = record?.text ?? record?.message ?? record?.error ?? item?.text ?? item?.message ?? item?.command ?? item?.aggregated_output ?? delta?.text ?? delta?.partial_json ?? assistant?.text ?? assistant?.delta ?? content?.text ?? message?.content;
+  if (typeof text === "string") return stripAnsi(text);
+  if (Array.isArray(message?.content)) {
+    const parts = message.content.map((part) => recordValue(part)?.text).filter((part): part is string => typeof part === "string");
+    if (parts.length) return stripAnsi(parts.join("\n"));
+  }
+  return JSON.stringify({ type, payload });
+}
+
+function normalizeLogType(type: string | undefined): string | undefined {
+  if (!type) return type;
+  if (type.endsWith(".message") || type.endsWith(".message_update") || type.endsWith(".agent_message")) return "assistant";
+  if (type.endsWith(".thinking")) return "thinking";
+  if (type.endsWith(".tool") || type.includes("commandExecution") || type.includes("tool_execution")) return "tool_call";
+  if (type.endsWith(".stderr") || type.endsWith(".process.error") || type.endsWith(".start.error") || type.endsWith(".protocol.error")) return "error";
+  return type;
 }
 
 function workerLogs(runId: string, since: number): { cursor: number; events: Array<Record<string, unknown>> } {
@@ -82,8 +109,8 @@ function workerLogs(runId: string, since: number): { cursor: number; events: Arr
     cursor: rows.reduce((max, row) => Math.max(max, Number(row.id ?? 0)), since),
     events: rows.map((row) => {
       const payload = eventPayload(row);
-      const type = typeof row.type === "string" ? row.type : undefined;
-      return { id: row.id, type, timestamp: row.created_at, text: eventLogText(type, payload), payload };
+      const rawType = typeof row.type === "string" ? row.type : undefined;
+      return { id: row.id, type: normalizeLogType(rawType), rawType, timestamp: row.created_at, text: eventLogText(rawType, payload), payload };
     }),
   };
 }

@@ -206,6 +206,7 @@ Path rules:
 - `max_turns`: workflow hint for worker prompt/runtime.
 - `turn_timeout_ms`: per-turn time budget forwarded to runners. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. Core does not yet abort on expiry.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `300000` (5 minutes, Symphony parity).
+- `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended.
 
 `max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` must be positive numbers when set; invalid values fail config load.
 
@@ -239,6 +240,10 @@ agent:
   model: gpt-5.3-codex
   max_concurrent: 2
   # command: [codex, app-server]   # optional override
+  # settings:
+  #   approvalPolicy: never
+  #   sandboxPolicy:
+  #     type: dangerFullAccess
 ```
 
 `cli` — generic CLI harness; `command` required:

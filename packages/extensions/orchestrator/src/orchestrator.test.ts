@@ -278,13 +278,17 @@ describe("orchestrator routes", () => {
       state.setWorkerId("r-log", "worker-log");
       state.appendEvent("r-log", "worker.started", { id: "worker-log", kind: "claude" }, "project");
       state.appendEvent("r-log", "worker.claude.message", { text: "hello from worker" }, "project");
+      state.appendEvent("r-log", "worker.codex.message", { item: { type: "agentMessage", text: "\u001b[31mhello from codex\u001b[0m [2mclean" } }, "project");
+      state.appendEvent("r-log", "worker.pi.message", { assistantMessageEvent: { type: "text_delta", text: "hello from pi" } }, "project");
 
       const response = await app.request("/orchestrator/runs/ENG-1/logs?project=project&since=0");
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.cursor).toBe(2);
+      expect(body.cursor).toBe(4);
       expect(body.events).toEqual(expect.arrayContaining([
-        expect.objectContaining({ type: "worker.claude.message", text: "hello from worker", payload: { text: "hello from worker" } }),
+        expect.objectContaining({ type: "assistant", rawType: "worker.claude.message", text: "hello from worker", payload: { text: "hello from worker" } }),
+        expect.objectContaining({ type: "assistant", rawType: "worker.codex.message", text: "hello from codex clean" }),
+        expect.objectContaining({ type: "assistant", rawType: "worker.pi.message", text: "hello from pi" }),
       ]));
       state.close();
     } finally {
@@ -490,8 +494,8 @@ describe("Codex app-server worker runner", () => {
         "worker.codex.turn.completed",
       ]));
       const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { method: string; params?: any });
-      expect(sent.find((message) => message.method === "thread/start")?.params).toMatchObject({ model: "gpt-5-mini", serviceName: "aihub-orchestrator" });
-      expect(sent.find((message) => message.method === "turn/start")?.params).toMatchObject({ cwd: root, model: "gpt-5-mini", input: [{ type: "text", text: "Initial rendered workflow instructions" }] });
+      expect(sent.find((message) => message.method === "thread/start")?.params).toMatchObject({ model: "gpt-5-mini", cwd: root, approvalPolicy: "never", sandbox: "danger-full-access", serviceName: "aihub-orchestrator" });
+      expect(sent.find((message) => message.method === "turn/start")?.params).toMatchObject({ cwd: root, model: "gpt-5-mini", approvalPolicy: "never", sandboxPolicy: { type: "dangerFullAccess" }, input: [{ type: "text", text: "Initial rendered workflow instructions" }] });
     } finally {
       delete process.env.MOCK_CODEX_MODE;
       delete process.env.MOCK_CODEX_LOG;
