@@ -4,7 +4,7 @@ import os from "node:os";
 import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
-import { ClaimsRegistry, CliWorkerRunner, CodexAppServerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
+import { ClaimsRegistry, CliWorkerRunner, CodexAppServerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, PiRpcRunner, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
 
@@ -158,6 +158,9 @@ Run
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: codex\n  command: [\" node \", \"mock-app-server.mjs\"]\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "codex", command: ["node", "mock-app-server.mjs"] } } });
+
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  kind: pi\n---\nRun\n");
+    await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "pi" } } });
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: fake\n  max_turns: 0\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).rejects.toThrow("agent.max_turns must be a positive number");
@@ -569,6 +572,287 @@ describe("Codex app-server worker runner", () => {
       expect(await runner.status(handle)).toBeUndefined();
     } finally {
       delete process.env.MOCK_CODEX_MODE;
+    }
+  });
+});
+
+async function writeMockPiRpcServer(dir: string): Promise<string> {
+  const script = path.join(dir, "mock-pi-rpc.mjs");
+  await fs.writeFile(script, `
+import fs from "node:fs";
+
+const mode = process.env.MOCK_PI_MODE ?? "complete";
+const logPath = process.env.MOCK_PI_LOG;
+let buffer = "";
+
+function write(message) {
+  process.stdout.write(JSON.stringify(message) + "\\n");
+}
+
+function log(message) {
+  if (logPath) fs.appendFileSync(logPath, JSON.stringify(message) + "\\n");
+}
+
+function handle(message) {
+  log(message);
+  if (mode === "silent") return;
+  if (message.type === "prompt") {
+    if (mode === "reject") {
+      write({ id: message.id, type: "response", command: "prompt", success: false, error: { message: "prompt rejected" } });
+      return;
+    }
+    write({ id: message.id, type: "response", command: "prompt", success: true });
+    write({ type: "agent_start" });
+    write({ type: "turn_start" });
+    write({ type: "message_update", assistantMessageEvent: { type: "text_delta", delta: "Working" }, message: { role: "assistant" } });
+    write({ type: "message_update", assistantMessageEvent: { type: "thinking_delta", delta: "Reasoning" }, message: { role: "assistant" } });
+    write({ type: "message_update", assistantMessageEvent: { type: "toolcall_start", toolCall: { id: "tc_1", name: "bash" } }, message: { role: "assistant" } });
+    write({ type: "tool_execution_start", toolCallId: "tc_1", toolName: "bash", args: { command: "pnpm test" } });
+    write({ type: "tool_execution_update", toolCallId: "tc_1", toolName: "bash", partialResult: { content: [{ type: "text", text: "ok" }] } });
+    write({ type: "tool_execution_end", toolCallId: "tc_1", toolName: "bash", result: { content: [{ type: "text", text: "ok" }] }, isError: false });
+    write({ type: "queue_update", pendingMessageCount: 0 });
+    if (mode === "fail") {
+      write({ type: "extension_error", error: { message: "extension failed" } });
+      write({ type: "message_update", assistantMessageEvent: { type: "error", reason: "error" }, message: { role: "assistant" } });
+    } else if (mode === "failend") {
+      write({ type: "extension_error", error: { message: "extension failed" } });
+      write({ type: "agent_end", messages: [{ role: "assistant", content: "failed" }] });
+    } else if (mode === "abortend") {
+      write({ type: "message_update", assistantMessageEvent: { type: "error", reason: "aborted" }, message: { role: "assistant" } });
+      write({ type: "agent_end", messages: [{ role: "assistant", content: "aborted" }] });
+    } else if (mode === "complete") {
+      write({ type: "turn_end", message: { role: "assistant", content: "done" }, toolResults: [] });
+      write({ type: "agent_end", messages: [{ role: "assistant", content: "done" }] });
+    }
+  } else if (message.type === "follow_up") {
+    if (mode === "nofollow") return;
+    write({ id: message.id, type: "response", command: "follow_up", success: true });
+    write({ type: "queue_update", pendingMessageCount: 1 });
+  } else if (message.type === "get_state") {
+    write({ id: message.id, type: "response", command: "get_state", success: true, data: { sessionId: "pi_session", sessionFile: process.cwd() + "/.aihub/pi-sessions/pi_session.jsonl", isStreaming: mode !== "complete", pendingMessageCount: 0 } });
+  } else if (message.type === "abort") {
+    if (mode !== "wedged") {
+      write({ id: message.id, type: "response", command: "abort", success: true });
+      write({ type: "message_update", assistantMessageEvent: { type: "error", reason: "aborted" }, message: { role: "assistant" } });
+    }
+  }
+}
+
+process.stdin.on("data", (chunk) => {
+  buffer += chunk.toString("utf8");
+  for (;;) {
+    const index = buffer.indexOf("\\n");
+    if (index === -1) return;
+    const line = buffer.slice(0, index).replace(/\\r$/, "");
+    buffer = buffer.slice(index + 1);
+    if (line.trim()) handle(JSON.parse(line));
+  }
+});
+`);
+  return script;
+}
+
+function piRunnerInput(root: string, command: string[], extra: Partial<Parameters<PiRpcRunner["start"]>[0]> = {}): Parameters<PiRpcRunner["start"]>[0] {
+  return {
+    runId: "r-pi",
+    project: { id: "project", path: root, workflowPath: path.join(root, "WORKFLOW.md") },
+    issue: { id: "lin_1", identifier: "ENG-1", title: "Pi", state: "Ready", labels: [] },
+    workspace: root,
+    prompt: "Initial rendered workflow instructions",
+    label: "ENG-1",
+    profile: { name: "default", cli: "codex", model: "gpt-5" },
+    workflow: {
+      tracker: { kind: "linear", endpoint: "x", apiKey: "x", projectSlug: "proj-a", activeStates: ["Ready"], terminalStates: ["Done"], needsHuman: "Needs Human" },
+      workspace: { root, cleanupOnTerminal: false, reuse: true },
+      polling: { intervalMs: 1000, jitterMs: 0 },
+      agent: { runner: "pi", command, model: "gpt-5-mini" },
+      hooks: {},
+      server: undefined,
+      linear: undefined,
+    },
+    ...extra,
+  };
+}
+
+describe("Pi RPC worker runner", () => {
+  it("starts a mocked Pi RPC session and maps messages, thinking, tools, queue, state, and completion events", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-complete-"));
+    const script = await writeMockPiRpcServer(root);
+    const logPath = path.join(root, "rpc.log");
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_PI_MODE = "complete";
+    process.env.MOCK_PI_LOG = logPath;
+    const runner = new PiRpcRunner({ idleCleanupMs: 20, terminalRetentionMs: 50 });
+    try {
+      const handle = await runner.start(piRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }));
+      expect(handle).toMatchObject({ kind: "pi", raw: { state: { sessionId: "pi_session" } } });
+      expect(events.map((event) => event.type)).toEqual(expect.arrayContaining([
+        "worker.pi.started",
+        "worker.pi.prompt.accepted",
+        "worker.pi.message",
+        "worker.pi.thinking",
+        "worker.pi.tool",
+        "worker.pi.queue",
+        "worker.pi.state",
+        "worker.pi.agent_end",
+      ]));
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; message?: string });
+      expect(sent.find((message) => message.type === "prompt")?.message).toBe("Initial rendered workflow instructions");
+      expect(sent.some((message) => message.type === "get_state")).toBe(true);
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      delete process.env.MOCK_PI_LOG;
+    }
+  });
+
+  it("reuses a live Pi session and queues continuation with follow_up", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-continue-"));
+    const script = await writeMockPiRpcServer(root);
+    const logPath = path.join(root, "rpc.log");
+    process.env.MOCK_PI_MODE = "hold";
+    process.env.MOCK_PI_LOG = logPath;
+    const runner = new PiRpcRunner({ abortTimeoutMs: 20 });
+    try {
+      const first = await runner.start(piRunnerInput(root, [process.execPath, script]));
+      const second = await runner.start(piRunnerInput(root, [process.execPath, script], { prompt: "This full prompt must not be resent" }));
+
+      expect(second.id).toBe(first.id);
+      const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; message?: string });
+      expect(sent.filter((message) => message.type === "prompt")).toHaveLength(1);
+      const followUp = sent.find((message) => message.type === "follow_up");
+      expect(followUp?.message).toContain("Continue the active orchestrator work for ENG-1");
+      expect(followUp?.message).not.toContain("This full prompt must not be resent");
+      await runner.abort(first);
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      delete process.env.MOCK_PI_LOG;
+    }
+  });
+
+  it("maps Pi failures and rejected commands", async () => {
+    const failRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-fail-"));
+    const failScript = await writeMockPiRpcServer(failRoot);
+    process.env.MOCK_PI_MODE = "fail";
+    const failed = new PiRpcRunner();
+    try {
+      const failedHandle = await failed.start(piRunnerInput(failRoot, [process.execPath, failScript]));
+      await vi.waitFor(async () => expect(await failed.status(failedHandle)).toMatchObject({ status: "error" }));
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await failed.shutdown();
+    }
+
+    const failEndRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-fail-end-"));
+    const failEndScript = await writeMockPiRpcServer(failEndRoot);
+    process.env.MOCK_PI_MODE = "failend";
+    const failedThenEnded = new PiRpcRunner();
+    try {
+      const handle = await failedThenEnded.start(piRunnerInput(failEndRoot, [process.execPath, failEndScript]));
+      await vi.waitFor(async () => expect(await failedThenEnded.status(handle)).toMatchObject({ status: "error" }));
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await failedThenEnded.shutdown();
+    }
+
+    const abortEndRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-abort-end-"));
+    const abortEndScript = await writeMockPiRpcServer(abortEndRoot);
+    process.env.MOCK_PI_MODE = "abortend";
+    const abortedThenEnded = new PiRpcRunner();
+    try {
+      const handle = await abortedThenEnded.start(piRunnerInput(abortEndRoot, [process.execPath, abortEndScript]));
+      await vi.waitFor(async () => expect(await abortedThenEnded.status(handle)).toMatchObject({ status: "interrupted" }));
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await abortedThenEnded.shutdown();
+    }
+
+    const rejectRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-reject-"));
+    const rejectScript = await writeMockPiRpcServer(rejectRoot);
+    process.env.MOCK_PI_MODE = "reject";
+    const rejected = new PiRpcRunner();
+    try {
+      await expect(rejected.start(piRunnerInput(rejectRoot, [process.execPath, rejectScript]))).rejects.toThrow("prompt rejected");
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await rejected.shutdown();
+    }
+  });
+
+  it("times out unresponsive Pi RPC startup and cleans the session", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-silent-"));
+    const script = await writeMockPiRpcServer(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_PI_MODE = "silent";
+    const runner = new PiRpcRunner({ requestTimeoutMs: 200 });
+    try {
+      await expect(runner.start(piRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }))).rejects.toThrow("Pi RPC prompt timed out");
+      expect(events.map((event) => event.type)).toContain("worker.pi.session.removed");
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("times out unresponsive Pi continuation and removes the live session", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-nofollow-"));
+    const script = await writeMockPiRpcServer(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_PI_MODE = "nofollow";
+    const runner = new PiRpcRunner({ requestTimeoutMs: 200 });
+    try {
+      await runner.start(piRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await expect(runner.start(piRunnerInput(root, [process.execPath, script], {
+        prompt: "Do not resend this full prompt",
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }))).rejects.toThrow("Pi RPC follow_up timed out");
+      expect(events.map((event) => event.type)).toContain("worker.pi.session.removed");
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("uses protocol abort and falls back to process cleanup when abort does not respond", async () => {
+    const abortRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-abort-"));
+    const abortScript = await writeMockPiRpcServer(abortRoot);
+    const abortLog = path.join(abortRoot, "rpc.log");
+    process.env.MOCK_PI_MODE = "hold";
+    process.env.MOCK_PI_LOG = abortLog;
+    const aborting = new PiRpcRunner();
+    try {
+      const abortHandle = await aborting.start(piRunnerInput(abortRoot, [process.execPath, abortScript]));
+      await aborting.abort(abortHandle);
+      await vi.waitFor(async () => expect(await aborting.status(abortHandle)).toMatchObject({ status: "interrupted" }));
+      const sent = (await fs.readFile(abortLog, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string });
+      expect(sent.some((message) => message.type === "abort")).toBe(true);
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      delete process.env.MOCK_PI_LOG;
+    }
+
+    const wedgedRoot = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-wedged-"));
+    const wedgedScript = await writeMockPiRpcServer(wedgedRoot);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_PI_MODE = "wedged";
+    const wedged = new PiRpcRunner({ abortTimeoutMs: 20 });
+    try {
+      const handle = await wedged.start(piRunnerInput(wedgedRoot, [process.execPath, wedgedScript], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await wedged.abort(handle);
+      expect(await wedged.status(handle)).toMatchObject({ status: "interrupted" });
+      expect(events.map((event) => event.type)).toContain("worker.pi.abort.timeout");
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await wedged.shutdown();
     }
   });
 });

@@ -2,8 +2,9 @@ import { spawn, type ChildProcess } from "node:child_process";
 import type { SubagentRuntimeProfile } from "@aihub/shared";
 import type { LinearIssue, ProjectDescriptor, WorkflowConfig } from "../types.js";
 import { CodexAppServerRunner } from "./codex-app-server.js";
+import { PiRpcRunner } from "./pi-rpc.js";
 
-export type WorkerRunnerKind = "subagent" | "fake" | "cli" | "codex";
+export type WorkerRunnerKind = "subagent" | "fake" | "cli" | "codex" | "pi";
 
 export type WorkerRunnerStatus = {
   status: "running" | "done" | "error" | "interrupted";
@@ -157,6 +158,7 @@ export class WorkflowWorkerRunner implements WorkerRunner {
   private readonly fake = new FakeWorkerRunner();
   private readonly cli = new CliWorkerRunner();
   private readonly codex = new CodexAppServerRunner();
+  private readonly pi = new PiRpcRunner();
 
   constructor(deps: ConstructorParameters<typeof SubagentFallbackRunner>[0]) {
     this.subagent = new SubagentFallbackRunner(deps);
@@ -166,6 +168,7 @@ export class WorkflowWorkerRunner implements WorkerRunner {
     if (kind === "fake") return this.fake;
     if (kind === "cli") return this.cli;
     if (kind === "codex") return this.codex;
+    if (kind === "pi") return this.pi;
     return this.subagent;
   }
 
@@ -183,5 +186,6 @@ export class WorkflowWorkerRunner implements WorkerRunner {
 
   async shutdown(): Promise<void> {
     await this.codex.shutdown();
+    await this.pi.shutdown();
   }
 }
