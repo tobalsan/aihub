@@ -116,10 +116,11 @@ workspace:
   cleanup_on_terminal: false
   reuse: true
 agent:
-  runner: claude
+  runner: pi
   model: null
   max_concurrent: 3
   max_turns: 10
+  turn_timeout_ms: 600000
   stall_timeout_ms: 1800000
 hooks:
   after_create: null
@@ -197,15 +198,65 @@ Path rules:
 
 ### `agent`
 
-- `runner`: orchestrator-owned protocol runner. Supported values are `claude`, `pi`, `codex`, `cli`, and `fake`. Default `claude`.
-- `command`: optional runner command. `claude` and `pi` have built-in RPC defaults. `codex` and `cli` require an explicit executable command.
+- `runner`: orchestrator-owned protocol runner. Supported values are `pi`, `claude`, `codex`, `cli`, and `fake`. Default `pi`.
+- `command`: optional runner command, as a string or `[executable, ...args]` array. `pi` and `claude` have built-in RPC defaults, so `command` is optional for them. `codex` and `cli` require an explicit executable command. Leading/trailing whitespace is trimmed; an empty string or empty array is rejected.
 - `profile`: optional legacy/default override. If `extensions.subagents.profiles[]` is present, matching profile values can still provide model/reasoning defaults; otherwise the orchestrator synthesizes protocol-runner defaults from `runner`.
 - `model`: optional model passed to protocol runners that support it.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
 - `max_turns`: workflow hint for worker prompt/runtime.
+- `turn_timeout_ms`: max time for a single worker turn before the runner aborts it. Optional; when omitted the runner applies its protocol default. Must be a positive number.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `1800000`.
 
+`max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` must be positive numbers when set; invalid values fail config load.
+
 Runner config belongs in project `WORKFLOW.md`, not in `extensions.subagents`. AIHub profiles are runner defaults, not Symphony roles. No label-to-profile routing exists.
+
+#### Runner examples
+
+`pi` (default) — built-in RPC, no `command` needed:
+
+```yaml
+agent:
+  runner: pi
+  model: null
+  max_concurrent: 3
+```
+
+`claude` — built-in RPC, optional `model`:
+
+```yaml
+agent:
+  runner: claude
+  model: claude-opus-4-8
+  max_concurrent: 2
+```
+
+`codex` — requires an explicit `command` (string or array):
+
+```yaml
+agent:
+  runner: codex
+  command: [codex, exec, --json]
+  model: gpt-5.3-codex
+  max_concurrent: 2
+```
+
+`cli` — generic CLI harness; `command` required:
+
+```yaml
+agent:
+  runner: cli
+  command: "my-agent-cli --headless"
+  max_concurrent: 1
+```
+
+`fake` — in-memory stub for tests/dry runs; no external process:
+
+```yaml
+agent:
+  runner: fake
+  max_turns: 4
+```
 
 ### `hooks`
 

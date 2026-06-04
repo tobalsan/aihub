@@ -48,7 +48,7 @@ workspace:
   root: ./workspaces
   cleanup_on_terminal: false
 agent:
-  runner: claude
+  runner: pi
 ${profileLine}  model: null
   max_concurrent: 3
 ---
