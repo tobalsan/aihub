@@ -81,6 +81,7 @@ describe("registerOrchestratorCommands", () => {
     expect(workflowPath).toBe(path.join(project, "WORKFLOW.md"));
     expect(content).toContain("project_slug: aihub");
     expect(content).toContain("api_key: $LINEAR_API_KEY");
+    expect(content).toContain("runner: claude");
     expect(content).toContain("profile: worker");
     expect(content).toContain("## DO THIS FIRST");
     expect(content).toContain("Fetch Linear issue {{issue.identifier}}.");
@@ -118,6 +119,7 @@ describe("registerOrchestratorCommands", () => {
 
     expect(result.projectPath).toBe(path.join(projectsRoot, "foo-bar"));
     expect(workflow).toContain("project_slug: foo-bar-linear");
+    expect(workflow).toContain("runner: claude");
     expect(workflow).toContain("profile: reviewer");
     expect(workflow).toContain("## DO THIS FIRST");
     expect(workflow).toContain("## Code Changes and Review Flow");

@@ -32,6 +32,7 @@ function renderRuns(value: any): string {
 }
 
 function workflowTemplate(input: { projectSlug?: string; profile?: string }): string {
+  const profileLine = input.profile ? `  profile: ${input.profile}\n` : "";
   return `---
 tracker:
   kind: linear
@@ -47,7 +48,8 @@ workspace:
   root: ./workspaces
   cleanup_on_terminal: false
 agent:
-  profile: ${input.profile ?? "worker"}
+  runner: claude
+${profileLine}  model: null
   max_concurrent: 3
 ---
 You are working on Linear issue {{issue.identifier}}.
@@ -183,7 +185,7 @@ async function initProject(
   let linearProject: { id: string; name: string; slugId: string } | undefined;
   try {
     linearProject = await linear.createProject({ name: projectName, teamIds });
-    const workflowPath = await initWorkflow(projectPath, { projectSlug: linearProject.slugId, profile: opts.profile ?? "worker" });
+    const workflowPath = await initWorkflow(projectPath, { projectSlug: linearProject.slugId, profile: opts.profile });
     await registerProject(configPath, config, projectPath);
     return { projectPath, workflowPath, linearProject, configPath };
   } catch (error) {
@@ -235,14 +237,14 @@ export function registerOrchestratorCommands(command: Command, client?: Orchestr
     .description("Create a project WORKFLOW.md template")
     .requiredOption("--project <path>", "project folder")
     .option("--project-slug <slug>", "Linear project slugId")
-    .option("--profile <name>", "subagent profile", "worker")
+    .option("--profile <name>", "optional orchestrator profile")
     .option("--force", "overwrite existing WORKFLOW.md")
     .action(async (opts) => console.log(`Created ${await initWorkflow(opts.project, { projectSlug: opts.projectSlug, profile: opts.profile, force: opts.force })}`));
 
   command
     .command("init-project <name>")
     .description("Create a Linear project, local project folder, and WORKFLOW.md")
-    .option("--profile <name>", "subagent profile", "worker")
+    .option("--profile <name>", "optional orchestrator profile")
     .action(async (name, opts) => {
       const result = await initProject(name, { profile: opts.profile });
       console.log([

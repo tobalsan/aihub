@@ -9,9 +9,13 @@ export function resolveProfile(input: {
   workflow: WorkflowFrontmatter;
   profilesConfig: SubagentRuntimeProfile[];
 }): ProfileResolution {
-  const name = input.workflow.agent?.profile;
-  if (!name) return { park: { reason: "No orchestrator profile configured" } };
+  const runner = input.workflow.agent?.runner ?? input.workflow.agent?.kind ?? "claude";
+  const name = input.workflow.agent?.profile ?? runner;
   const profile = new Map(input.profilesConfig.map((item) => [item.name, item])).get(name);
-  if (!profile) return { park: { reason: `Configured subagent profile not found: ${name}` } };
+  if (!profile) {
+    if (input.workflow.agent?.profile && input.profilesConfig.length > 0) return { park: { reason: `Configured orchestrator profile not found: ${name}` } };
+    if (runner === "codex" || runner === "claude" || runner === "pi") return { profile: { name, cli: runner, model: input.workflow.agent?.model } };
+    return { profile: { name, cli: "codex", model: input.workflow.agent?.model } };
+  }
   return { profile };
 }

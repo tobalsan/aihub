@@ -72,8 +72,8 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
   if (!apiKey) throw new Error("tracker.api_key is required");
   if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
   const agent = frontmatter.agent ?? {};
-  const runner = agent.runner ?? agent.kind ?? "subagent";
-  if (runner !== "subagent" && runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
+  const runner = agent.runner ?? agent.kind ?? "claude";
+  if (runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
   const cliCommand = normalizeCliCommand(agent.command);
   if ((runner === "cli" || runner === "codex") && !cliCommand) throw new Error(`agent.command must provide an executable when agent.runner is ${runner}`);
   for (const [key, value] of Object.entries({

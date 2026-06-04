@@ -9,9 +9,6 @@ AIHub config lists project folders and supervisor limits only:
 ```json
 {
   "extensions": {
-    "subagents": {
-      "profiles": [{ "name": "worker", "cli": "codex" }]
-    },
     "orchestrator": {
       "projects": ["./projects/aihub"],
       "projectsRoot": "~/projects",
@@ -22,6 +19,7 @@ AIHub config lists project folders and supervisor limits only:
 ```
 
 Each project folder must contain uppercase `WORKFLOW.md`.
+Orchestrator workers run through orchestrator-owned protocol runners configured in each project `WORKFLOW.md`; the `subagents` extension is not required for orchestrator dispatch. The separate `subagents` extension remains available for manual/generic project runs.
 
 ### `extensions.orchestrator` schema
 
@@ -64,7 +62,7 @@ No orchestrator repo map, default repo, worktree, poll interval, or `workspacesR
 Bootstrap a Linear project and local orchestrator project folder:
 
 ```bash
-pnpm aihub:dev orchestrator init-project "Foo Bar" --profile worker
+pnpm aihub:dev orchestrator init-project "Foo Bar"
 ```
 
 The command:
@@ -84,15 +82,14 @@ Generate starter workflow explicitly:
 ```bash
 pnpm aihub:dev orchestrator init-workflow \
   --project ./projects/aihub \
-  --project-slug aihub \
-  --profile worker
+  --project-slug aihub
 ```
 
 Options:
 
 - `--project <path>`: project folder to create/update.
 - `--project-slug <slug>`: Linear project `slugId` used for polling.
-- `--profile <name>`: AIHub subagent profile, default `worker`.
+- `--profile <name>`: optional orchestrator profile override. When omitted, the runner supplies protocol defaults.
 - `--force`: overwrite existing `WORKFLOW.md`.
 
 The generator never creates a global fallback workflow. It only writes project-owned `WORKFLOW.md`.
@@ -119,7 +116,8 @@ workspace:
   cleanup_on_terminal: false
   reuse: true
 agent:
-  profile: worker
+  runner: claude
+  model: null
   max_concurrent: 3
   max_turns: 10
   stall_timeout_ms: 1800000
@@ -199,12 +197,15 @@ Path rules:
 
 ### `agent`
 
-- `profile`: AIHub subagent profile name. Must exist in `extensions.subagents.profiles[]`.
+- `runner`: orchestrator-owned protocol runner. Supported values are `claude`, `pi`, `codex`, `cli`, and `fake`. Default `claude`.
+- `command`: optional runner command. `claude` and `pi` have built-in RPC defaults. `codex` and `cli` require an explicit executable command.
+- `profile`: optional legacy/default override. If `extensions.subagents.profiles[]` is present, matching profile values can still provide model/reasoning defaults; otherwise the orchestrator synthesizes protocol-runner defaults from `runner`.
+- `model`: optional model passed to protocol runners that support it.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
 - `max_turns`: workflow hint for worker prompt/runtime.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `1800000`.
 
-AIHub profiles are runner adapters, not Symphony roles. No label-to-profile routing exists.
+Runner config belongs in project `WORKFLOW.md`, not in `extensions.subagents`. AIHub profiles are runner defaults, not Symphony roles. No label-to-profile routing exists.
 
 ### `hooks`
 
@@ -276,7 +277,8 @@ Repo bootstrap should prefer deterministic hooks/tooling. Prompt-driven cloning 
 - Candidate issues are filtered by Linear project `slugId`.
 - Workspace directories are per issue under `workspace.root`.
 - Core orchestrator does not create git clones or worktrees.
-- Gateway owns worker lifetime; workers stop with gateway.
+- Gateway owns orchestrator worker lifetime; workers stop with gateway.
+- Orchestrator dashboard/API surfaces orchestrator `worker_id`, worker status events, and persisted worker logs/events. It does not call `/api/subagents` for dispatched work.
 - Restart recovery uses Linear state + preserved workspace directories. SQLite is observability/history.
 
 Useful commands:

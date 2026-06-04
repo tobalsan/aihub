@@ -5,7 +5,7 @@ import { ClaudeRpcRunner } from "./claude-rpc.js";
 import { CodexAppServerRunner } from "./codex-app-server.js";
 import { PiRpcRunner } from "./pi-rpc.js";
 
-export type WorkerRunnerKind = "subagent" | "fake" | "cli" | "codex" | "pi" | "claude";
+export type WorkerRunnerKind = "fake" | "cli" | "codex" | "pi" | "claude";
 
 export type WorkerRunnerStatus = {
   status: "running" | "done" | "error" | "interrupted";
@@ -39,10 +39,6 @@ export interface WorkerRunner {
   shutdown?(): Promise<void>;
 }
 
-export type SubagentStartBody = Record<string, unknown>;
-export type SubagentStarter = (body: SubagentStartBody) => Promise<unknown>;
-export type SubagentStatusReader = (runId: string) => Promise<unknown>;
-
 export function terminalWorkerStatus(status: unknown): WorkerRunnerStatus | undefined {
   if (!status || typeof status !== "object") return undefined;
   const record = status as Record<string, unknown>;
@@ -53,44 +49,6 @@ export function terminalWorkerStatus(status: unknown): WorkerRunnerStatus | unde
     exitCode: typeof record.exitCode === "number" ? record.exitCode : undefined,
     raw: status,
   };
-}
-
-export class SubagentFallbackRunner implements WorkerRunner {
-  constructor(
-    private readonly deps: {
-      startSubagent: SubagentStarter;
-      getSubagentRun?: SubagentStatusReader;
-      stopSubagent?: (runId: string) => Promise<unknown>;
-    }
-  ) {}
-
-  async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
-    const response = await this.deps.startSubagent({
-      profile: input.profile.name,
-      cli: input.profile.cli,
-      cwd: input.workspace,
-      prompt: input.prompt,
-      label: input.profile.labelPrefix ? `${input.profile.labelPrefix}-${input.label}` : input.label,
-      parent: { type: "orchestrator", id: `${input.project.id}:${input.issue.id}` },
-      source: "orchestrator",
-      model: input.workflow.agent.model ?? input.profile.model,
-      reasoningEffort: input.profile.reasoningEffort ?? input.profile.reasoning,
-      maxTurns: input.workflow.agent.max_turns,
-      turnTimeoutMs: input.workflow.agent.turn_timeout_ms,
-      settings: input.workflow.agent.settings,
-    });
-    const id = typeof response === "object" && response && "id" in response ? String((response as { id: unknown }).id) : `subagent:${input.runId}`;
-    return { id, kind: "subagent", raw: response };
-  }
-
-  async status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {
-    if (!this.deps.getSubagentRun) return undefined;
-    return terminalWorkerStatus(await this.deps.getSubagentRun(handle.id).catch(() => undefined));
-  }
-
-  async abort(handle: WorkerRunnerHandle): Promise<void> {
-    await this.deps.stopSubagent?.(handle.id);
-  }
 }
 
 export class FakeWorkerRunner implements WorkerRunner {
@@ -155,16 +113,13 @@ export class CliWorkerRunner implements WorkerRunner {
 }
 
 export class WorkflowWorkerRunner implements WorkerRunner {
-  private readonly subagent: SubagentFallbackRunner;
   private readonly fake = new FakeWorkerRunner();
   private readonly cli = new CliWorkerRunner();
   private readonly codex = new CodexAppServerRunner();
   private readonly pi = new PiRpcRunner();
   private readonly claude = new ClaudeRpcRunner();
 
-  constructor(deps: ConstructorParameters<typeof SubagentFallbackRunner>[0]) {
-    this.subagent = new SubagentFallbackRunner(deps);
-  }
+  constructor() {}
 
   private runner(kind: WorkerRunnerKind): WorkerRunner {
     if (kind === "fake") return this.fake;
@@ -172,11 +127,11 @@ export class WorkflowWorkerRunner implements WorkerRunner {
     if (kind === "codex") return this.codex;
     if (kind === "pi") return this.pi;
     if (kind === "claude") return this.claude;
-    return this.subagent;
+    return this.claude;
   }
 
   start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
-    return this.runner(input.workflow.agent.runner ?? "subagent").start(input);
+    return this.runner(input.workflow.agent.runner ?? "claude").start(input);
   }
 
   status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {

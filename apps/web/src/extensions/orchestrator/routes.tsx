@@ -34,6 +34,10 @@ function runId(run: AnyRun): string {
   return String(run.runId ?? run.run_id ?? run.issueId ?? run.issue_id ?? "");
 }
 
+function workerId(run: AnyRun): string {
+  return String((run as OrchestratorRun).workerId ?? (run as OrchestratorRun).worker_id ?? "");
+}
+
 function displayId(run: AnyRun): string {
   const ident = run.identifier;
   if (typeof ident === "string" && ident) return ident;
@@ -1142,18 +1146,20 @@ function OrchestratorDashboard(): ReturnType<Component> {
               {(claim) => {
                 const issueId = runIssueId(claim);
                 const id = runId(claim) || issueId;
+                const worker = workerId(claim) || id;
                 const project = projectFromRun(claim);
+                const status = String((claim as OrchestratorClaim).workerStatus ?? (claim as OrchestratorClaim).worker_status ?? "running");
                 return (
                   <div class="orch-live-row" onClick={() => setSelected(claim)}>
-                    <StatusPill tone="live" label="running" />
+                    <StatusPill tone="live" label={status} />
                     <div class="orch-live-main">
                       <div class="orch-live-id">{displayId(claim)}</div>
                       <div class="orch-live-meta">
                         <Show when={project}>
                           <span class="orch-chip">{project}</span>
                         </Show>
-                        <span class="orch-mono" title={id} onClick={(e) => { e.stopPropagation(); copy(id); }}>
-                          {copied() === id ? "copied" : shortRunId(id)}
+                        <span class="orch-mono" title={worker} onClick={(e) => { e.stopPropagation(); copy(worker); }}>
+                          {copied() === worker ? "copied" : shortRunId(worker)}
                         </span>
                       </div>
                     </div>
@@ -1217,13 +1223,14 @@ function OrchestratorDashboard(): ReturnType<Component> {
                 <For each={pagedRecent()}>
                   {(run) => {
                     const id = runId(run);
+                    const worker = workerId(run) || id;
                     const project = run.project_id ?? run.projectId;
                     return (
                       <div class="orch-recent-row" onClick={() => setSelected(run)}>
                         <StatusPill tone={outcomeTone(run)} label={outcomeLabel(run)} title={run.outcome ?? undefined} />
                         <span class="orch-recent-id">{displayId(run)}</span>
-                        <span class="orch-mono orch-recent-hash" title={id} onClick={(e) => { e.stopPropagation(); copy(id); }}>
-                          {copied() === id ? "copied" : shortRunId(id)}
+                        <span class="orch-mono orch-recent-hash" title={worker} onClick={(e) => { e.stopPropagation(); copy(worker); }}>
+                          {copied() === worker ? "copied" : shortRunId(worker)}
                         </span>
                         <Show when={project} fallback={<span class="orch-recent-proj orch-dim">—</span>}>
                           <span class="orch-recent-proj">{project}</span>

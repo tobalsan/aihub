@@ -17,6 +17,10 @@ export type OrchestratorClaim = {
   projectId?: string;
   issueId: string;
   runId: string;
+  worker_id?: string;
+  workerId?: string;
+  worker_status?: string;
+  workerStatus?: string;
   claimedAt?: string;
   lastEventAt?: string;
   [key: string]: unknown;
@@ -27,6 +31,8 @@ export type OrchestratorRun = {
   projectId?: string;
   run_id?: string;
   runId?: string;
+  worker_id?: string;
+  workerId?: string;
   issue_id?: string;
   issueId?: string;
   identifier?: string;

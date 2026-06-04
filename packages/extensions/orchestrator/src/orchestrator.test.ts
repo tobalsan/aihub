@@ -5,8 +5,17 @@ import path from "node:path";
 import { describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import { ClaimsRegistry, ClaudeRpcRunner, CliWorkerRunner, CodexAppServerRunner, ConcurrencyLimiter, LinearClient, OrchestratorDaemon, PiRpcRunner, RetryPolicy, WorkflowLoader, isRelevantWebhook, orchestratorExtension, resolveProfile, resolveProjects, sanitizeIdentifier, StateStore, verifyWebhookSignature, WorkspaceLayout } from "./index.js";
+import type { WorkerRunnerHandle, WorkerRunnerStatus } from "./worker-runner/runner.js";
 
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
+
+function mockWorkerRunner(handle: WorkerRunnerHandle = { id: "worker_1", kind: "fake" }, statuses: Array<WorkerRunnerStatus | undefined> = [undefined]) {
+  const queue = [...statuses];
+  const start = vi.fn(async (_input: unknown) => handle);
+  const status = vi.fn(async () => queue.length > 0 ? queue.shift() : undefined);
+  const abort = vi.fn(async () => undefined);
+  return { runner: { start, status, abort }, start, status, abort };
+}
 
 async function writeWorkflow(root: string, extra = ""): Promise<void> {
   await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
@@ -247,6 +256,63 @@ describe("orchestrator routes", () => {
       expect(state.listOpenRuns("project")).toHaveLength(0);
       expect(state.listRecent(1, "project")[0]).toMatchObject({ outcome: "killed", process_alive: 0 });
       expect(context.emit).toHaveBeenCalledWith("orchestrator.run.finished", expect.objectContaining({ issueId: "lin_1", projectId: "project", runId: "r-kill", outcome: "killed" }));
+      state.close();
+    } finally {
+      await orchestratorExtension.stop?.();
+    }
+  });
+
+  it("serves orchestrator worker logs from persisted events", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-logs-"));
+    const project = path.join(home, "project");
+    await fs.mkdir(project);
+    await writeWorkflow(project);
+    const context = { getDataDir: () => home, getConfig: () => ({ gateway: { port: 4001 }, extensions: { orchestrator: { projects: [project] } } }), emit: vi.fn() } as any;
+    const app = new Hono();
+    try {
+      await orchestratorExtension.start?.(context);
+      orchestratorExtension.registerRoutes(app);
+      const state = new StateStore(path.join(home, "orchestrator", "state.db"));
+      state.bootstrap();
+      state.insertRun({ runId: "r-log", projectId: "project", issueId: "lin_1", identifier: "ENG-1", workspace: path.join(project, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(project, "WORKFLOW.md"), workflowSha: "abc", pid: null, startedAt: new Date().toISOString() });
+      state.setWorkerId("r-log", "worker-log");
+      state.appendEvent("r-log", "worker.started", { id: "worker-log", kind: "claude" }, "project");
+      state.appendEvent("r-log", "worker.claude.message", { text: "hello from worker" }, "project");
+
+      const response = await app.request("/orchestrator/runs/ENG-1/logs?project=project&since=0");
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.cursor).toBe(2);
+      expect(body.events).toEqual(expect.arrayContaining([
+        expect.objectContaining({ type: "worker.claude.message", text: "hello from worker", payload: { text: "hello from worker" } }),
+      ]));
+      state.close();
+    } finally {
+      await orchestratorExtension.stop?.();
+    }
+  });
+
+  it("lists active worker ids and statuses from orchestrator state", async () => {
+    const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-active-"));
+    const project = path.join(home, "project");
+    await fs.mkdir(project);
+    await writeWorkflow(project);
+    const context = { getDataDir: () => home, getConfig: () => ({ gateway: { port: 4001 }, extensions: { orchestrator: { projects: [project] } } }), emit: vi.fn() } as any;
+    const app = new Hono();
+    try {
+      await orchestratorExtension.start?.(context);
+      orchestratorExtension.registerRoutes(app);
+      const state = new StateStore(path.join(home, "orchestrator", "state.db"));
+      state.bootstrap();
+      state.insertRun({ runId: "r-active", projectId: "project", issueId: "lin_1", identifier: "ENG-1", workspace: path.join(project, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(project, "WORKFLOW.md"), workflowSha: "abc", pid: null, startedAt: new Date().toISOString() });
+      state.setWorkerId("r-active", "worker-active");
+      state.appendEvent("r-active", "worker.started", { id: "worker-active", kind: "claude" }, "project");
+      state.appendEvent("r-active", "worker.status", { id: "worker-active", kind: "claude", status: "running" }, "project");
+
+      const response = await app.request("/orchestrator/runs?project=project");
+      expect(response.status).toBe(200);
+      const body = await response.json();
+      expect(body.active).toEqual([expect.objectContaining({ runId: "r-active", worker_id: "worker-active", worker_status: "running", worker_kind: "claude" })]);
       state.close();
     } finally {
       await orchestratorExtension.stop?.();
@@ -1227,13 +1293,13 @@ describe("orchestrator daemon", () => {
       issueUpdateStateByName: vi.fn(),
     } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const started = vi.fn(async () => ({ id: "sub_blocked" }));
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    const worker = mockWorkerRunner();
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
 
     await daemon.start();
     await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 0, skipped: 1 });
 
-    expect(started).not.toHaveBeenCalled();
+    expect(worker.start).not.toHaveBeenCalled();
     expect(claims.list()).toHaveLength(0);
     expect(ctx.emit).toHaveBeenCalledWith("orchestrator.run.event", expect.objectContaining({ type: "dispatch.skipped", reason: "blocked_by_pending", issueId: "lin_2", pendingBlockerIds: ["ENG-1"] }));
     await daemon.stop();
@@ -1252,19 +1318,19 @@ describe("orchestrator daemon", () => {
       issueUpdateStateByName: vi.fn(),
     } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const started = vi.fn(async () => ({ id: "sub_unblocked" }));
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    const worker = mockWorkerRunner();
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
 
     await daemon.start();
     await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1, skipped: 0 });
 
-    expect(started).toHaveBeenCalledOnce();
+    expect(worker.start).toHaveBeenCalledOnce();
     expect(claims.list()).toHaveLength(1);
     await daemon.stop();
     store.close();
   });
 
-  it("dispatches through fake worker runner without starting a subagent", async () => {
+  it("dispatches through fake worker runner without starting an external runtime", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-fake-runner-"));
     await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
 tracker:
@@ -1291,13 +1357,11 @@ Do {{issue.identifier}}
       issueUpdateStateByName: vi.fn(),
     } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const started = vi.fn(async () => ({ id: "sub_should_not_start" }));
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), createLinearClient: () => client });
 
     await daemon.start();
     await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1, skipped: 0 });
-    expect(started).not.toHaveBeenCalled();
-    expect(store.listRecent(1)[0]).toMatchObject({ subagent_run_id: expect.stringContaining("fake:") });
+    expect(store.listRecent(1)[0]).toMatchObject({ worker_id: expect.stringContaining("fake:") });
     await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 0 });
     expect(claims.list()).toHaveLength(0);
     expect(store.listRecent(1)[0]).toMatchObject({ outcome: "completed" });
@@ -1306,6 +1370,43 @@ Do {{issue.identifier}}
       expect.objectContaining({ type: "worker.started" }),
       expect.objectContaining({ type: "worker.status" }),
     ]));
+    await daemon.stop();
+    store.close();
+  });
+
+  it("dispatches without the subagents extension configured", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-no-subagents-"));
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
+tracker:
+  kind: linear
+  api_key: test-key
+  project_slug: proj-a
+  active_states: [Ready]
+  terminal_states: [Done]
+agent:
+  runner: claude
+workspace:
+  root: ./workspaces
+---
+Do {{issue.identifier}}
+`);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    const client = {
+      pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "No Subagents", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]),
+      commentCreate: vi.fn(),
+      issueUpdateStateByName: vi.fn(),
+    } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const worker = mockWorkerRunner({ id: "claude:owned", kind: "claude" });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
+
+    await daemon.start();
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1, skipped: 0 });
+
+    expect(worker.start).toHaveBeenCalledWith(expect.objectContaining({ profile: expect.objectContaining({ name: "claude", cli: "claude" }) }));
+    expect(store.listRecent(1)[0]).toMatchObject({ worker_id: "claude:owned" });
     await daemon.stop();
     store.close();
   });
@@ -1324,7 +1425,6 @@ Do {{issue.identifier}}
       store,
       claims,
       getConfig: () => ({ projects: [root] }),
-      startSubagent: vi.fn(),
       createLinearClient: () => client,
       workerRunner: {
         start: vi.fn(async () => ({ id: "cli:test:123", kind: "cli" as const, pid: 123 })),
@@ -1336,7 +1436,7 @@ Do {{issue.identifier}}
     await daemon.start();
     await daemon.tick();
     const runId = String((store.listRecent(1)[0] as any).run_id);
-    await daemon.interruptSubagent(runId, path.basename(root));
+    await daemon.interruptWorker(runId, path.basename(root));
 
     expect(abort).toHaveBeenCalledWith(expect.objectContaining({ id: "cli:test:123", kind: "cli" }));
     await daemon.stop();
@@ -1367,12 +1467,12 @@ Do {{issue.identifier}}
     const claims = new ClaimsRegistry();
     const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "CLI", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(), createLinearClient: () => client });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), createLinearClient: () => client });
 
     await daemon.start();
     await daemon.tick();
     const row = store.listRecent(1)[0] as Record<string, unknown>;
-    expect(row.subagent_run_id).toEqual(expect.stringContaining("cli:"));
+    expect(row.worker_id).toEqual(expect.stringContaining("cli:"));
     expect(row.pid).toEqual(expect.any(Number));
     await daemon.stop();
     store.close();
@@ -1392,27 +1492,26 @@ Do {{issue.identifier}}
       issueUpdateStateByName: vi.fn(),
     } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const started = vi.fn(async (body) => ({ id: "sub_1", ...body }));
-    const stopSubagent = vi.fn(async () => undefined);
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, stopSubagent, createLinearClient: () => client });
+    const worker = mockWorkerRunner({ id: "worker_1", kind: "fake" });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
 
     await daemon.start();
     await daemon.tick();
     expect(daemon.rateLimitRemaining).toBe(7);
     expect(claims.list()).toHaveLength(1);
-    expect(started).toHaveBeenCalledWith(expect.objectContaining({ profile: "default", cwd: path.join(root, "workspaces", "eng-1"), prompt: expect.stringContaining(`Linear GraphQL tool calls must pass project: ${path.basename(root)}`) }));
+    expect(worker.start).toHaveBeenCalledWith(expect.objectContaining({ workspace: path.join(root, "workspaces", "eng-1"), prompt: expect.stringContaining(`Linear GraphQL tool calls must pass project: ${path.basename(root)}`), profile: expect.objectContaining({ name: "default" }) }));
     expect(store.listRecent(5)).toHaveLength(1);
 
     state = "Done";
     await daemon.tick();
     expect(claims.list()).toHaveLength(0);
-    expect(stopSubagent).toHaveBeenCalledWith("sub_1");
+    expect(worker.abort).toHaveBeenCalledWith(expect.objectContaining({ id: "worker_1" }));
     expect(store.listRecent(1)[0]).toMatchObject({ project_id: path.basename(root), outcome: "terminal" });
     await daemon.stop();
     store.close();
   });
 
-  it("releases claim when subagent reaches terminal status", async () => {
+  it("releases claim when worker reaches terminal status", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-complete-"));
     await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
@@ -1420,7 +1519,8 @@ Do {{issue.identifier}}
     const claims = new ClaimsRegistry();
     const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_done" })), getSubagentRun: vi.fn(async () => ({ status: "done", exitCode: 0 })), createLinearClient: () => client });
+    const worker = mockWorkerRunner({ id: "worker_done", kind: "fake" }, [{ status: "done", exitCode: 0 }]);
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
     await daemon.start();
     await daemon.tick();
     expect(claims.list()).toHaveLength(1);
@@ -1431,7 +1531,30 @@ Do {{issue.identifier}}
     store.close();
   });
 
-  it("parks issue when subagent exits with error", async () => {
+  it("manual release finishes the orchestrator run without aborting worker", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-release-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Release", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const worker = mockWorkerRunner({ id: "worker_release", kind: "fake" });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
+
+    await daemon.start();
+    await daemon.tick();
+    expect(claims.list()).toHaveLength(1);
+    await daemon.releaseRun(path.basename(root), "lin_1", "released");
+
+    expect(worker.abort).not.toHaveBeenCalled();
+    expect(claims.list()).toHaveLength(0);
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "released", process_alive: 0, worker_id: "worker_release" });
+    await daemon.stop();
+    store.close();
+  });
+
+  it("parks issue when worker exits with error", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-error-"));
     await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
@@ -1439,21 +1562,21 @@ Do {{issue.identifier}}
     const claims = new ClaimsRegistry();
     const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const stopSubagent = vi.fn(async () => undefined);
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_error" })), getSubagentRun: vi.fn(async () => ({ status: "error", exitCode: 1 })), stopSubagent, createLinearClient: () => client });
+    const worker = mockWorkerRunner({ id: "worker_error", kind: "fake" }, [{ status: "error", exitCode: 1 }]);
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
     await daemon.start();
     await daemon.tick();
     await daemon.tick();
     expect(client.commentCreate).toHaveBeenCalledWith("lin_1", "Orchestrator parked issue: worker exited with error (exit 1)");
     expect(client.issueUpdateStateByName).toHaveBeenCalledWith("lin_1", "Needs Human");
-    expect(stopSubagent).toHaveBeenCalledWith("sub_error");
+    expect(worker.abort).toHaveBeenCalledWith(expect.objectContaining({ id: "worker_error" }));
     expect(claims.list()).toHaveLength(0);
-    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "error", process_alive: 0, subagent_run_id: "sub_error" });
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "error", process_alive: 0, worker_id: "worker_error" });
     await daemon.stop();
     store.close();
   });
 
-  it("stops active subagent when claimed issue is observed in Needs Human", async () => {
+  it("stops active worker when claimed issue is observed in Needs Human", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-hitl-"));
     await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
@@ -1462,17 +1585,17 @@ Do {{issue.identifier}}
     let state = "Ready";
     const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state, labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const stopSubagent = vi.fn(async () => undefined);
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(async () => ({ id: "sub_needs_human" })), stopSubagent, createLinearClient: () => client });
+    const worker = mockWorkerRunner({ id: "worker_needs_human", kind: "fake" });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
     await daemon.start();
     await daemon.tick();
 
     state = "Needs Human";
     await daemon.tick();
 
-    expect(stopSubagent).toHaveBeenCalledWith("sub_needs_human");
+    expect(worker.abort).toHaveBeenCalledWith(expect.objectContaining({ id: "worker_needs_human" }));
     expect(claims.list()).toHaveLength(0);
-    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "needs_human", process_alive: 0, subagent_run_id: "sub_needs_human" });
+    expect(store.listRecent(1)[0]).toMatchObject({ outcome: "needs_human", process_alive: 0, worker_id: "worker_needs_human" });
     await daemon.stop();
     store.close();
   });
@@ -1488,13 +1611,15 @@ Do {{issue.identifier}}
     const claims = new ClaimsRegistry();
     const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Test", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const started = vi.fn(async (body) => ({ id: "sub_retry", ...body }));
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    const worker = mockWorkerRunner({ id: "worker_retry", kind: "fake" });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
     await daemon.start();
     await daemon.tick();
-    const body = started.mock.calls[0]?.[0] as Record<string, unknown>;
-    expect(body.label).toMatch(/^ENG-1-\d+$/);
-    expect(body.prompt).toEqual(expect.stringContaining("Attempt 2"));
+    const calls = worker.start.mock.calls as Array<[Record<string, unknown>]>;
+    expect(calls).toHaveLength(1);
+    const input = calls[0]![0];
+    expect(input.label).toMatch(/^ENG-1-\d+$/);
+    expect(input.prompt).toEqual(expect.stringContaining("Attempt 2"));
     await daemon.stop();
     store.close();
   });
@@ -1508,12 +1633,12 @@ Do {{issue.identifier}}
     const issue = { id: "lin_1", identifier: "ENG-1", title: "Manual", description: "Body", state: "Ready", labels: [], projectSlug: "proj-a" };
     const client = { getIssue: vi.fn(async () => issue), pollIssues: vi.fn(), commentCreate: vi.fn(), issueUpdateStateByName: vi.fn() } as any;
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const started = vi.fn(async (body) => ({ id: "sub_manual", ...body }));
-    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), startSubagent: started, createLinearClient: () => client });
+    const worker = mockWorkerRunner({ id: "worker_manual", kind: "fake" });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
     await daemon.start();
     await expect(daemon.claimNow("ENG-1")).resolves.toEqual({ ok: true });
     expect(client.getIssue).toHaveBeenCalledWith("ENG-1");
-    expect(started).toHaveBeenCalledWith(expect.objectContaining({ cwd: path.join(root, "workspaces", "eng-1") }));
+    expect(worker.start).toHaveBeenCalledWith(expect.objectContaining({ workspace: path.join(root, "workspaces", "eng-1") }));
     await expect(daemon.claimNow("ENG-1")).resolves.toMatchObject({ ok: false, status: 409 });
     await daemon.stop();
     store.close();
@@ -1531,7 +1656,7 @@ Do {{issue.identifier}}
     store.bootstrap();
     const setTimeoutSpy = vi.spyOn(globalThis, "setTimeout");
     const ctx = { getDataDir: () => home, getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [fast, slow] } } }), emit: vi.fn() } as any;
-    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [fast, slow] }), startSubagent: vi.fn(), createLinearClient: () => ({ pollIssues: vi.fn(async () => []) } as any) });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [fast, slow] }), createLinearClient: () => ({ pollIssues: vi.fn(async () => []) } as any) });
     try {
       await daemon.start();
       const delays = setTimeoutSpy.mock.calls.map((call) => call[1]);
@@ -1551,11 +1676,9 @@ Do {{issue.identifier}}
     store.bootstrap();
     store.insertRun({ runId: "r1", projectId: path.basename(root), issueId: "lin_1", identifier: "ENG-1", workspace: path.join(root, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "abc", pid: 1, startedAt: new Date().toISOString() });
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
-    const stopSubagent = vi.fn(async () => undefined);
-    store.setSubagentRunId("r1", "sub_stale");
-    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [root] }), startSubagent: vi.fn(), stopSubagent, createLinearClient: () => ({ pollIssues: vi.fn(async () => []) } as any) });
+    store.setWorkerId("r1", "sub_stale");
+    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [root] }), createLinearClient: () => ({ pollIssues: vi.fn(async () => []) } as any) });
     await daemon.start();
-    expect(stopSubagent).toHaveBeenCalledWith("sub_stale");
     expect(store.listRecent(1)[0]).toMatchObject({ outcome: "interrupted_gateway_restart" });
     await daemon.stop();
     store.close();
@@ -1572,7 +1695,7 @@ Do {{issue.identifier}}
     const client = { pollIssues: vi.fn(async () => { polls += 1; if (polls === 1) await pollGate; return []; }) } as any;
     const sent: string[] = [];
     const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root], notifyChannel: "ops" } } }), emit: vi.fn() } as any;
-    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [root], notifyChannel: "ops" }), startSubagent: vi.fn(), createLinearClient: () => client, notify: async (message) => { sent.push(message); } });
+    const daemon = new OrchestratorDaemon({ ctx, store, claims: new ClaimsRegistry(), getConfig: () => ({ projects: [root], notifyChannel: "ops" }), createLinearClient: () => client, notify: async (message) => { sent.push(message); } });
     await daemon.start();
     daemon.enqueueTick();
     daemon.enqueueTick();

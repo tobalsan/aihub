@@ -12,7 +12,7 @@ import { WorkflowLoader } from "../workflow/loader.js";
 import { runHook } from "../hooks/runner.js";
 import { createHitlBurstBuffer } from "../notifications/hitl.js";
 import { resolveProjects } from "../projects/registry.js";
-import { WorkflowWorkerRunner, type SubagentStarter, type SubagentStatusReader, type WorkerRunner, type WorkerRunnerHandle } from "../worker-runner/runner.js";
+import { WorkflowWorkerRunner, type WorkerRunner, type WorkerRunnerHandle } from "../worker-runner/runner.js";
 
 export type OrchestratorConfig = {
   projects?: string[];
@@ -72,17 +72,14 @@ export class OrchestratorDaemon {
       store: StateStore;
       claims: ClaimsRegistry;
       getConfig: () => OrchestratorConfig;
-      startSubagent: SubagentStarter;
-      getSubagentRun?: SubagentStatusReader;
       createLinearClient?: LinearClientFactory;
-      stopSubagent?: (runId: string) => Promise<unknown>;
       workerRunner?: WorkerRunner;
       notify?: OrchestratorNotifier;
       workflowLoader?: WorkflowLoader;
     }
   ) {
     this.workflowLoader = this.deps.workflowLoader ?? new WorkflowLoader(this.deps.ctx.getDataDir());
-    this.workerRunner = this.deps.workerRunner ?? new WorkflowWorkerRunner(this.deps);
+    this.workerRunner = this.deps.workerRunner ?? new WorkflowWorkerRunner();
   }
 
   async start(): Promise<void> {
@@ -140,8 +137,6 @@ export class OrchestratorDaemon {
 
   private async stopStaleOwnedWorkers(): Promise<void> {
     for (const row of this.deps.store.listOpenRuns()) {
-      const subagentRunId = typeof row.subagent_run_id === "string" ? row.subagent_run_id : undefined;
-      if (subagentRunId) await this.deps.stopSubagent?.(subagentRunId).catch(() => undefined);
       const pid = typeof row.pid === "number" ? row.pid : undefined;
       if (pid && pid > 0 && pid !== process.pid) {
         try { process.kill(pid, "SIGTERM"); } catch {}
@@ -269,7 +264,7 @@ export class OrchestratorDaemon {
         },
       });
       this.runs.set(`${project.id}:${issue.id}`, { runId, project, issue, workspace: workspace.path, worker, workflow: resolvedWorkflow });
-      this.deps.store.setSubagentRunId(runId, worker.id);
+      this.deps.store.setWorkerId(runId, worker.id);
       this.deps.store.setRunPid(runId, worker.pid);
       this.deps.store.appendEvent(runId, "worker.started", { id: worker.id, kind: worker.kind, raw: worker.raw }, project.id);
       this.deps.claims.touch(issue.id, undefined, project.id);
@@ -335,9 +330,13 @@ export class OrchestratorDaemon {
     }
   }
 
-  async interruptSubagent(issueId: string, projectId = "default"): Promise<void> {
+  async interruptWorker(issueId: string, projectId = "default"): Promise<void> {
     const run = this.runs.get(`${projectId}:${issueId}`) ?? [...this.runs.values()].find((item) => item.runId === issueId || item.issue.id === issueId || item.issue.identifier === issueId || item.worker?.id === issueId);
     if (run?.worker) await this.runner().abort(run.worker).catch(() => undefined);
+  }
+
+  async releaseRun(projectId: string, issueId: string, outcome = "released"): Promise<void> {
+    await this.release(projectId, issueId, outcome);
   }
 
   private async release(projectId: string, issueId: string, outcome: string): Promise<void> {

@@ -312,9 +312,6 @@ importers:
 
   packages/extensions/orchestrator:
     dependencies:
-      '@aihub/extension-subagents':
-        specifier: workspace:*
-        version: link:../subagents
       '@aihub/shared':
         specifier: workspace:*
         version: link:../../shared
