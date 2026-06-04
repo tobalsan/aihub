@@ -1,30 +1,31 @@
 ---
 name: add-validation
 description: >-
-  Author an "## E2E Validation" section into an AIHub spec/PRD file. Use this
-  AFTER implementing (or before merging) any AIHub PRD/spec to append concrete,
-  PRD-specific end-to-end validation steps that prove the feature round-trips
-  through the real gateway/UI — not just unit tests. Trigger whenever the user
-  says "add validation", "write the validation section", "validation steps for
-  this spec/PRD", "how do I e2e-test this slice", or finishes implementing a
-  spec in docs/prp/ or docs/specs/. This skill WRITES the validation plan into
-  the spec file; it does NOT run the validation or drive a browser itself.
+  Author an "## E2E Validation" section for an AIHub spec/PRD, wherever it
+  lives. Use this AFTER implementing (or before merging) any AIHub PRD/spec to
+  add concrete, PRD-specific end-to-end validation steps that prove the feature
+  round-trips through the real gateway/UI — not just unit tests. Trigger
+  whenever the user says "add validation", "write the validation section",
+  "validation steps for this spec/PRD", or "how do I e2e-test this slice". This
+  skill WRITES the validation plan back to the spec; it does NOT run the
+  validation or drive a browser itself.
 ---
 
 # add-validation
 
 ## What this skill does
 
-Read an AIHub spec/PRD, work out what the feature actually does, and append (or
-replace) a `## E2E Validation` section in that file. The section is a concrete,
-runnable validation plan tailored to *this* PRD — the kind of thing someone (or
-another Claude session) follows by hand to prove the feature works against the
-real gateway and UI before the work ships.
+Read an AIHub spec/PRD, work out what the feature actually does, and add (or
+replace) a `## E2E Validation` section in it. The spec may live anywhere — a
+tracker, a doc, a local file — the skill is deliberately agnostic about the
+medium. The section is a concrete, runnable validation plan tailored to *this*
+PRD — the kind of thing someone (or another Claude session) follows by hand to
+prove the feature works against the real gateway and UI before the work ships.
 
-This is a **generator**. It produces the plan as markdown inside the spec file.
-It never launches the gateway, never opens a browser, never seeds config. Those
-commands live in the section you write so a human or a later validation run can
-execute them.
+This is a **generator**. It produces the plan as markdown and writes it back to
+the spec. It never launches the gateway, never opens a browser, never seeds
+config. Those commands live in the section you write so a human or a later
+validation run can execute them.
 
 Why a written plan instead of just running it now: validation in AIHub needs an
 isolated worktree, seeded config, and a live gateway on non-prod ports. That is
@@ -36,10 +37,10 @@ from execution (expensive, isolated).
 
 ### 1. Resolve the target spec
 
-If the user passed a path, use it. Otherwise search `docs/prp/` and
-`docs/specs/` for candidate specs (`*.md`), list what you find, and ask the user
-which one to validate. Do not guess silently — the wrong target writes the plan
-into the wrong file.
+Take whatever reference the user gives — a path, an ID, a URL — and read the spec
+from there, using whatever tool fits that source. If the user gave nothing, ask
+where the spec lives; don't assume. Do not guess silently — the wrong target
+writes the plan into the wrong place.
 
 Read the whole spec. Also skim the implementation if it exists (the spec usually
 names the touched files/components) so the steps reference real routes, CLI
@@ -132,14 +133,17 @@ Do **not** include a THREAD/handoff log step, a formal sign-off/gate checklist,
 or a teardown step — those were intentionally cut. Keep the section to the six
 parts above.
 
-### 6. Write into the file (idempotent)
+### 6. Write the section back to the spec (idempotent)
 
-If the spec already contains a `## E2E Validation` section, **replace it in
-place** — from that heading down to the next sibling `##` heading (or EOF if it's
-last). Otherwise append the new section at the end of the file. Re-running the
-skill should converge, not stack duplicate sections.
+Write the section into the spec's body using whatever tool fits where it lives,
+following the same idempotent rule everywhere: if a `## E2E Validation` section
+already exists, **replace it in place** — from that heading down to the next
+sibling `##` heading (or EOF if it's last). Otherwise append it at the end.
+Re-running the skill converges, never stacks duplicate sections. If the spec's
+body isn't an editable home (or a long plan would bury a short body), post the
+section as a comment instead and say which you did.
 
-After writing, tell the user the path and give a two-line summary of which
+After writing, tell the user where it landed and give a two-line summary of which
 surfaces you covered and how many scenarios.
 
 ## Reference files
