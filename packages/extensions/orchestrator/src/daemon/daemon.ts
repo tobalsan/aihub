@@ -231,7 +231,9 @@ export class OrchestratorDaemon {
   }
 
   private logDispatchSkip(project: ProjectDescriptor, issue: LinearIssue, reason: string, extra: Record<string, unknown> = {}): void {
-    this.deps.ctx.emit("orchestrator.run.event", { type: "dispatch.skipped", reason, issueId: issue.id, identifier: issue.identifier, projectId: project.id, ...extra });
+    const payload = { type: "dispatch.skipped", reason, issueId: issue.id, identifier: issue.identifier, projectId: project.id, ...extra };
+    console.log(`[orchestrator] dispatch skipped ${issue.identifier}: ${reason}`);
+    this.deps.ctx.emit("orchestrator.run.event", payload);
   }
 
   private async dispatch(project: ProjectDescriptor, workflow: WorkflowSnapshot, issue: LinearIssue, client: LinearClient): Promise<boolean> {
