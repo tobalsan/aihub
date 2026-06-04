@@ -1,3 +1,6 @@
+import { mkdtemp, writeFile } from "node:fs/promises";
+import { tmpdir } from "node:os";
+import path from "node:path";
 import { describe, expect, it } from "vitest";
 import { GatewayConfigSchema, type Extension } from "@aihub/shared";
 import { loadExtensions } from "../../extensions/registry.js";
@@ -144,6 +147,44 @@ describe("startup validation", () => {
     }
 
     expect(info).toHaveLength(2);
+  });
+
+  it("resolves agent $env: references from agent-local .env", async () => {
+    const dir = await mkdtemp(path.join(tmpdir(), "aihub-agent-env-"));
+    await writeFile(
+      path.join(dir, ".env"),
+      "ONECLI_TOKEN=agent-onecli\nSLACK_BOT_TOKEN=agent-slack\nSLACK_APP_TOKEN=agent-app\n"
+    );
+
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [
+        {
+          id: "main",
+          name: "Main",
+          workspace: dir,
+          model: { provider: "anthropic", model: "claude" },
+          onecliToken: "$env:ONECLI_TOKEN",
+          slack: {
+            token: "$env:SLACK_BOT_TOKEN",
+            appToken: "$env:SLACK_APP_TOKEN",
+          },
+        },
+      ],
+      extensions: {},
+    });
+
+    await expect(resolveStartupConfig(config)).resolves.toMatchObject({
+      agents: [
+        expect.objectContaining({
+          onecliToken: "agent-onecli",
+          slack: expect.objectContaining({
+            token: "agent-slack",
+            appToken: "agent-app",
+          }),
+        }),
+      ],
+    });
   });
 
   it("returns a resolved runtime config", async () => {

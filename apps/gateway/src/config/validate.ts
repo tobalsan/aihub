@@ -3,6 +3,7 @@ import type {
   GatewayConfig,
   ValidationResult,
 } from "@aihub/shared";
+import { resolveAgentEnv } from "./index.js";
 import { resolveConfigSecrets } from "./secrets.js";
 
 function uniqueAgentIdValidation(config: GatewayConfig): ValidationResult {
@@ -135,7 +136,12 @@ export async function prepareStartupConfig(
 export async function resolveStartupConfig(
   config: GatewayConfig
 ): Promise<GatewayConfig> {
-  return resolveConfigSecrets(config);
+  const { agents, ...rest } = config;
+  const resolvedRest = await resolveConfigSecrets(rest);
+  const resolvedAgents = await Promise.all(
+    agents.map((agent) => resolveConfigSecrets(agent, resolveAgentEnv(agent, config)))
+  );
+  return { ...resolvedRest, agents: resolvedAgents };
 }
 
 export function logComponentSummary(summary: {
