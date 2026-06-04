@@ -468,7 +468,8 @@ pnpm aihub agent list
 pnpm aihub send -a <agentId> -m "Hello" [-s <sessionId>]
 
 # Notifications CLI (Discord/Slack)
-pnpm aihub notify --channel default --message "Hello" [--surface discord|slack|both] [--mention userId]
+pnpm aihub notify --channel default --message "Hello" [--from <agentId>] [--surface discord|slack|both] [--mention userId]
+# --from resolves bot tokens from agent.yaml; AIHUB_AGENT_ID is used when --from is omitted.
 
 # Projects CLI (aihub projects; uses gateway API)
 pnpm aihub projects list [--status <status>]

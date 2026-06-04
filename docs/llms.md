@@ -783,7 +783,8 @@ pnpm aihub auth status
 pnpm aihub auth logout anthropic
 
 # Send a configured Discord/Slack notification
-pnpm aihub notify --channel default --message "hello" [--surface discord|slack|both] [--mention userId]
+pnpm aihub notify --channel default --message "hello" [--from <agentId>] [--surface discord|slack|both] [--mention userId]
+# --from resolves bot tokens from agent.yaml; AIHUB_AGENT_ID is used when --from is omitted.
 ```
 
 ### OAuth Agent Config
