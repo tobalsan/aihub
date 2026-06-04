@@ -78,20 +78,32 @@ function stripAnsi(value: string): string {
   return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\[[0-9;]*m/g, "");
 }
 
+function contentText(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parts = value.flatMap((part) => {
+    const record = recordValue(part);
+    const text = record?.text ?? record?.thinking;
+    return typeof text === "string" ? [text] : [];
+  });
+  return parts.length ? stripAnsi(parts.join("\n")) : undefined;
+}
+
 function eventLogText(type: string | undefined, payload: unknown): string {
   const record = recordValue(payload);
+  if (type === "worker.pi.message_update" || type === "worker.pi.thinking") return "";
   const item = recordValue(record?.item);
   const delta = recordValue(record?.delta);
   const assistant = recordValue(record?.assistantMessageEvent);
   const content = recordValue(record?.content);
   const message = recordValue(record?.message);
-  const text = record?.text ?? record?.message ?? record?.error ?? item?.text ?? item?.message ?? item?.command ?? item?.aggregated_output ?? delta?.text ?? delta?.partial_json ?? assistant?.text ?? assistant?.delta ?? content?.text ?? message?.content;
+  const assistantType = typeof assistant?.type === "string" ? assistant.type : "";
+  const messageRole = typeof message?.role === "string" ? message.role : "";
+  if (type === "worker.pi.message" && messageRole === "user") return "";
+  if (type === "worker.pi.message" && (!messageRole || assistantType.endsWith("_delta") || assistantType.endsWith("_start"))) return "";
+  const recordMessage = typeof record?.message === "string" ? record.message : undefined;
+  const text = record?.text ?? recordMessage ?? record?.error ?? item?.text ?? item?.message ?? item?.command ?? item?.aggregated_output ?? delta?.text ?? delta?.partial_json ?? assistant?.text ?? assistant?.delta ?? content?.text ?? message?.content;
   if (typeof text === "string") return stripAnsi(text);
-  if (Array.isArray(message?.content)) {
-    const parts = message.content.map((part) => recordValue(part)?.text).filter((part): part is string => typeof part === "string");
-    if (parts.length) return stripAnsi(parts.join("\n"));
-  }
-  return JSON.stringify({ type, payload });
+  return contentText(message?.content) ?? contentText(assistant?.partial) ?? "";
 }
 
 function normalizeLogType(type: string | undefined): string | undefined {

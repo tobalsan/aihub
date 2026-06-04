@@ -40,6 +40,10 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function messageRole(event: Record<string, unknown>): string | undefined {
+  return typeof objectValue(event.message)?.role === "string" ? objectValue(event.message)?.role as string : undefined;
+}
+
 function commandParts(input: WorkerRunnerStartInput): [string, ...string[]] {
   const command = input.workflow.agent.command;
   if (command) {
@@ -47,7 +51,9 @@ function commandParts(input: WorkerRunnerStartInput): [string, ...string[]] {
     if (cmd) return [cmd, ...args];
   }
   const args = ["--mode", "rpc", "--name", input.label];
+  const provider = input.workflow.agent.provider ?? input.profile.provider;
   const model = input.workflow.agent.model ?? input.profile.model;
+  if (provider) args.push("--provider", provider);
   if (model) args.push("--model", model);
   args.push("--session-dir", path.join(input.workspace, ".aihub", "pi-sessions"));
   return ["pi", ...args];
@@ -298,7 +304,7 @@ export class PiRpcRunner implements WorkerRunner {
       return;
     }
     if (type === "message_start" || type === "message_end" || type === "turn_end" || type === "agent_end") {
-      session.emit("worker.pi.message", event);
+      if (messageRole(event) === "assistant") session.emit("worker.pi.message", event);
       session.emit(`worker.pi.${type}`, event);
       return;
     }
@@ -317,9 +323,7 @@ export class PiRpcRunner implements WorkerRunner {
 
   private handleMessageUpdate(session: PiSession, event: Record<string, unknown>, assistantEvent: Record<string, unknown>): void {
     const deltaType = typeof assistantEvent.type === "string" ? assistantEvent.type : "unknown";
-    if (deltaType.startsWith("thinking_")) {
-      session.emit("worker.pi.thinking", event);
-    } else if (deltaType.startsWith("toolcall_")) {
+    if (deltaType.startsWith("toolcall_")) {
       session.emit("worker.pi.tool", event);
     } else if (deltaType === "error") {
       const reason = typeof assistantEvent.reason === "string" ? assistantEvent.reason : undefined;
@@ -328,10 +332,7 @@ export class PiRpcRunner implements WorkerRunner {
         ? { status: "interrupted", raw: { event, state: session.state } }
         : { status: "error", raw: { event, state: session.state } };
       this.scheduleIdleCleanup(session);
-    } else {
-      session.emit("worker.pi.message", event);
     }
-    session.emit("worker.pi.message_update", event);
   }
 
   private handle(input: WorkerRunnerStartInput, session: PiSession): WorkerRunnerHandle {

@@ -587,6 +587,7 @@ export const SubagentRuntimeProfileSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   cli: SubagentRuntimeCliSchema,
+  provider: z.string().optional(),
   model: z.string().optional(),
   reasoning: z.string().optional(),
   reasoningEffort: z.string().optional(),

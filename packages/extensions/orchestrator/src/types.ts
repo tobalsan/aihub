@@ -56,6 +56,7 @@ export type WorkflowFrontmatter = {
     kind?: "fake" | "cli" | "codex" | "pi" | "claude";
     runner?: "fake" | "cli" | "codex" | "pi" | "claude";
     command?: string | string[];
+    provider?: string;
     model?: string;
     settings?: Record<string, unknown>;
     max_turns?: number;

@@ -201,6 +201,7 @@ Path rules:
 - `runner`: orchestrator-owned protocol runner. Supported values are `pi`, `claude`, `codex`, `cli`, and `fake`. Default `pi`.
 - `command`: optional runner command, as a string or `[executable, ...args]` array. `pi`, `claude`, and `codex` have built-in defaults (`codex` defaults to `codex app-server`, matching Symphony), so `command` is optional for them and only needed to point at a wrapper or custom flags. `cli` requires an explicit executable command. Leading/trailing whitespace is trimmed; an empty string or empty array falls back to the runner default.
 - `profile`: optional legacy/default override. If `extensions.subagents.profiles[]` is present, matching profile values can still provide model/reasoning defaults; otherwise the orchestrator synthesizes protocol-runner defaults from `runner`.
+- `provider`: optional provider passed to the Pi runner (`pi --provider <provider>`). Use with `model` when Pi's default provider may not have credentials.
 - `model`: optional model passed to protocol runners that support it.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
 - `max_turns`: workflow hint for worker prompt/runtime.
@@ -219,7 +220,8 @@ Runner config belongs in project `WORKFLOW.md`, not in `extensions.subagents`. A
 ```yaml
 agent:
   runner: pi
-  model: null
+  provider: anthropic
+  model: claude-sonnet-4-6
   max_concurrent: 3
 ```
 

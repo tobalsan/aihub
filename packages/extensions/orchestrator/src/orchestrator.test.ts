@@ -74,6 +74,7 @@ describe("orchestrator pure modules", () => {
 
   it("resolves profiles or parks", () => {
     expect(resolveProfile({ workflow: { agent: { profile: "default" } }, profilesConfig: profiles })).toMatchObject({ profile: { name: "default" } });
+    expect(resolveProfile({ workflow: { agent: { runner: "pi", provider: "anthropic", model: "claude-sonnet-4-6" } }, profilesConfig: [] })).toMatchObject({ profile: { cli: "pi", provider: "anthropic", model: "claude-sonnet-4-6" } });
     expect(resolveProfile({ workflow: { agent: { profile: "missing" } }, profilesConfig: profiles })).toHaveProperty("park");
   });
 
@@ -142,6 +143,7 @@ tracker:
 agent:
   profile: default
   runner: fake
+  provider: anthropic
   model: gpt-test
   max_turns: 4
   turn_timeout_ms: 1000
@@ -151,7 +153,7 @@ agent:
 Run
 `);
     const snapshot = await new WorkflowLoader(root).resolve({ projectPath: root });
-    expect(snapshot.config.agent).toMatchObject({ runner: "fake", model: "gpt-test", max_turns: 4, turn_timeout_ms: 1000, stall_timeout_ms: 2000 });
+    expect(snapshot.config.agent).toMatchObject({ runner: "fake", provider: "anthropic", model: "gpt-test", max_turns: 4, turn_timeout_ms: 1000, stall_timeout_ms: 2000 });
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: cli\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).rejects.toThrow("agent.command must provide an executable when agent.runner is cli");
@@ -168,8 +170,8 @@ Run
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  runner: codex\n  command: [\" node \", \"mock-app-server.mjs\"]\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "codex", command: ["node", "mock-app-server.mjs"] } } });
 
-    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  kind: pi\n---\nRun\n");
-    await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "pi" } } });
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: default\n  kind: pi\n  provider: anthropic\n---\nRun\n");
+    await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "pi", provider: "anthropic" } } });
 
     await fs.writeFile(path.join(root, "WORKFLOW.md"), "---\ntracker:\n  kind: linear\n  api_key: test\n  project_slug: proj-a\nagent:\n  profile: claude\n  kind: claude\n---\nRun\n");
     await expect(new WorkflowLoader(root).resolve({ projectPath: root })).resolves.toMatchObject({ config: { agent: { runner: "claude" } } });
@@ -279,15 +281,17 @@ describe("orchestrator routes", () => {
       state.appendEvent("r-log", "worker.started", { id: "worker-log", kind: "claude" }, "project");
       state.appendEvent("r-log", "worker.claude.message", { text: "hello from worker" }, "project");
       state.appendEvent("r-log", "worker.codex.message", { item: { type: "agentMessage", text: "\u001b[31mhello from codex\u001b[0m [2mclean" } }, "project");
-      state.appendEvent("r-log", "worker.pi.message", { assistantMessageEvent: { type: "text_delta", text: "hello from pi" } }, "project");
+      state.appendEvent("r-log", "worker.pi.message", { assistantMessageEvent: { type: "text_delta", text: "partial pi" } }, "project");
+      state.appendEvent("r-log", "worker.pi.message", { type: "turn_end", message: { role: "assistant", content: "hello from pi" } }, "project");
 
       const response = await app.request("/orchestrator/runs/ENG-1/logs?project=project&since=0");
       expect(response.status).toBe(200);
       const body = await response.json();
-      expect(body.cursor).toBe(4);
+      expect(body.cursor).toBe(5);
       expect(body.events).toEqual(expect.arrayContaining([
         expect.objectContaining({ type: "assistant", rawType: "worker.claude.message", text: "hello from worker", payload: { text: "hello from worker" } }),
         expect.objectContaining({ type: "assistant", rawType: "worker.codex.message", text: "hello from codex clean" }),
+        expect.objectContaining({ type: "assistant", rawType: "worker.pi.message", text: "" }),
         expect.objectContaining({ type: "assistant", rawType: "worker.pi.message", text: "hello from pi" }),
       ]));
       state.close();
@@ -767,18 +771,50 @@ describe("Pi RPC worker runner", () => {
         "worker.pi.started",
         "worker.pi.prompt.accepted",
         "worker.pi.message",
-        "worker.pi.thinking",
         "worker.pi.tool",
         "worker.pi.queue",
         "worker.pi.state",
         "worker.pi.agent_end",
       ]));
+      expect(events.filter((event) => event.type === "worker.pi.message")).toHaveLength(1);
+      expect(events.some((event) => event.type === "worker.pi.message_update" || event.type === "worker.pi.thinking")).toBe(false);
       const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; message?: string });
       expect(sent.find((message) => message.type === "prompt")?.message).toBe("Initial rendered workflow instructions");
       expect(sent.some((message) => message.type === "get_state")).toBe(true);
     } finally {
       delete process.env.MOCK_PI_MODE;
       delete process.env.MOCK_PI_LOG;
+    }
+  });
+
+  it("passes provider to the default Pi RPC command", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-provider-"));
+    const binDir = path.join(root, "bin");
+    await fs.mkdir(binDir);
+    const script = await writeMockPiRpcServer(root);
+    const shim = path.join(binDir, "pi");
+    await fs.writeFile(shim, `#!/bin/sh\nexec ${JSON.stringify(process.execPath)} ${JSON.stringify(script)} "$@"\n`);
+    await fs.chmod(shim, 0o755);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    process.env.MOCK_PI_MODE = "complete";
+    const runner = new PiRpcRunner({ idleCleanupMs: 20, terminalRetentionMs: 50 });
+    try {
+      await runner.start(piRunnerInput(root, [], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+        profile: { name: "default", cli: "pi", provider: "anthropic", model: "claude-sonnet-4-6" },
+        workflow: {
+          ...piRunnerInput(root, []).workflow,
+          agent: { runner: "pi", provider: "openrouter", model: "moonshotai/kimi-k2.5" },
+        },
+      }));
+      const started = events.find((event) => event.type === "worker.pi.started")?.payload as { command?: string[] } | undefined;
+      expect(started?.command).toEqual(expect.arrayContaining(["--provider", "openrouter", "--model", "moonshotai/kimi-k2.5"]));
+    } finally {
+      process.env.PATH = previousPath;
+      delete process.env.MOCK_PI_MODE;
+      await runner.shutdown();
     }
   });
 

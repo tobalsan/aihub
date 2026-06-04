@@ -14,8 +14,8 @@ export function resolveProfile(input: {
   const profile = new Map(input.profilesConfig.map((item) => [item.name, item])).get(name);
   if (!profile) {
     if (input.workflow.agent?.profile && input.profilesConfig.length > 0) return { park: { reason: `Configured orchestrator profile not found: ${name}` } };
-    if (runner === "codex" || runner === "claude" || runner === "pi") return { profile: { name, cli: runner, model: input.workflow.agent?.model } };
-    return { profile: { name, cli: "codex", model: input.workflow.agent?.model } };
+    if (runner === "codex" || runner === "claude" || runner === "pi") return { profile: { name, cli: runner, provider: input.workflow.agent?.provider, model: input.workflow.agent?.model } };
+    return { profile: { name, cli: "codex", provider: input.workflow.agent?.provider, model: input.workflow.agent?.model } };
   }
   return { profile };
 }
