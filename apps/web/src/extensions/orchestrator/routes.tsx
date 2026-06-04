@@ -8,6 +8,7 @@ import { LeftNavShell } from "../../components/LeftNavShell";
 import {
   fetchOrchestratorHealth,
   fetchOrchestratorLogs,
+  fetchOrchestratorProjects,
   fetchOrchestratorRun,
   fetchOrchestratorRuns,
   fetchOrchestratorWorkflow,
@@ -17,6 +18,7 @@ import {
   type OrchestratorEvent,
   type OrchestratorHealth,
   type OrchestratorLogEvent,
+  type OrchestratorProject,
   type OrchestratorRun,
   type OrchestratorWorkflow,
 } from "../../api/orchestrator";
@@ -816,6 +818,10 @@ function OrchestratorDashboard(): ReturnType<Component> {
   const [health, setHealth] = createSignal<OrchestratorHealth>();
   const [active, setActive] = createSignal<OrchestratorClaim[]>([]);
   const [recent, setRecent] = createSignal<OrchestratorRun[]>([]);
+  const [projects, setProjects] = createSignal<OrchestratorProject[]>([]);
+  const [projectsOpen, setProjectsOpen] = createSignal(false);
+  let projectsAnchorEl: HTMLButtonElement | undefined;
+  let projectsPanelEl: HTMLDivElement | undefined;
   const [selected, setSelected] = createSignal<AnyRun>();
   const [workflow, setWorkflow] = createSignal<OrchestratorWorkflow>();
   const [events, setEvents] = createSignal<OrchestratorEvent[]>([]);
@@ -880,13 +886,15 @@ function OrchestratorDashboard(): ReturnType<Component> {
 
   const load = async () => {
     try {
-      const [nextHealth, runs] = await Promise.all([
+      const [nextHealth, runs, projectList] = await Promise.all([
         fetchOrchestratorHealth(),
         fetchOrchestratorRuns(),
+        fetchOrchestratorProjects(),
       ]);
       setHealth(nextHealth);
       setActive(runs.active ?? []);
       setRecent(runs.recent ?? []);
+      setProjects(projectList.items ?? []);
       setError(undefined);
     } catch (err) {
       setError(err instanceof Error ? err.message : String(err));
@@ -924,6 +932,26 @@ function OrchestratorDashboard(): ReturnType<Component> {
       ]);
     }
   };
+
+  createEffect(() => {
+    if (!projectsOpen()) return;
+    const onPointerDown = (event: MouseEvent) => {
+      const target = event.target as Node | null;
+      if (!target) return;
+      if (projectsAnchorEl?.contains(target)) return;
+      if (projectsPanelEl?.contains(target)) return;
+      setProjectsOpen(false);
+    };
+    const onKey = (event: KeyboardEvent) => {
+      if (event.key === "Escape") setProjectsOpen(false);
+    };
+    window.addEventListener("mousedown", onPointerDown);
+    window.addEventListener("keydown", onKey);
+    onCleanup(() => {
+      window.removeEventListener("mousedown", onPointerDown);
+      window.removeEventListener("keydown", onKey);
+    });
+  });
 
   createEffect(() => {
     void load();
@@ -1021,9 +1049,70 @@ function OrchestratorDashboard(): ReturnType<Component> {
             <span class="orch-stat-num">{health()?.rateLimitRemaining ?? "—"}</span>
             <span class="orch-stat-label">rate limit</span>
           </div>
+          <div class="orch-stat orch-stat-projects">
+            <button
+              type="button"
+              class="orch-projects-trigger"
+              ref={(el) => (projectsAnchorEl = el)}
+              aria-haspopup="dialog"
+              aria-expanded={projectsOpen()}
+              aria-controls="orch-projects-panel"
+              onClick={() => setProjectsOpen((v) => !v)}
+            >
+              <span class="orch-stat-num">{projects().length}</span>
+              <span class="orch-stat-label">
+                project{projects().length === 1 ? "" : "s"}
+                <svg class="orch-projects-caret" width="8" height="8" viewBox="0 0 8 8" aria-hidden="true">
+                  <path d="M1 3 L4 6 L7 3" fill="none" stroke="currentColor" stroke-width="1.4" stroke-linecap="round" stroke-linejoin="round" />
+                </svg>
+              </span>
+            </button>
+          </div>
           <button class="orch-btn" onClick={() => void load()}>Refresh</button>
         </div>
       </header>
+
+      <Show when={projectsOpen()}>
+        <div
+          id="orch-projects-panel"
+          class="orch-projects-panel"
+          role="dialog"
+          aria-label="Monitored projects"
+          ref={(el) => (projectsPanelEl = el)}
+        >
+          <header class="orch-projects-panel-head">
+            <span class="orch-projects-panel-title">Monitored projects</span>
+            <span class="orch-projects-panel-hint">live · config-driven</span>
+          </header>
+          <Show
+            when={projects().length}
+            fallback={
+              <div class="orch-projects-empty">
+                <strong>No projects configured.</strong>
+                <p><code>extensions.orchestrator.projects</code> in <code>aihub.json</code> is empty.</p>
+              </div>
+            }
+          >
+            <ul class="orch-projects-list">
+              <For each={projects()}>
+                {(project) => (
+                  <li class="orch-projects-row">
+                    <span class="orch-projects-id" title={project.id}>{project.id}</span>
+                    <button
+                      type="button"
+                      class="orch-projects-path"
+                      title={`Copy ${project.path}`}
+                      onClick={() => copy(project.path)}
+                    >
+                      {copied() === project.path ? "copied" : project.path}
+                    </button>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </Show>
+        </div>
+      </Show>
 
       <Show when={error()}>
         <div class="orch-error">{error()}</div>
@@ -1291,6 +1380,104 @@ const ORCH_STYLES = `
 .orch-stat-num { font-size: 16px; font-weight: 700; font-variant-numeric: tabular-nums; color: var(--text-primary); }
 .orch-stat-tick .orch-stat-num { font-size: 14px; color: var(--text-secondary); }
 .orch-stat-label { font-size: 10px; text-transform: uppercase; letter-spacing: 0.06em; color: var(--text-muted); }
+
+.orch-stat-projects { padding: 0; border-left: 1px solid var(--border-subtle); }
+.orch-projects-trigger {
+  font-family: inherit;
+  display: flex; flex-direction: column; align-items: flex-end; gap: 2px;
+  padding: 4px 12px;
+  background: transparent; border: none; cursor: pointer;
+  color: inherit;
+  transition: background 110ms ease;
+}
+.orch-projects-trigger:hover { background: color-mix(in srgb, var(--text-primary) 4%, transparent); }
+.orch-projects-trigger[aria-expanded="true"] { background: color-mix(in srgb, var(--text-primary) 6%, transparent); }
+.orch-projects-trigger .orch-stat-label {
+  display: inline-flex; align-items: center; gap: 4px;
+}
+.orch-projects-caret {
+  color: var(--text-muted);
+  transition: transform 140ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.orch-projects-trigger[aria-expanded="true"] .orch-projects-caret { transform: rotate(180deg); }
+
+.orch-projects-panel {
+  position: relative;
+  margin-top: -14px;
+  padding: 14px 16px 16px;
+  background: var(--bg-surface);
+  border: 1px solid var(--border-default);
+  border-radius: 14px;
+  box-shadow: 0 12px 32px var(--shadow-md);
+  animation: orch-pop 160ms cubic-bezier(0.16, 1, 0.3, 1);
+}
+.orch-projects-panel::before {
+  content: "";
+  position: absolute; top: -6px; right: 92px;
+  width: 10px; height: 10px;
+  background: var(--bg-surface);
+  border-top: 1px solid var(--border-default);
+  border-left: 1px solid var(--border-default);
+  transform: rotate(45deg);
+}
+.orch-projects-panel-head {
+  display: flex; align-items: baseline; justify-content: space-between; gap: 12px;
+  padding-bottom: 9px; margin-bottom: 10px;
+  border-bottom: 1px solid var(--border-subtle);
+}
+.orch-projects-panel-title {
+  font-size: 11px; font-weight: 600; letter-spacing: 0.08em; text-transform: uppercase;
+  color: var(--text-tertiary);
+}
+.orch-projects-panel-hint {
+  font-size: 10.5px; color: var(--text-muted);
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+}
+.orch-projects-list {
+  display: flex; flex-direction: column;
+  margin: 0; padding: 0; list-style: none;
+  max-height: 320px; overflow-y: auto;
+}
+.orch-projects-row {
+  display: grid;
+  grid-template-columns: minmax(0, auto) minmax(0, 1fr);
+  align-items: baseline; column-gap: 14px;
+  padding: 7px 2px;
+  border-bottom: 1px dashed var(--border-subtle);
+}
+.orch-projects-row:last-child { border-bottom: none; }
+.orch-projects-id {
+  font-size: 13px; font-weight: 600; color: var(--text-primary);
+  letter-spacing: -0.005em;
+  max-width: 280px;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+}
+.orch-projects-path {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11px; color: var(--text-muted);
+  background: transparent; border: none; padding: 0; cursor: copy;
+  text-align: right; justify-self: end;
+  min-width: 0; max-width: 100%;
+  overflow: hidden; text-overflow: ellipsis; white-space: nowrap;
+  direction: rtl;
+  transition: color 110ms ease;
+}
+.orch-projects-path:hover { color: var(--text-secondary); }
+.orch-projects-empty {
+  padding: 10px 2px 2px;
+}
+.orch-projects-empty strong { display: block; font-size: 13px; color: var(--text-primary); margin-bottom: 4px; }
+.orch-projects-empty p { font-size: 12px; color: var(--text-muted); margin: 0; }
+.orch-projects-empty code {
+  font-family: ui-monospace, SFMono-Regular, Menlo, monospace;
+  font-size: 11.5px; padding: 1px 4px; border-radius: 4px;
+  background: var(--bg-inset); color: var(--text-secondary);
+}
+
+@keyframes orch-pop {
+  from { opacity: 0; transform: translateY(-4px); }
+  to { opacity: 1; transform: translateY(0); }
+}
 
 .orch-section { display: flex; flex-direction: column; gap: 12px; }
 .orch-section-head { display: flex; align-items: center; gap: 9px; }
