@@ -16,6 +16,7 @@ type ShimOptions = {
   claudeCli: string;
   model?: string;
   effort?: string;
+  permissionMode?: string;
 };
 
 let activeChild: ChildProcess | undefined;
@@ -45,6 +46,9 @@ function parseArgs(argv: string[]): ShimOptions {
       index += 1;
     } else if (key === "--effort" && value) {
       options.effort = value;
+      index += 1;
+    } else if (key === "--permission-mode" && value) {
+      options.permissionMode = value;
       index += 1;
     }
   }
@@ -82,6 +86,7 @@ function claudeArgs(message: string): string[] {
   const args = ["--print", "--output-format", "stream-json", "--verbose"];
   if (options.model) args.push("--model", options.model);
   if (options.effort) args.push("--effort", options.effort);
+  if (options.permissionMode) args.push("--permission-mode", options.permissionMode);
   if (currentSessionId) args.push("--resume", currentSessionId);
   args.push(message);
   return args;

@@ -209,7 +209,7 @@ Path rules:
 - `max_turns`: workflow hint for worker prompt/runtime.
 - `turn_timeout_ms`: per-turn time budget hint. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. Core validates and stores this value but does not yet abort turns on expiry.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `300000` (5 minutes, Symphony parity).
-- `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended.
+- `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended. Claude reads `permissionMode`/`permission_mode` and defaults to `--permission-mode bypassPermissions` so workers run unattended; override via `agent.settings.permissionMode` in `WORKFLOW.md`.
 
 `thinking`, `max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` are validated when set. Invalid thinking values fail config load for explicit `runner` values and fail before runner startup when the effective runner comes from a profile.
 

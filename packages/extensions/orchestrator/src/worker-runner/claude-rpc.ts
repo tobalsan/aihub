@@ -63,7 +63,14 @@ function runnerArgs(input: WorkerRunnerStartInput, args: string[]): string[] {
   if (model) next.push("--model", model);
   const effort = reasoningEffortForRunner(input);
   if (effort) next.push("--effort", effort);
+  next.push("--permission-mode", claudePermissionMode(input));
   return next;
+}
+
+function claudePermissionMode(input: WorkerRunnerStartInput): string {
+  const settings = input.workflow.agent.settings;
+  const mode = settings?.permissionMode ?? settings?.permission_mode;
+  return typeof mode === "string" && mode.trim() ? mode : "bypassPermissions";
 }
 
 export class ClaudeRpcRunner implements WorkerRunner {

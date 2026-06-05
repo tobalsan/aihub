@@ -1295,6 +1295,7 @@ describe("Claude RPC worker runner", () => {
       expect(invocations).toHaveLength(2);
       expect(invocations[0]?.join(" ")).toContain("Initial rendered workflow instructions");
       expect(invocations[0]).toEqual(expect.arrayContaining(["--effort", "max"]));
+      expect(invocations[0]).toEqual(expect.arrayContaining(["--permission-mode", "bypassPermissions"]));
       expect(invocations[1]?.join(" ")).toContain("Continue the active orchestrator work for ENG-1");
       expect(invocations[1]?.join(" ")).not.toContain("Do not resend this full prompt");
     } finally {
