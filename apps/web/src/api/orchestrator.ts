@@ -17,6 +17,7 @@ export type OrchestratorClaim = {
   projectId?: string;
   issueId: string;
   runId: string;
+  identifier?: string;
   worker_id?: string;
   workerId?: string;
   worker_status?: string;

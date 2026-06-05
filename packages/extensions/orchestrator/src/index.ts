@@ -161,6 +161,7 @@ function activeRuns(project?: string, issue?: string): Array<Record<string, unkn
       ...claim,
       run,
       ...summary,
+      identifier: typeof run?.identifier === "string" ? run.identifier : undefined,
       worker_id: typeof summary.worker_id === "string" ? summary.worker_id : worker,
     });
   }
