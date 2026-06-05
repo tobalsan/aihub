@@ -2604,6 +2604,58 @@ Do {{issue.identifier}}
     store.close();
   });
 
+  it("resets consecutive run count after parking for max_active_runs so reactivation can dispatch", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-cap-reactivate-"));
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
+tracker:
+  kind: linear
+  api_key: test-key
+  project_slug: proj-a
+  active_states: [Ready]
+  terminal_states: [Done]
+agent:
+  profile: default
+  max_active_runs: 2
+  max_concurrent: 1
+workspace:
+  root: ./workspaces
+---
+Do {{issue.identifier}}
+`);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const projectId = path.basename(root);
+    const t = Date.now();
+    for (let i = 0; i < 2; i++) {
+      const runId = `seed-${i}`;
+      store.insertRun({ runId, projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + i).toISOString() });
+      store.finishRun(runId, "completed");
+    }
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Loop", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
+    const worker = mockWorkerRunner();
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
+
+    await daemon.start();
+    await daemon.tick();
+
+    expect(worker.start).not.toHaveBeenCalled();
+    expect(client.issueUpdateStateByName).toHaveBeenCalledWith("lin_1", "Needs Human");
+
+    // Simulate human reactivating the issue
+    client.issueUpdateStateByName.mockClear();
+    worker.start.mockClear();
+    claims.release("lin_1", projectId);
+
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1 });
+
+    expect(worker.start).toHaveBeenCalledOnce();
+    expect(client.issueUpdateStateByName).not.toHaveBeenCalledWith("lin_1", "Needs Human");
+    await daemon.stop();
+    store.close();
+  });
+
   it("uses default max_active_runs of 3 and does not park below threshold", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-cap-default-"));
     await writeWorkflow(root);

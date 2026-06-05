@@ -428,6 +428,7 @@ export class OrchestratorDaemon {
         resolvedWorkflow.config.tracker.needsHuman,
         `issue completed ${consecutiveCompleted} consecutive run(s) without leaving active state (max_active_runs=${maxActiveRuns})`
       );
+      this.deps.store.recordParkBarrier(issue.id, project.id);
       return false;
     }
     const runId = `orchestrator:${project.id}:${issue.id}:${Date.now()}`;
