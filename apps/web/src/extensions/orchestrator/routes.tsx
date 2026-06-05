@@ -362,7 +362,11 @@ function truncateInline(value: string, max = 96): string {
     : singleLine;
 }
 
-function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }) {
+function ToolLog(props: {
+  item: Extract<AgentTranscriptItem, { type: "tool" }>;
+  collapsed: () => boolean;
+  onToggle: () => void;
+}) {
   const argsText = () => formatJson(props.item.args);
   const resultText = () =>
     getToolResultText(props.item.result) || props.item.body || "";
@@ -371,30 +375,21 @@ function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }
   const summary = () =>
     truncateInline(getToolInputSummary(props.item.toolName, props.item.args));
   const preview = () => truncateInline(resultText() || argsText(), 120);
-  const [collapsed, setCollapsed] = createSignal(true);
-  const [autoCollapsed, setAutoCollapsed] = createSignal(true);
-
-  createEffect(() => {
-    if (resultText() && !autoCollapsed()) {
-      setCollapsed(true);
-      setAutoCollapsed(true);
-    }
-  });
 
   return (
     <div class={`orch-tool-block ${failed() ? "error" : ""}`}>
       <button
         class="orch-tool-header"
-        onClick={() => setCollapsed(!collapsed())}
+        onClick={() => props.onToggle()}
       >
-        <span class="orch-collapse-icon">{collapsed() ? "▶" : "▼"}</span>
+        <span class="orch-collapse-icon">{props.collapsed() ? "▶" : "▼"}</span>
         <span class="orch-tool-kind">{props.item.toolName}</span>
         <span class="orch-tool-title">{summary()}</span>
-        <Show when={collapsed()}>
+        <Show when={props.collapsed()}>
           <span class="orch-tool-preview">{preview()}</span>
         </Show>
       </button>
-      <Show when={!collapsed()}>
+      <Show when={!props.collapsed()}>
         <div class="orch-tool-body">
           <Show
             when={
@@ -437,14 +432,19 @@ function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }
 
 function ThinkingLog(props: {
   item: Extract<AgentTranscriptItem, { type: "thinking" }>;
+  collapsed: () => boolean;
+  onToggle: () => void;
 }) {
   return (
-    <details class="orch-log-details orch-log-thinking">
-      <summary class="orch-log-summary">
+    <div class="orch-log-details orch-log-thinking">
+      <button class="orch-log-summary" onClick={() => props.onToggle()}>
+        <span class="orch-collapse-icon">{props.collapsed() ? "▶" : "▼"}</span>
         <span class="orch-log-thinking-label">Thinking</span>
-      </summary>
-      <pre class="orch-log-pre">{props.item.content}</pre>
-    </details>
+      </button>
+      <Show when={!props.collapsed()}>
+        <pre class="orch-log-pre">{props.item.content}</pre>
+      </Show>
+    </div>
   );
 }
 
@@ -553,50 +553,68 @@ function TextLog(props: {
 }
 
 function AgentTranscriptLog(props: { items: AgentTranscriptItem[] }) {
+  const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());
+  const isCollapsed = (key: string) => !expandedKeys().has(key);
+  const toggle = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const itemKey = (item: AgentTranscriptItem, index: number) =>
+    item.type === "tool" && item.id ? `tool:${item.id}` : `${item.type}:${index}`;
   return (
     <div class="orch-transcript-log">
       <For each={props.items}>
-        {(item) => (
-          <Show
-            when={item.type === "text"}
-            fallback={
-              <Show
-                when={item.type === "thinking"}
-                fallback={
-                  <Show
-                    when={item.type === "callout"}
-                    fallback={
-                      <Show
-                        when={item.type === "tool"}
-                        fallback={
-                          <DiffLog
-                            item={item as Extract<AgentTranscriptItem, { type: "file" }>}
+        {(item, index) => {
+          const key = () => itemKey(item, index());
+          return (
+            <Show
+              when={item.type === "text"}
+              fallback={
+                <Show
+                  when={item.type === "thinking"}
+                  fallback={
+                    <Show
+                      when={item.type === "callout"}
+                      fallback={
+                        <Show
+                          when={item.type === "tool"}
+                          fallback={
+                            <DiffLog
+                              item={item as Extract<AgentTranscriptItem, { type: "file" }>}
+                            />
+                          }
+                        >
+                          <ToolLog
+                            item={item as Extract<AgentTranscriptItem, { type: "tool" }>}
+                            collapsed={() => isCollapsed(key())}
+                            onToggle={() => toggle(key())}
                           />
-                        }
-                      >
-                        <ToolLog
-                          item={item as Extract<AgentTranscriptItem, { type: "tool" }>}
-                        />
-                      </Show>
-                    }
-                  >
-                    <CalloutLog
-                      item={item as Extract<AgentTranscriptItem, { type: "callout" }>}
-                    />
-                  </Show>
-                }
-              >
-                <ThinkingLog
-                  item={item as Extract<AgentTranscriptItem, { type: "thinking" }>}
-                />
-              </Show>
-            }
-          >
-            <TextLog
-              item={item as Extract<AgentTranscriptItem, { type: "text" }>}
-            />
-          </Show>
-        )}
+                        </Show>
+                      }
+                    >
+                      <CalloutLog
+                        item={item as Extract<AgentTranscriptItem, { type: "callout" }>}
+                      />
+                    </Show>
+                  }
+                >
+                  <ThinkingLog
+                    item={item as Extract<AgentTranscriptItem, { type: "thinking" }>}
+                    collapsed={() => isCollapsed(key())}
+                    onToggle={() => toggle(key())}
+                  />
+                </Show>
+              }
+            >
+              <TextLog
+                item={item as Extract<AgentTranscriptItem, { type: "text" }>}
+              />
+            </Show>
+          );
+        }}
       </For>
       <style>{`
         .orch-transcript-log {
@@ -794,7 +812,11 @@ function AgentTranscriptLog(props: { items: AgentTranscriptItem[] }) {
           display: flex;
           align-items: center;
           gap: 10px;
+          width: 100%;
           padding: 12px 14px;
+          background: transparent;
+          border: none;
+          text-align: left;
           cursor: pointer;
           list-style: none;
           color: var(--text-secondary);
