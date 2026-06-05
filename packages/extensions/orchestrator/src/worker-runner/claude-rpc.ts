@@ -4,6 +4,7 @@ import { createRequire } from "node:module";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStartInput, WorkerRunnerStatus } from "./runner.js";
+import { reasoningEffortForRunner, validateWorkflowThinkingForRunner } from "./thinking.js";
 
 type ClaudeCommandResponse = {
   id?: string | number | null;
@@ -47,16 +48,22 @@ function commandParts(input: WorkerRunnerStartInput): [string, ...string[]] {
   const command = input.workflow.agent.command;
   if (command) {
     const [cmd, ...args] = Array.isArray(command) ? command : [command];
-    if (cmd) return [cmd, ...args];
+    if (cmd) return [cmd, ...runnerArgs(input, args)];
   }
   const shimPath = fileURLToPath(new URL("./claude-rpc-shim.js", import.meta.url));
   const shimArgs = fsSync.existsSync(shimPath)
     ? [shimPath]
     : ["--import", createRequire(import.meta.url).resolve("tsx"), fileURLToPath(new URL("./claude-rpc-shim.ts", import.meta.url))];
-  const args = [...shimArgs, "--name", input.label, "--session-dir", path.join(input.workspace, ".aihub", "claude-sessions"), "--claude-cli", "claude"];
+  return [process.execPath, ...runnerArgs(input, [...shimArgs, "--name", input.label, "--session-dir", path.join(input.workspace, ".aihub", "claude-sessions"), "--claude-cli", "claude"])];
+}
+
+function runnerArgs(input: WorkerRunnerStartInput, args: string[]): string[] {
+  const next = [...args];
   const model = input.workflow.agent.model ?? input.profile.model;
-  if (model) args.push("--model", model);
-  return [process.execPath, ...args];
+  if (model) next.push("--model", model);
+  const effort = reasoningEffortForRunner(input);
+  if (effort) next.push("--effort", effort);
+  return next;
 }
 
 export class ClaudeRpcRunner implements WorkerRunner {
@@ -65,6 +72,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
   constructor(private readonly options: { idleCleanupMs?: number; terminalRetentionMs?: number; abortTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
 
   async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    validateWorkflowThinkingForRunner("claude", input.workflow.agent);
     const key = `${input.project.id}:${input.issue.id}:${input.workspace}`;
     const existing = this.sessions.get(key);
     if (existing && this.canReuse(existing)) {

@@ -4,6 +4,7 @@ import type { LinearIssue, ProjectDescriptor, WorkflowConfig } from "../types.js
 import { ClaudeRpcRunner } from "./claude-rpc.js";
 import { CodexAppServerRunner } from "./codex-app-server.js";
 import { PiRpcRunner } from "./pi-rpc.js";
+import { runnerForWorkflow } from "./thinking.js";
 
 export type WorkerRunnerKind = "fake" | "cli" | "codex" | "pi" | "claude";
 
@@ -127,11 +128,11 @@ export class WorkflowWorkerRunner implements WorkerRunner {
     if (kind === "codex") return this.codex;
     if (kind === "pi") return this.pi;
     if (kind === "claude") return this.claude;
-    return this.claude;
+    return this.pi;
   }
 
   start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
-    return this.runner(input.workflow.agent.runner ?? "claude").start(input);
+    return this.runner(runnerForWorkflow(input)).start(input);
   }
 
   status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {

@@ -15,6 +15,7 @@ type ShimOptions = {
   sessionDir: string;
   claudeCli: string;
   model?: string;
+  effort?: string;
 };
 
 let activeChild: ChildProcess | undefined;
@@ -41,6 +42,9 @@ function parseArgs(argv: string[]): ShimOptions {
       index += 1;
     } else if (key === "--model" && value) {
       options.model = value;
+      index += 1;
+    } else if (key === "--effort" && value) {
+      options.effort = value;
       index += 1;
     }
   }
@@ -77,6 +81,7 @@ function updateSessionId(event: Record<string, unknown>): void {
 function claudeArgs(message: string): string[] {
   const args = ["--print", "--output-format", "stream-json", "--verbose"];
   if (options.model) args.push("--model", options.model);
+  if (options.effort) args.push("--effort", options.effort);
   if (currentSessionId) args.push("--resume", currentSessionId);
   args.push(message);
   return args;

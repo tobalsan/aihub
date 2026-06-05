@@ -591,6 +591,7 @@ export const SubagentRuntimeProfileSchema = z.object({
   model: z.string().optional(),
   reasoning: z.string().optional(),
   reasoningEffort: z.string().optional(),
+  thinking: z.string().optional(),
   labelPrefix: z.string().optional(),
   type: z.string().optional(),
   runMode: z.string().optional(),

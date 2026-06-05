@@ -58,6 +58,10 @@ export type WorkflowFrontmatter = {
     command?: string | string[];
     provider?: string;
     model?: string;
+    thinking?: string;
+    reasoning?: string;
+    reasoningEffort?: string;
+    reasoning_effort?: string;
     settings?: Record<string, unknown>;
     max_turns?: number;
     turn_timeout_ms?: number;

@@ -1,6 +1,7 @@
 import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStartInput, WorkerRunnerStatus } from "./runner.js";
+import { reasoningEffortForRunner, validateWorkflowThinkingForRunner } from "./thinking.js";
 
 type JsonRpcMessage = {
   id?: string | number | null;
@@ -13,6 +14,8 @@ type JsonRpcMessage = {
 type PendingRequest = {
   resolve: (value: unknown) => void;
   reject: (error: Error) => void;
+  method: string;
+  timer?: NodeJS.Timeout;
 };
 
 type CodexSession = {
@@ -28,6 +31,7 @@ type CodexSession = {
   emit: (type: string, payload: unknown) => void;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
+  removed?: boolean;
 };
 
 function commandParts(command: string | string[] | undefined): [string, ...string[]] {
@@ -75,31 +79,43 @@ function codexThreadSandbox(input: WorkerRunnerStartInput): string | undefined {
 export class CodexAppServerRunner implements WorkerRunner {
   private readonly sessions = new Map<string, CodexSession>();
 
-  constructor(private readonly options: { idleCleanupMs?: number; terminalRetentionMs?: number; interruptTimeoutMs?: number } = {}) {}
+  constructor(private readonly options: { idleCleanupMs?: number; terminalRetentionMs?: number; interruptTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
 
   async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    validateWorkflowThinkingForRunner("codex", input.workflow.agent);
     const key = `${input.project.id}:${input.issue.id}:${input.workspace}`;
     const existing = this.sessions.get(key);
     if (existing && this.canReuse(existing)) {
       this.cancelCleanup(existing);
-      await this.continueTurn(existing, input);
-      return this.handle(input, existing);
+      try {
+        await this.continueTurn(existing, input);
+        return this.handle(input, existing);
+      } catch (error) {
+        this.removeSession(existing, "continue_failed");
+        throw error;
+      }
     }
+    if (existing) this.removeSession(existing, "replaced");
 
     const session = this.spawnSession(key, input);
     this.sessions.set(key, session);
-    await session.initialized;
-    const thread = await this.request(session, "thread/start", {
-      model: input.workflow.agent.model ?? input.profile.model,
-      cwd: input.workspace,
-      approvalPolicy: codexApprovalPolicy(input),
-      sandbox: codexThreadSandbox(input),
-      serviceName: "aihub-orchestrator",
-    });
-    session.threadId = this.extractThreadId(thread);
-    session.emit("worker.codex.thread.started", { threadId: session.threadId, raw: thread });
-    await this.startTurn(session, input.prompt, input);
-    return this.handle(input, session);
+    try {
+      await session.initialized;
+      const thread = await this.request(session, "thread/start", {
+        model: input.workflow.agent.model ?? input.profile.model,
+        cwd: input.workspace,
+        approvalPolicy: codexApprovalPolicy(input),
+        sandbox: codexThreadSandbox(input),
+        serviceName: "aihub-orchestrator",
+      });
+      session.threadId = this.extractThreadId(thread);
+      session.emit("worker.codex.thread.started", { threadId: session.threadId, raw: thread });
+      await this.startTurn(session, input.prompt, input);
+      return this.handle(input, session);
+    } catch (error) {
+      this.removeSession(session, "start_failed");
+      throw error;
+    }
   }
 
   async status(handle: WorkerRunnerHandle): Promise<WorkerRunnerStatus | undefined> {
@@ -130,15 +146,7 @@ export class CodexAppServerRunner implements WorkerRunner {
 
   async shutdown(): Promise<void> {
     for (const session of this.sessions.values()) {
-      this.cancelCleanup(session);
-      for (const pending of session.pending.values()) pending.reject(new Error("Codex app-server runner shut down"));
-      session.pending.clear();
-      if (session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) {
-        session.child.stdin?.end();
-        session.child.kill("SIGTERM");
-      }
-      this.sessions.delete(session.key);
-      session.emit("worker.codex.session.removed", { threadId: session.threadId, reason: "shutdown" });
+      this.removeSession(session, "shutdown");
     }
   }
 
@@ -178,10 +186,9 @@ export class CodexAppServerRunner implements WorkerRunner {
             ? { status: "done", exitCode: 0, raw: { code, signal } }
             : { status: "error", exitCode: code ?? undefined, raw: { code, signal } };
       }
-      for (const pending of session.pending.values()) pending.reject(new Error(`Codex app-server exited before responding (${signal ?? code ?? "unknown"})`));
-      session.pending.clear();
+      this.rejectPending(session, new Error(`Codex app-server exited before responding (${signal ?? code ?? "unknown"})`));
       this.cancelCleanup(session);
-      this.scheduleRetentionCleanup(session);
+      if (this.sessions.get(session.key) === session) this.scheduleRetentionCleanup(session);
       session.emit("worker.codex.process.exit", { status: session.status.status, exitCode: session.status.exitCode, raw: session.status.raw });
     });
     child.stderr?.on("data", (chunk: Buffer) => session.emit("worker.codex.stderr", { text: chunk.toString("utf8") }));
@@ -211,7 +218,7 @@ export class CodexAppServerRunner implements WorkerRunner {
       model: input.workflow.agent.model ?? input.profile.model,
       approvalPolicy: codexApprovalPolicy(input),
       sandboxPolicy: codexSandboxPolicy(input),
-      effort: input.profile.reasoningEffort ?? input.profile.reasoning,
+      effort: reasoningEffortForRunner(input),
     });
     session.turnId = this.extractTurnId(result);
     session.activeTurn = true;
@@ -233,9 +240,19 @@ export class CodexAppServerRunner implements WorkerRunner {
     const id = session.nextId++;
     const payload = JSON.stringify({ jsonrpc: "2.0", id, method, params });
     return new Promise((resolve, reject) => {
-      session.pending.set(id, { resolve, reject });
+      const pending: PendingRequest = { resolve, reject, method };
+      const timeoutMs = this.options.requestTimeoutMs ?? 30_000;
+      pending.timer = setTimeout(() => {
+        session.pending.delete(id);
+        const error = new Error(`Codex app-server request timed out: ${method}`);
+        session.emit("worker.codex.request.timeout", { method, id, timeoutMs });
+        reject(error);
+      }, timeoutMs);
+      session.pending.set(id, pending);
       session.child.stdin?.write(`${payload}\n`, (error) => {
         if (!error) return;
+        const pending = session.pending.get(id);
+        if (pending?.timer) clearTimeout(pending.timer);
         session.pending.delete(id);
         reject(error);
       });
@@ -255,6 +272,7 @@ export class CodexAppServerRunner implements WorkerRunner {
   }
 
   private receive(session: CodexSession, line: string): void {
+    if (session.removed) return;
     if (!line.trim()) return;
     let message: JsonRpcMessage;
     try {
@@ -266,6 +284,7 @@ export class CodexAppServerRunner implements WorkerRunner {
     if ((typeof message.id === "string" || typeof message.id === "number") && session.pending.has(message.id)) {
       const pending = session.pending.get(message.id)!;
       session.pending.delete(message.id);
+      if (pending.timer) clearTimeout(pending.timer);
       if (message.error) pending.reject(new Error(message.error.message ?? "Codex app-server request failed"));
       else pending.resolve(message.result);
       return;
@@ -365,6 +384,7 @@ export class CodexAppServerRunner implements WorkerRunner {
   }
 
   private scheduleIdleCleanup(session: CodexSession): void {
+    if (session.removed) return;
     if (session.cleanupTimer) return;
     session.cleanupTimer = setTimeout(() => {
       session.child.stdin?.end();
@@ -374,10 +394,10 @@ export class CodexAppServerRunner implements WorkerRunner {
   }
 
   private scheduleRetentionCleanup(session: CodexSession): void {
+    if (session.removed) return;
     if (session.retentionTimer) return;
     session.retentionTimer = setTimeout(() => {
-      this.sessions.delete(session.key);
-      session.emit("worker.codex.session.removed", { threadId: session.threadId });
+      this.removeSession(session, "retention");
     }, this.options.terminalRetentionMs ?? 300_000);
   }
 
@@ -386,5 +406,26 @@ export class CodexAppServerRunner implements WorkerRunner {
     if (session.retentionTimer) clearTimeout(session.retentionTimer);
     session.cleanupTimer = undefined;
     session.retentionTimer = undefined;
+  }
+
+  private removeSession(session: CodexSession, reason: string): void {
+    if (session.removed) return;
+    session.removed = true;
+    this.cancelCleanup(session);
+    this.rejectPending(session, new Error(reason === "shutdown" ? "Codex app-server runner shut down" : `Codex app-server session removed: ${reason}`));
+    if (session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) {
+      session.child.stdin?.end();
+      session.child.kill("SIGTERM");
+    }
+    if (this.sessions.get(session.key) === session) this.sessions.delete(session.key);
+    session.emit("worker.codex.session.removed", { threadId: session.threadId, reason });
+  }
+
+  private rejectPending(session: CodexSession, error: Error): void {
+    for (const pending of session.pending.values()) {
+      if (pending.timer) clearTimeout(pending.timer);
+      pending.reject(error);
+    }
+    session.pending.clear();
   }
 }

@@ -9,7 +9,7 @@ export function resolveProfile(input: {
   workflow: WorkflowFrontmatter;
   profilesConfig: SubagentRuntimeProfile[];
 }): ProfileResolution {
-  const runner = input.workflow.agent?.runner ?? input.workflow.agent?.kind ?? "claude";
+  const runner = input.workflow.agent?.runner ?? input.workflow.agent?.kind ?? "pi";
   const name = input.workflow.agent?.profile ?? runner;
   const profile = new Map(input.profilesConfig.map((item) => [item.name, item])).get(name);
   if (!profile) {

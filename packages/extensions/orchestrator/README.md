@@ -118,6 +118,7 @@ workspace:
 agent:
   runner: pi
   model: null
+  thinking: medium
   max_concurrent: 3
   max_turns: 10
   turn_timeout_ms: 3600000
@@ -198,20 +199,27 @@ Path rules:
 
 ### `agent`
 
-- `runner`: orchestrator-owned protocol runner. Supported values are `pi`, `claude`, `codex`, `cli`, and `fake`. Default `pi`.
-- `command`: optional runner command, as a string or `[executable, ...args]` array. `pi`, `claude`, and `codex` have built-in defaults (`codex` defaults to `codex app-server`, matching Symphony), so `command` is optional for them and only needed to point at a wrapper or custom flags. `cli` requires an explicit executable command. Leading/trailing whitespace is trimmed; an empty string or empty array falls back to the runner default.
-- `profile`: optional legacy/default override. If `extensions.subagents.profiles[]` is present, matching profile values can still provide model/reasoning defaults; otherwise the orchestrator synthesizes protocol-runner defaults from `runner`.
+- `runner`: orchestrator-owned protocol runner. Supported values are `pi`, `claude`, `codex`, `cli`, and `fake`. Default `pi` when no profile runner is resolved. For legacy `agent.profile`-only workflows, the matched profile `cli` still selects the runner.
+- `command`: optional runner command, as an executable string or `[executable, ...args]` array. Use the array form when arguments are needed; string commands are not shell-split. `pi`, `claude`, and `codex` have built-in defaults (`codex` defaults to `codex app-server`, matching Symphony), so `command` is optional for them and only needed to point at a wrapper or custom flags. Pi and Claude custom protocol commands still receive workflow-managed model/thinking flags after the configured args. `cli` requires an explicit executable command. Leading/trailing whitespace is trimmed; an empty string or empty array falls back to the runner default.
+- `profile`: optional legacy/default override. If `extensions.subagents.profiles[]` is present, matching profile values can still provide runner/model/reasoning defaults; otherwise the orchestrator synthesizes protocol-runner defaults from `runner`.
 - `provider`: optional provider passed to the Pi runner (`pi --provider <provider>`). Use with `model` when Pi's default provider may not have credentials.
 - `model`: optional model passed to protocol runners that support it.
+- `thinking`: optional workflow-owned thinking/reasoning level. This is the preferred key and overrides profile/default thinking when present. Aliases are accepted for compatibility with existing AIHub config: `reasoning`, `reasoningEffort`, and `reasoning_effort`. If more than one key is set, precedence is `thinking`, `reasoningEffort`, `reasoning_effort`, then `reasoning`. Allowed values are runner-specific: Pi accepts `off`, `low`, `medium`, `high`, `xhigh`; Codex accepts `low`, `medium`, `high`, `xhigh`; Claude accepts `low`, `medium`, `high`, `xhigh`, `max`.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
 - `max_turns`: workflow hint for worker prompt/runtime.
-- `turn_timeout_ms`: per-turn time budget forwarded to runners. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. Core does not yet abort on expiry.
+- `turn_timeout_ms`: per-turn time budget hint. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. Core validates and stores this value but does not yet abort turns on expiry.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `300000` (5 minutes, Symphony parity).
 - `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended.
 
-`max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` must be positive numbers when set; invalid values fail config load.
+`thinking`, `max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` are validated when set. Invalid thinking values fail config load for explicit `runner` values and fail before runner startup when the effective runner comes from a profile.
 
 Runner config belongs in project `WORKFLOW.md`, not in `extensions.subagents`. AIHub profiles are runner defaults, not Symphony roles. No label-to-profile routing exists.
+
+Thinking mapping:
+
+- `pi`: `agent.thinking` maps to Pi `--thinking <off|low|medium|high|xhigh>` and overrides profile `thinking`.
+- `codex`: `agent.thinking` maps to the app-server model effort field (`effort`, equivalent to `reasoningEffort`) and overrides profile `reasoningEffort`/`reasoning`.
+- `claude`: `agent.thinking` maps to Claude Code `--effort <low|medium|high|xhigh|max>` and overrides profile `reasoningEffort`/`reasoning`. Claude Code does not use the older `--thinking` flag here.
 
 #### Runner examples
 
@@ -222,6 +230,7 @@ agent:
   runner: pi
   provider: anthropic
   model: claude-sonnet-4-6
+  thinking: high
   max_concurrent: 3
 ```
 
@@ -231,6 +240,7 @@ agent:
 agent:
   runner: claude
   model: claude-opus-4-8
+  thinking: max
   max_concurrent: 2
 ```
 
@@ -240,6 +250,7 @@ agent:
 agent:
   runner: codex
   model: gpt-5.3-codex
+  thinking: high
   max_concurrent: 2
   # command: [codex, app-server]   # optional override
   # settings:
@@ -253,7 +264,7 @@ agent:
 ```yaml
 agent:
   runner: cli
-  command: "my-agent-cli --headless"
+  command: [my-agent-cli, --headless]
   max_concurrent: 1
 ```
 

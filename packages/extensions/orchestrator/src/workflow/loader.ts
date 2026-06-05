@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { LinearIssue, WorkflowConfig, WorkflowFrontmatter, WorkflowSnapshot } from "../types.js";
+import { validateWorkflowThinkingForRunner } from "../worker-runner/thinking.js";
 
 const DEFAULT_ENDPOINT = "https://api.linear.app/graphql";
 const DEFAULT_ACTIVE = ["Todo", "In Progress"];
@@ -72,10 +73,11 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
   if (!apiKey) throw new Error("tracker.api_key is required");
   if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
   const agent = frontmatter.agent ?? {};
-  const runner = agent.runner ?? agent.kind ?? "pi";
-  if (runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
+  const runner = agent.runner ?? agent.kind;
+  if (runner && runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
   const cliCommand = normalizeCliCommand(agent.command);
   if (runner === "cli" && !cliCommand) throw new Error(`agent.command must provide an executable when agent.runner is ${runner}`);
+  if (runner) validateWorkflowThinkingForRunner(runner, agent);
   for (const [key, value] of Object.entries({
     "agent.max_turns": agent.max_turns,
     "agent.turn_timeout_ms": agent.turn_timeout_ms,
@@ -104,7 +106,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
       intervalMs: frontmatter.polling?.interval_ms ?? 30_000,
       jitterMs: frontmatter.polling?.jitter_ms ?? 5_000,
     },
-    agent: { ...agent, runner, command: runner === "cli" || runner === "codex" || runner === "pi" || runner === "claude" ? cliCommand : agent.command },
+    agent: { ...agent, ...(runner ? { runner } : {}), command: runner === "cli" || runner === "codex" || runner === "pi" || runner === "claude" || !runner ? cliCommand : agent.command },
     hooks: frontmatter.hooks ?? {},
     server: frontmatter.server,
     linear: frontmatter.linear,

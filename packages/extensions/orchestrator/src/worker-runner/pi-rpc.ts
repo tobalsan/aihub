@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import fsSync from "node:fs";
 import path from "node:path";
 import type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStartInput, WorkerRunnerStatus } from "./runner.js";
+import { piThinkingForRunner, validateWorkflowThinkingForRunner } from "./thinking.js";
 
 type PiCommandResponse = {
   id?: string | number | null;
@@ -48,15 +49,21 @@ function commandParts(input: WorkerRunnerStartInput): [string, ...string[]] {
   const command = input.workflow.agent.command;
   if (command) {
     const [cmd, ...args] = Array.isArray(command) ? command : [command];
-    if (cmd) return [cmd, ...args];
+    if (cmd) return [cmd, ...runnerArgs(input, args)];
   }
-  const args = ["--mode", "rpc", "--name", input.label];
+  return ["pi", ...runnerArgs(input, ["--mode", "rpc", "--name", input.label], path.join(input.workspace, ".aihub", "pi-sessions"))];
+}
+
+function runnerArgs(input: WorkerRunnerStartInput, args: string[], sessionDir?: string): string[] {
+  const next = [...args];
   const provider = input.workflow.agent.provider ?? input.profile.provider;
   const model = input.workflow.agent.model ?? input.profile.model;
-  if (provider) args.push("--provider", provider);
-  if (model) args.push("--model", model);
-  args.push("--session-dir", path.join(input.workspace, ".aihub", "pi-sessions"));
-  return ["pi", ...args];
+  if (provider) next.push("--provider", provider);
+  if (model) next.push("--model", model);
+  const thinking = piThinkingForRunner(input);
+  if (thinking) next.push("--thinking", thinking);
+  if (sessionDir) next.push("--session-dir", sessionDir);
+  return next;
 }
 
 export class PiRpcRunner implements WorkerRunner {
@@ -65,6 +72,7 @@ export class PiRpcRunner implements WorkerRunner {
   constructor(private readonly options: { idleCleanupMs?: number; terminalRetentionMs?: number; abortTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
 
   async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
+    validateWorkflowThinkingForRunner("pi", input.workflow.agent);
     const key = `${input.project.id}:${input.issue.id}:${input.workspace}`;
     const existing = this.sessions.get(key);
     if (existing && this.canReuse(existing)) {
