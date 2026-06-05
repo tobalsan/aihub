@@ -4,6 +4,7 @@ import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
 import type { LinearIssue, WorkflowConfig, WorkflowFrontmatter, WorkflowSnapshot } from "../types.js";
+import { validateWorkflowThinkingForRunner } from "../worker-runner/thinking.js";
 
 const DEFAULT_ENDPOINT = "https://api.linear.app/graphql";
 const DEFAULT_ACTIVE = ["Todo", "In Progress"];
@@ -54,6 +55,15 @@ function render(template: string, ctx: { issue?: LinearIssue; attempt?: number |
   });
 }
 
+function normalizeCliCommand(command: string | string[] | undefined): string | string[] | undefined {
+  if (typeof command === "string") return command.trim() || undefined;
+  if (Array.isArray(command)) {
+    const executable = command[0];
+    return typeof executable === "string" && executable.trim() ? [executable.trim(), ...command.slice(1)] : undefined;
+  }
+  return undefined;
+}
+
 function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): WorkflowConfig {
   const tracker = frontmatter.tracker ?? {};
   const legacyStates = tracker.states ?? {};
@@ -62,6 +72,20 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
   const apiKey = expandEnv(tracker.api_key, "$LINEAR_API_KEY");
   if (!apiKey) throw new Error("tracker.api_key is required");
   if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
+  const agent = frontmatter.agent ?? {};
+  const runner = agent.runner ?? agent.kind;
+  if (runner && runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
+  const cliCommand = normalizeCliCommand(agent.command);
+  if (runner === "cli" && !cliCommand) throw new Error(`agent.command must provide an executable when agent.runner is ${runner}`);
+  if (runner) validateWorkflowThinkingForRunner(runner, agent);
+  for (const [key, value] of Object.entries({
+    "agent.max_turns": agent.max_turns,
+    "agent.turn_timeout_ms": agent.turn_timeout_ms,
+    "agent.stall_timeout_ms": agent.stall_timeout_ms,
+    "agent.max_concurrent": agent.max_concurrent,
+  })) {
+    if (value !== undefined && (!Number.isFinite(value) || value <= 0)) throw new Error(`${key} must be a positive number`);
+  }
   return {
     tracker: {
       kind,
@@ -82,7 +106,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
       intervalMs: frontmatter.polling?.interval_ms ?? 30_000,
       jitterMs: frontmatter.polling?.jitter_ms ?? 5_000,
     },
-    agent: frontmatter.agent ?? {},
+    agent: { ...agent, ...(runner ? { runner } : {}), command: runner === "cli" || runner === "codex" || runner === "pi" || runner === "claude" || !runner ? cliCommand : agent.command },
     hooks: frontmatter.hooks ?? {},
     server: frontmatter.server,
     linear: frontmatter.linear,

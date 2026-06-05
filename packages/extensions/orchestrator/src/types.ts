@@ -53,7 +53,18 @@ export type WorkflowFrontmatter = {
   workspace?: { root?: string; cleanup_on_terminal?: boolean; reuse?: boolean };
   agent?: {
     profile?: string;
+    kind?: "fake" | "cli" | "codex" | "pi" | "claude";
+    runner?: "fake" | "cli" | "codex" | "pi" | "claude";
+    command?: string | string[];
+    provider?: string;
+    model?: string;
+    thinking?: string;
+    reasoning?: string;
+    reasoningEffort?: string;
+    reasoning_effort?: string;
+    settings?: Record<string, unknown>;
     max_turns?: number;
+    turn_timeout_ms?: number;
     stall_timeout_ms?: number;
     max_concurrent?: number;
   };

@@ -9,9 +9,6 @@ AIHub config lists project folders and supervisor limits only:
 ```json
 {
   "extensions": {
-    "subagents": {
-      "profiles": [{ "name": "worker", "cli": "codex" }]
-    },
     "orchestrator": {
       "projects": ["./projects/aihub"],
       "projectsRoot": "~/projects",
@@ -22,6 +19,7 @@ AIHub config lists project folders and supervisor limits only:
 ```
 
 Each project folder must contain uppercase `WORKFLOW.md`.
+Orchestrator workers run through orchestrator-owned protocol runners configured in each project `WORKFLOW.md`; the `subagents` extension is not required for orchestrator dispatch. The separate `subagents` extension remains available for manual/generic project runs.
 
 ### `extensions.orchestrator` schema
 
@@ -64,7 +62,7 @@ No orchestrator repo map, default repo, worktree, poll interval, or `workspacesR
 Bootstrap a Linear project and local orchestrator project folder:
 
 ```bash
-pnpm aihub:dev orchestrator init-project "Foo Bar" --profile worker
+pnpm aihub:dev orchestrator init-project "Foo Bar"
 ```
 
 The command:
@@ -84,15 +82,14 @@ Generate starter workflow explicitly:
 ```bash
 pnpm aihub:dev orchestrator init-workflow \
   --project ./projects/aihub \
-  --project-slug aihub \
-  --profile worker
+  --project-slug aihub
 ```
 
 Options:
 
 - `--project <path>`: project folder to create/update.
 - `--project-slug <slug>`: Linear project `slugId` used for polling.
-- `--profile <name>`: AIHub subagent profile, default `worker`.
+- `--profile <name>`: optional orchestrator profile override. When omitted, the runner supplies protocol defaults.
 - `--force`: overwrite existing `WORKFLOW.md`.
 
 The generator never creates a global fallback workflow. It only writes project-owned `WORKFLOW.md`.
@@ -119,10 +116,13 @@ workspace:
   cleanup_on_terminal: false
   reuse: true
 agent:
-  profile: worker
+  runner: pi
+  model: null
+  thinking: medium
   max_concurrent: 3
   max_turns: 10
-  stall_timeout_ms: 1800000
+  turn_timeout_ms: 3600000
+  stall_timeout_ms: 300000
 hooks:
   after_create: null
   before_run: null
@@ -200,12 +200,82 @@ Path rules:
 
 ### `agent`
 
-- `profile`: AIHub subagent profile name. Must exist in `extensions.subagents.profiles[]`.
+- `runner`: orchestrator-owned protocol runner. Supported values are `pi`, `claude`, `codex`, `cli`, and `fake`. Default `pi` when no profile runner is resolved. For legacy `agent.profile`-only workflows, the matched profile `cli` still selects the runner.
+- `command`: optional runner command, as an executable string or `[executable, ...args]` array. Use the array form when arguments are needed; string commands are not shell-split. `pi`, `claude`, and `codex` have built-in defaults (`codex` defaults to `codex app-server`, matching Symphony), so `command` is optional for them and only needed to point at a wrapper or custom flags. Pi and Claude custom protocol commands still receive workflow-managed model/thinking flags after the configured args. `cli` requires an explicit executable command. Leading/trailing whitespace is trimmed; an empty string or empty array falls back to the runner default.
+- `profile`: optional legacy/default override. If `extensions.subagents.profiles[]` is present, matching profile values can still provide runner/model/reasoning defaults; otherwise the orchestrator synthesizes protocol-runner defaults from `runner`.
+- `provider`: optional provider passed to the Pi runner (`pi --provider <provider>`). Use with `model` when Pi's default provider may not have credentials.
+- `model`: optional model passed to protocol runners that support it.
+- `thinking`: optional workflow-owned thinking/reasoning level. This is the preferred key and overrides profile/default thinking when present. Aliases are accepted for compatibility with existing AIHub config: `reasoning`, `reasoningEffort`, and `reasoning_effort`. If more than one key is set, precedence is `thinking`, `reasoningEffort`, `reasoning_effort`, then `reasoning`. Allowed values are runner-specific: Pi accepts `off`, `low`, `medium`, `high`, `xhigh`; Codex accepts `low`, `medium`, `high`, `xhigh`; Claude accepts `low`, `medium`, `high`, `xhigh`, `max`.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
 - `max_turns`: workflow hint for worker prompt/runtime.
-- `stall_timeout_ms`: time without observed events before parking/stall handling. Default `1800000`.
+- `turn_timeout_ms`: per-turn time budget hint. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. Core validates and stores this value but does not yet abort turns on expiry.
+- `stall_timeout_ms`: time without observed events before parking/stall handling. Default `300000` (5 minutes, Symphony parity).
+- `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended. Claude reads `permissionMode`/`permission_mode` and defaults to `--permission-mode bypassPermissions` so workers run unattended; override via `agent.settings.permissionMode` in `WORKFLOW.md`.
 
-AIHub profiles are runner adapters, not Symphony roles. No label-to-profile routing exists.
+`thinking`, `max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` are validated when set. Invalid thinking values fail config load for explicit `runner` values and fail before runner startup when the effective runner comes from a profile.
+
+Runner config belongs in project `WORKFLOW.md`, not in `extensions.subagents`. AIHub profiles are runner defaults, not Symphony roles. No label-to-profile routing exists.
+
+Thinking mapping:
+
+- `pi`: `agent.thinking` maps to Pi `--thinking <off|low|medium|high|xhigh>` and overrides profile `thinking`.
+- `codex`: `agent.thinking` maps to the app-server model effort field (`effort`, equivalent to `reasoningEffort`) and overrides profile `reasoningEffort`/`reasoning`.
+- `claude`: `agent.thinking` maps to Claude Code `--effort <low|medium|high|xhigh|max>` and overrides profile `reasoningEffort`/`reasoning`. Claude Code does not use the older `--thinking` flag here.
+
+#### Runner examples
+
+`pi` (default) — built-in RPC, no `command` needed:
+
+```yaml
+agent:
+  runner: pi
+  provider: anthropic
+  model: claude-sonnet-4-6
+  thinking: high
+  max_concurrent: 3
+```
+
+`claude` — built-in RPC, optional `model`:
+
+```yaml
+agent:
+  runner: claude
+  model: claude-opus-4-8
+  thinking: max
+  max_concurrent: 2
+```
+
+`codex` — speaks the Codex app-server JSON-RPC protocol; `command` defaults to `codex app-server`, override only for a wrapper or custom flags:
+
+```yaml
+agent:
+  runner: codex
+  model: gpt-5.3-codex
+  thinking: high
+  max_concurrent: 2
+  # command: [codex, app-server]   # optional override
+  # settings:
+  #   approvalPolicy: never
+  #   sandboxPolicy:
+  #     type: dangerFullAccess
+```
+
+`cli` — generic CLI harness; `command` required:
+
+```yaml
+agent:
+  runner: cli
+  command: [my-agent-cli, --headless]
+  max_concurrent: 1
+```
+
+`fake` — in-memory stub for tests/dry runs; no external process:
+
+```yaml
+agent:
+  runner: fake
+  max_turns: 4
+```
 
 ### `hooks`
 
@@ -277,7 +347,8 @@ Repo bootstrap should prefer deterministic hooks/tooling. Prompt-driven cloning 
 - Candidate issues are filtered by Linear project `slugId`.
 - Workspace directories are per issue under `workspace.root`.
 - Core orchestrator does not create git clones or worktrees.
-- Gateway owns worker lifetime; workers stop with gateway.
+- Gateway owns orchestrator worker lifetime; workers stop with gateway.
+- Orchestrator dashboard/API surfaces orchestrator `worker_id`, worker status events, and persisted worker logs/events. It does not call `/api/subagents` for dispatched work.
 - Restart recovery uses Linear state + preserved workspace directories. SQLite is observability/history.
 
 Useful commands:

@@ -4,7 +4,6 @@ import { Hono } from "hono";
 import { z } from "zod";
 import type { Extension, ExtensionContext, ExtensionAgentTool } from "@aihub/shared";
 import { OrchestratorExtensionConfigSchema } from "@aihub/shared";
-import { interruptSubagentRun } from "@aihub/extension-subagents";
 import { LinearClient } from "./linear/client.js";
 import { WorkflowLoader } from "./workflow/loader.js";
 import { StateStore } from "./state/store.js";
@@ -26,36 +25,6 @@ function config(): z.infer<typeof OrchestratorExtensionConfigSchema> { return Or
 function workflowLoader() { return sharedWorkflowLoader ??= new WorkflowLoader(ctx!.getDataDir()); }
 function unavailable(c: any) { return c.json({ error: "orchestrator disabled" }, 503); }
 
-function apiBase(): string {
-  const envUrl = process.env.AIHUB_API_URL ?? process.env.AIHUB_URL;
-  if (envUrl) {
-    const trimmed = envUrl.replace(/\/$/, "").replace(/\/aihub$/, "");
-    return trimmed.endsWith("/api") ? trimmed : `${trimmed}/api`;
-  }
-  const gateway = ctx?.getConfig().gateway;
-  const host = gateway?.host ?? "127.0.0.1";
-  const port = gateway?.port ?? 4000;
-  return `http://${host}:${port}/api`;
-}
-
-async function callSubagents(pathname: string, init?: RequestInit) {
-  const response = await fetch(`${apiBase()}${pathname}`, init);
-  if (!response.ok) throw new Error(await response.text());
-  const contentType = response.headers.get("content-type") ?? "";
-  return contentType.includes("application/json") ? response.json() : response.text();
-}
-
-async function startSubagent(body: Record<string, unknown>) {
-  return callSubagents("/subagents", { method: "POST", headers: { "content-type": "application/json" }, body: JSON.stringify(body) });
-}
-
-async function getSubagentRun(runId: string) { return callSubagents(`/subagents/${encodeURIComponent(runId)}`); }
-async function stopSubagent(runId: string) { return callSubagents(`/subagents/${encodeURIComponent(runId)}`, { method: "DELETE" }); }
-async function stopSubagentDirect(runId: string) {
-  if (!ctx) throw new Error("orchestrator context missing");
-  return interruptSubagentRun({ dataDir: ctx.getDataDir(), emit: (event) => ctx?.emit("subagent.changed", event) }, runId);
-}
-
 const REDACTED = "[redacted]";
 
 function redactWorkflowSnapshot<T extends Record<string, any>>(snapshot: T): T {
@@ -70,12 +39,6 @@ function redactWorkflowSnapshot<T extends Record<string, any>>(snapshot: T): T {
       tracker: { ...snapshot.config?.tracker, apiKey: REDACTED },
     },
   };
-}
-
-function runSubagentId(id: string, projectId?: string): string | undefined {
-  const row = store?.getRun(id, projectId);
-  const value = row?.subagent_run_id;
-  return typeof value === "string" && value ? value : undefined;
 }
 
 async function runBeforeRemove(row: Record<string, unknown> | undefined) {
@@ -99,6 +62,126 @@ async function runBeforeRemove(row: Record<string, unknown> | undefined) {
       LINEAR_API_KEY: undefined,
     },
   }).catch((error) => store?.appendEvent(runId, "hook.before_remove.error", { error: error instanceof Error ? error.message : String(error) }, typeof row.project_id === "string" ? row.project_id : undefined));
+}
+
+function eventPayload(row: Record<string, unknown>): unknown {
+  const payload = row.payload;
+  if (typeof payload !== "string") return payload;
+  try { return JSON.parse(payload); } catch { return payload; }
+}
+
+function recordValue(value: unknown): Record<string, unknown> | undefined {
+  return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
+}
+
+function stripAnsi(value: string): string {
+  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\[[0-9;]*m/g, "");
+}
+
+function contentText(value: unknown): string | undefined {
+  if (!Array.isArray(value)) return undefined;
+  const parts = value.flatMap((part) => {
+    const record = recordValue(part);
+    const text = record?.text ?? record?.thinking;
+    return typeof text === "string" ? [text] : [];
+  });
+  return parts.length ? stripAnsi(parts.join("\n")) : undefined;
+}
+
+function eventLogText(type: string | undefined, payload: unknown): string {
+  const record = recordValue(payload);
+  if (type === "worker.pi.message_update" || type === "worker.pi.thinking") return "";
+  const item = recordValue(record?.item);
+  const delta = recordValue(record?.delta);
+  const assistant = recordValue(record?.assistantMessageEvent);
+  const content = recordValue(record?.content);
+  const message = recordValue(record?.message);
+  const assistantType = typeof assistant?.type === "string" ? assistant.type : "";
+  const messageRole = typeof message?.role === "string" ? message.role : "";
+  if (type === "worker.pi.message" && messageRole === "user") return "";
+  if (type === "worker.pi.message" && (!messageRole || assistantType.endsWith("_delta") || assistantType.endsWith("_start"))) return "";
+  const recordMessage = typeof record?.message === "string" ? record.message : undefined;
+  const text = record?.text ?? recordMessage ?? record?.error ?? item?.text ?? item?.message ?? item?.command ?? item?.aggregated_output ?? delta?.text ?? delta?.partial_json ?? assistant?.text ?? assistant?.delta ?? content?.text ?? message?.content;
+  if (typeof text === "string") return stripAnsi(text);
+  return contentText(message?.content) ?? contentText(assistant?.partial) ?? "";
+}
+
+function normalizeLogType(type: string | undefined): string | undefined {
+  if (!type) return type;
+  if (type.endsWith(".message") || type.endsWith(".message_update") || type.endsWith(".agent_message")) return "assistant";
+  if (type.endsWith(".thinking")) return "thinking";
+  if (type.endsWith(".user_prompt")) return "user";
+  if (type.endsWith(".tool_output")) return "tool_output";
+  if (type.endsWith(".tool") || type.includes("commandExecution") || type.includes("tool_execution")) return "tool_call";
+  if (type.endsWith(".stderr") || type.endsWith(".process.error") || type.endsWith(".start.error") || type.endsWith(".protocol.error")) return "error";
+  return type;
+}
+
+function workerLogs(runId: string, since: number): { cursor: number; events: Array<Record<string, unknown>> } {
+  const rows = (store?.listEvents(runId, since) ?? []) as Array<Record<string, unknown>>;
+  return {
+    cursor: rows.reduce((max, row) => Math.max(max, Number(row.id ?? 0)), since),
+    events: rows.map((row) => {
+      const payload = eventPayload(row);
+      const rawType = typeof row.type === "string" ? row.type : undefined;
+      return { id: row.id, type: normalizeLogType(rawType), rawType, timestamp: row.created_at, text: eventLogText(rawType, payload), payload };
+    }),
+  };
+}
+
+function workerSummary(runId: string): Record<string, unknown> {
+  const rows = (store?.listEvents(runId, 0) ?? []) as Array<Record<string, unknown>>;
+  for (let index = rows.length - 1; index >= 0; index -= 1) {
+    const row = rows[index];
+    const type = typeof row?.type === "string" ? row.type : "";
+    if (type !== "worker.status" && type !== "worker.started") continue;
+    const payload = eventPayload(row);
+    if (!payload || typeof payload !== "object" || Array.isArray(payload)) continue;
+    const record = payload as Record<string, unknown>;
+    return {
+      worker_id: typeof record.id === "string" ? record.id : undefined,
+      worker_kind: typeof record.kind === "string" ? record.kind : undefined,
+      worker_status: typeof record.status === "string" ? record.status : type === "worker.started" ? "running" : undefined,
+      worker_exit_code: typeof record.exitCode === "number" ? record.exitCode : undefined,
+    };
+  }
+  return {};
+}
+
+function activeRuns(project?: string, issue?: string): Array<Record<string, unknown>> {
+  const seen = new Set<string>();
+  const rows: Array<Record<string, unknown>> = [];
+  for (const claim of claims.list({ projectId: project })) {
+    if (issue && claim.issueId !== issue && claim.runId !== issue) continue;
+    const run = store?.getRun(claim.runId, claim.projectId) ?? store?.getOpenRunByIssue(claim.issueId, claim.projectId);
+    const worker = typeof run?.worker_id === "string" ? run.worker_id : undefined;
+    const summary = workerSummary(claim.runId);
+    seen.add(claim.runId);
+    rows.push({
+      ...claim,
+      run,
+      ...summary,
+      worker_id: typeof summary.worker_id === "string" ? summary.worker_id : worker,
+    });
+  }
+  for (const run of store?.listOpenRuns(project) ?? []) {
+    const runId = typeof run.run_id === "string" ? run.run_id : "";
+    if (!runId || seen.has(runId)) continue;
+    if (issue && run.issue_id !== issue && run.identifier !== issue && runId !== issue) continue;
+    const summary = workerSummary(runId);
+    rows.push({
+      projectId: run.project_id,
+      issueId: run.issue_id,
+      runId,
+      identifier: run.identifier,
+      claimedAt: run.started_at,
+      lastEventAt: run.started_at,
+      run,
+      ...summary,
+      worker_id: typeof summary.worker_id === "string" ? summary.worker_id : run.worker_id,
+    });
+  }
+  return rows;
 }
 
 export function verifyWebhookSignature(secret: string, body: string, signature: string | undefined): boolean {
@@ -146,7 +229,7 @@ function register(app: Hono) {
   app.get("/orchestrator/runs", (c) => {
     const issue = c.req.query("issue");
     const project = c.req.query("project");
-    const active = claims.list({ projectId: project }).filter((claim) => !issue || claim.issueId === issue);
+    const active = activeRuns(project, issue);
     const recent = (store?.listRecent(Number(c.req.query("limit") ?? 50), project) ?? []).filter((run: any) => !issue || run.issue_id === issue || run.issueId === issue);
     return c.json({ active, recent });
   });
@@ -158,23 +241,31 @@ function register(app: Hono) {
     return c.json({ claim: claims.get(id, project), run, events: store?.listEvents(runId, Number(c.req.query("since") ?? 0)) ?? [] });
   });
   app.get("/orchestrator/runs/:id/logs", async (c) => {
-    const subagentRunId = runSubagentId(c.req.param("id"), c.req.query("project"));
-    if (!subagentRunId) return c.json({ error: "subagent run not found" }, 404);
-    const since = c.req.query("since") ?? "0";
-    return c.json(await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}/logs?since=${encodeURIComponent(since)}`));
+    const run = store?.getRun(c.req.param("id"), c.req.query("project"));
+    const runId = typeof run?.run_id === "string" ? run.run_id : c.req.param("id");
+    return c.json(workerLogs(runId, Number(c.req.query("since") ?? 0)));
   });
-  app.post("/orchestrator/runs/:issueId/release", (c) => { const id = c.req.param("issueId"); const project = c.req.query("project"); claims.release(id, project); store?.release(id, project); return c.json({ ok: true }); });
+  app.post("/orchestrator/runs/:issueId/release", async (c) => {
+    const id = c.req.param("issueId");
+    const project = c.req.query("project");
+    const row = store?.getRun(id, project);
+    const projectId = typeof row?.project_id === "string" ? row.project_id : project ?? "default";
+    const issueId = typeof row?.issue_id === "string" ? row.issue_id : id;
+    await daemon?.releaseRun(projectId, issueId, "released");
+    if (!daemon) { claims.release(issueId, projectId); store?.release(issueId, projectId); }
+    return c.json({ ok: true });
+  });
   app.post("/orchestrator/runs/:id/interrupt", async (c) => {
-    const subagentRunId = runSubagentId(c.req.param("id"), c.req.query("project"));
-    if (!subagentRunId) return c.json({ error: "subagent run not found" }, 404);
-    return c.json(await callSubagents(`/subagents/${encodeURIComponent(subagentRunId)}/interrupt`, { method: "POST" }));
+    const id = c.req.param("id");
+    const project = c.req.query("project");
+    await daemon?.interruptWorker(id, project);
+    return c.json({ ok: true });
   });
   app.post("/orchestrator/runs/:id/kill", async (c) => {
     const id = c.req.param("id");
     const project = c.req.query("project");
     const row = store?.getRun(id, project);
-    const subagentRunId = runSubagentId(id, project);
-    if (subagentRunId) await stopSubagent(subagentRunId).catch(() => undefined);
+    await daemon?.interruptWorker(id, project).catch(() => undefined);
     await runBeforeRemove(row);
     const identifier = typeof row?.identifier === "string" ? row.identifier : undefined;
     const workflowPath = typeof row?.workflow_path === "string" ? row.workflow_path : undefined;
@@ -229,7 +320,7 @@ export const orchestratorExtension: Extension = {
   id: "orchestrator",
   displayName: "Orchestrator",
   description: "Linear-backed issue orchestrator",
-  dependencies: ["subagents"],
+  dependencies: [],
   configSchema: OrchestratorExtensionConfigSchema,
   routePrefixes: ["/api/orchestrator"],
   validateConfig(raw) { const parsed = OrchestratorExtensionConfigSchema.safeParse(raw ?? {}); return { valid: parsed.success, errors: parsed.success ? [] : parsed.error.issues.map((i) => i.message) }; },
@@ -240,7 +331,7 @@ export const orchestratorExtension: Extension = {
     store = new StateStore(path.join(context.getDataDir(), "orchestrator", "state.db"));
     store.bootstrap();
     store.heartbeat();
-    daemon = new OrchestratorDaemon({ ctx: context, store, claims, getConfig: config, startSubagent, getSubagentRun, stopSubagent: stopSubagentDirect, workflowLoader: sharedWorkflowLoader, createLinearClient: ({ apiKey, endpoint }) => new LinearClient(apiKey, endpoint) });
+    daemon = new OrchestratorDaemon({ ctx: context, store, claims, getConfig: config, workflowLoader: sharedWorkflowLoader, createLinearClient: ({ apiKey, endpoint }) => new LinearClient(apiKey, endpoint) });
     try { await daemon.start(); } catch (error) { daemon.notifyStartupError(error); throw error; }
   },
   async stop() { await daemon?.stop(); store?.close(); ctx = undefined; store = undefined; daemon = undefined; sharedWorkflowLoader = undefined; },
@@ -259,3 +350,8 @@ export { ClaimsRegistry } from "./daemon/claims.js";
 export { StateStore } from "./state/store.js";
 export { RetryPolicy } from "./retry/policy.js";
 export { OrchestratorDaemon } from "./daemon/daemon.js";
+export { WorkflowWorkerRunner, FakeWorkerRunner, CliWorkerRunner } from "./worker-runner/runner.js";
+export { CodexAppServerRunner } from "./worker-runner/codex-app-server.js";
+export { PiRpcRunner } from "./worker-runner/pi-rpc.js";
+export { ClaudeRpcRunner } from "./worker-runner/claude-rpc.js";
+export type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStatus, WorkerRunnerStartInput } from "./worker-runner/runner.js";

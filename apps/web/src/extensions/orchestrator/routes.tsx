@@ -34,6 +34,10 @@ function runId(run: AnyRun): string {
   return String(run.runId ?? run.run_id ?? run.issueId ?? run.issue_id ?? "");
 }
 
+function workerId(run: AnyRun): string {
+  return String((run as OrchestratorRun).workerId ?? (run as OrchestratorRun).worker_id ?? "");
+}
+
 function displayId(run: AnyRun): string {
   const ident = run.identifier;
   if (typeof ident === "string" && ident) return ident;
@@ -149,8 +153,10 @@ type AgentTranscriptItem =
       role: "user" | "assistant";
       content: string;
       files?: FileBlock[];
+      timestamp?: string;
     }
-  | { type: "thinking"; content: string }
+  | { type: "thinking"; content: string; timestamp?: string }
+  | { type: "callout"; content: string; severity: "error" | "warning"; timestamp?: string }
   | {
       type: "tool";
       id?: string;
@@ -159,8 +165,9 @@ type AgentTranscriptItem =
       body?: string;
       result?: FullToolResultMessage;
       status?: "running" | "done" | "error";
+      timestamp?: string;
     }
-  | { type: "file"; content: string };
+  | { type: "file"; content: string; timestamp?: string };
 
 function formatJson(value: unknown): string {
   try {
@@ -192,8 +199,21 @@ function stringifyToolArgs(text: string) {
   return parsed ?? { input: text };
 }
 
+function eventTimestamp(event: OrchestratorLogEvent): string | undefined {
+  return typeof event.timestamp === "string" ? event.timestamp : undefined;
+}
+
+function formatLogTimestamp(value?: string): string {
+  if (!value) return "";
+  const date = new Date(value);
+  if (Number.isNaN(date.getTime())) return value;
+  return date.toLocaleTimeString([], { hour: "2-digit", minute: "2-digit", second: "2-digit" });
+}
+
 function eventToTranscriptItem(event: OrchestratorLogEvent): AgentTranscriptItem | null {
-  const tool = getRecord(event.tool);
+  const payload = getRecord(event.payload);
+  const payloadItem = getRecord(payload?.item);
+  const tool = getRecord(event.tool) ?? payloadItem;
   const diff = getRecord(event.diff);
   const text = (
     (typeof event.text === "string" ? event.text : "") ||
@@ -203,21 +223,29 @@ function eventToTranscriptItem(event: OrchestratorLogEvent): AgentTranscriptItem
   if (!text) return null;
 
   if (event.type === "stderr" || event.type === "error") {
-    return { type: "text", role: "assistant", content: text };
+    const severity = /\bwarn(ing)?\b/i.test(text) ? "warning" : "error";
+    return { type: "callout", severity, content: text, timestamp: eventTimestamp(event) };
   }
   if (event.type === "tool_call" || event.type === "tool_output") {
+    const toolName = typeof tool?.name === "string"
+      ? tool.name
+      : typeof tool?.type === "string"
+        ? tool.type
+        : "tool";
     return {
       type: "tool",
       id: typeof tool?.id === "string" ? tool.id : undefined,
-      toolName: typeof tool?.name === "string" ? tool.name : "tool",
-      args: stringifyToolArgs(text),
+      toolName,
+      args: tool ?? stringifyToolArgs(text),
       body: event.type === "tool_output" ? text : undefined,
       status: event.type === "tool_output" ? "done" : "running",
+      timestamp: eventTimestamp(event),
     };
   }
-  if (event.type === "user") return { type: "text", role: "user", content: text };
+  if (event.type === "thinking") return { type: "thinking", content: text, timestamp: eventTimestamp(event) };
+  if (event.type === "user") return { type: "text", role: "user", content: text, timestamp: eventTimestamp(event) };
   if (event.type === "assistant") {
-    return { type: "text", role: "assistant", content: text };
+    return { type: "text", role: "assistant", content: text, timestamp: eventTimestamp(event) };
   }
 
   const parsed = logParseJsonRecord(text);
@@ -227,19 +255,19 @@ function eventToTranscriptItem(event: OrchestratorLogEvent): AgentTranscriptItem
       : null;
   }
 
-  const payload = getRecord(parsed.payload);
-  if (parsed.type === "event_msg" && payload?.type === "user_message") {
-    const message = typeof payload.message === "string" ? payload.message : "";
-    return message ? { type: "text", role: "user", content: message } : null;
+  const parsedPayload = getRecord(parsed.payload);
+  if (parsed.type === "event_msg" && parsedPayload?.type === "user_message") {
+    const message = typeof parsedPayload.message === "string" ? parsedPayload.message : "";
+    return message ? { type: "text", role: "user", content: message, timestamp: eventTimestamp(event) } : null;
   }
-  if (parsed.type === "event_msg" && payload?.type === "agent_message") {
-    const message = typeof payload.message === "string" ? payload.message : "";
+  if (parsed.type === "event_msg" && parsedPayload?.type === "agent_message") {
+    const message = typeof parsedPayload.message === "string" ? parsedPayload.message : "";
     return message
-      ? { type: "text", role: "assistant", content: message }
+      ? { type: "text", role: "assistant", content: message, timestamp: eventTimestamp(event) }
       : null;
   }
 
-  const item = getRecord(parsed.item);
+  const item = getRecord(parsed.item) ?? getRecord(parsedPayload?.item);
   if (item?.type === "command_execution") {
     const command = typeof item.command === "string" ? item.command : "";
     const output =
@@ -266,8 +294,26 @@ function eventToTranscriptItem(event: OrchestratorLogEvent): AgentTranscriptItem
   return null;
 }
 
+function hasFinalMessagePayload(event: OrchestratorLogEvent): string | undefined {
+  const item = getRecord(getRecord(event.payload)?.item);
+  if (!item) return undefined;
+  const id = typeof item.id === "string" ? item.id : undefined;
+  const itemType = typeof item.type === "string" ? item.type : "";
+  const hasText = typeof item.text === "string" || typeof item.message === "string";
+  return id && /agentMessage|message/i.test(itemType) && hasText ? id : undefined;
+}
+
+function isDeltaForFinalMessage(event: OrchestratorLogEvent, finalIds: Set<string>): boolean {
+  const payload = getRecord(event.payload);
+  const itemId = typeof payload?.itemId === "string" ? payload.itemId : undefined;
+  if (!itemId || !finalIds.has(itemId)) return false;
+  return typeof payload?.delta === "string" || getRecord(payload?.delta) !== null;
+}
+
 function transcriptItems(events: OrchestratorLogEvent[]): AgentTranscriptItem[] {
+  const finalMessageIds = new Set(events.map(hasFinalMessagePayload).filter((id): id is string => !!id));
   return events
+    .filter((event) => !isDeltaForFinalMessage(event, finalMessageIds))
     .map(eventToTranscriptItem)
     .filter((item): item is AgentTranscriptItem => item !== null);
 }
@@ -316,7 +362,11 @@ function truncateInline(value: string, max = 96): string {
     : singleLine;
 }
 
-function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }) {
+function ToolLog(props: {
+  item: Extract<AgentTranscriptItem, { type: "tool" }>;
+  collapsed: () => boolean;
+  onToggle: () => void;
+}) {
   const argsText = () => formatJson(props.item.args);
   const resultText = () =>
     getToolResultText(props.item.result) || props.item.body || "";
@@ -325,30 +375,21 @@ function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }
   const summary = () =>
     truncateInline(getToolInputSummary(props.item.toolName, props.item.args));
   const preview = () => truncateInline(resultText() || argsText(), 120);
-  const [collapsed, setCollapsed] = createSignal(Boolean(resultText()));
-  const [autoCollapsed, setAutoCollapsed] = createSignal(Boolean(resultText()));
-
-  createEffect(() => {
-    if (resultText() && !autoCollapsed()) {
-      setCollapsed(true);
-      setAutoCollapsed(true);
-    }
-  });
 
   return (
     <div class={`orch-tool-block ${failed() ? "error" : ""}`}>
       <button
         class="orch-tool-header"
-        onClick={() => setCollapsed(!collapsed())}
+        onClick={() => props.onToggle()}
       >
-        <span class="orch-collapse-icon">{collapsed() ? "▶" : "▼"}</span>
+        <span class="orch-collapse-icon">{props.collapsed() ? "▶" : "▼"}</span>
         <span class="orch-tool-kind">{props.item.toolName}</span>
         <span class="orch-tool-title">{summary()}</span>
-        <Show when={collapsed()}>
+        <Show when={props.collapsed()}>
           <span class="orch-tool-preview">{preview()}</span>
         </Show>
       </button>
-      <Show when={!collapsed()}>
+      <Show when={!props.collapsed()}>
         <div class="orch-tool-body">
           <Show
             when={
@@ -391,19 +432,38 @@ function ToolLog(props: { item: Extract<AgentTranscriptItem, { type: "tool" }> }
 
 function ThinkingLog(props: {
   item: Extract<AgentTranscriptItem, { type: "thinking" }>;
+  collapsed: () => boolean;
+  onToggle: () => void;
 }) {
   return (
-    <details class="orch-log-details orch-log-thinking">
-      <summary class="orch-log-summary">
+    <div class="orch-log-details orch-log-thinking">
+      <button class="orch-log-summary" onClick={() => props.onToggle()}>
+        <span class="orch-collapse-icon">{props.collapsed() ? "▶" : "▼"}</span>
         <span class="orch-log-thinking-label">Thinking</span>
-      </summary>
-      <pre class="orch-log-pre">{props.item.content}</pre>
-    </details>
+      </button>
+      <Show when={!props.collapsed()}>
+        <pre class="orch-log-pre">{props.item.content}</pre>
+      </Show>
+    </div>
   );
 }
 
 function DiffLog(props: { item: Extract<AgentTranscriptItem, { type: "file" }> }) {
   return <pre class="orch-log-pre">{props.item.content}</pre>;
+}
+
+function CalloutLog(props: { item: Extract<AgentTranscriptItem, { type: "callout" }> }) {
+  return (
+    <div class="orch-callout" data-severity={props.item.severity}>
+      <div class="orch-callout-head">
+        <span>{props.item.severity === "warning" ? "Warning" : "Error"}</span>
+        <Show when={props.item.timestamp}>
+          <span class="orch-callout-time">{formatLogTimestamp(props.item.timestamp)}</span>
+        </Show>
+      </div>
+      <pre class="orch-callout-body">{props.item.content}</pre>
+    </div>
+  );
 }
 
 function FileList(props: { files?: FileBlock[] }) {
@@ -432,7 +492,6 @@ function FileList(props: { files?: FileBlock[] }) {
 
 function TextLog(props: {
   item: Extract<AgentTranscriptItem, { type: "text" }>;
-  agentName: string;
 }) {
   return (
     <div class={`orch-msg orch-msg-${props.item.role}`}>
@@ -470,7 +529,7 @@ function TextLog(props: {
             <path d="M2 12l10 5 10-5" />
           </svg>
         </Show>
-        <span>{props.item.role === "user" ? "Prompt" : props.agentName}</span>
+        <span class={props.item.role === "assistant" ? "orch-msg-time" : undefined}>{props.item.role === "user" ? "Prompt" : formatLogTimestamp(props.item.timestamp)}</span>
       </div>
       <Show
         when={props.item.role === "assistant"}
@@ -493,43 +552,69 @@ function TextLog(props: {
   );
 }
 
-function AgentTranscriptLog(props: { items: AgentTranscriptItem[]; agentName: string }) {
+function AgentTranscriptLog(props: { items: AgentTranscriptItem[] }) {
+  const [expandedKeys, setExpandedKeys] = createSignal<Set<string>>(new Set());
+  const isCollapsed = (key: string) => !expandedKeys().has(key);
+  const toggle = (key: string) =>
+    setExpandedKeys((prev) => {
+      const next = new Set(prev);
+      if (next.has(key)) next.delete(key);
+      else next.add(key);
+      return next;
+    });
+  const itemKey = (item: AgentTranscriptItem, index: number) =>
+    item.type === "tool" && item.id ? `tool:${item.id}` : `${item.type}:${index}`;
   return (
     <div class="orch-transcript-log">
       <For each={props.items}>
-        {(item) => (
-          <Show
-            when={item.type === "text"}
-            fallback={
-              <Show
-                when={item.type === "thinking"}
-                fallback={
-                  <Show
-                    when={item.type === "tool"}
-                    fallback={
-                      <DiffLog
-                        item={item as Extract<AgentTranscriptItem, { type: "file" }>}
+        {(item, index) => {
+          const key = () => itemKey(item, index());
+          return (
+            <Show
+              when={item.type === "text"}
+              fallback={
+                <Show
+                  when={item.type === "thinking"}
+                  fallback={
+                    <Show
+                      when={item.type === "callout"}
+                      fallback={
+                        <Show
+                          when={item.type === "tool"}
+                          fallback={
+                            <DiffLog
+                              item={item as Extract<AgentTranscriptItem, { type: "file" }>}
+                            />
+                          }
+                        >
+                          <ToolLog
+                            item={item as Extract<AgentTranscriptItem, { type: "tool" }>}
+                            collapsed={() => isCollapsed(key())}
+                            onToggle={() => toggle(key())}
+                          />
+                        </Show>
+                      }
+                    >
+                      <CalloutLog
+                        item={item as Extract<AgentTranscriptItem, { type: "callout" }>}
                       />
-                    }
-                  >
-                    <ToolLog
-                      item={item as Extract<AgentTranscriptItem, { type: "tool" }>}
-                    />
-                  </Show>
-                }
-              >
-                <ThinkingLog
-                  item={item as Extract<AgentTranscriptItem, { type: "thinking" }>}
-                />
-              </Show>
-            }
-          >
-            <TextLog
-              item={item as Extract<AgentTranscriptItem, { type: "text" }>}
-              agentName={props.agentName}
-            />
-          </Show>
-        )}
+                    </Show>
+                  }
+                >
+                  <ThinkingLog
+                    item={item as Extract<AgentTranscriptItem, { type: "thinking" }>}
+                    collapsed={() => isCollapsed(key())}
+                    onToggle={() => toggle(key())}
+                  />
+                </Show>
+              }
+            >
+              <TextLog
+                item={item as Extract<AgentTranscriptItem, { type: "text" }>}
+              />
+            </Show>
+          );
+        }}
       </For>
       <style>{`
         .orch-transcript-log {
@@ -544,6 +629,51 @@ function AgentTranscriptLog(props: { items: AgentTranscriptItem[]; agentName: st
           gap: 6px;
         }
 
+        .orch-callout {
+          border: 1px solid color-mix(in srgb, var(--text-secondary) 18%, transparent);
+          border-radius: 12px;
+          background: color-mix(in srgb, var(--text-secondary) 6%, transparent);
+          overflow: hidden;
+        }
+
+        .orch-callout[data-severity="error"] {
+          border-color: color-mix(in srgb, #ef4444 34%, transparent);
+          background: color-mix(in srgb, #ef4444 8%, transparent);
+        }
+
+        .orch-callout[data-severity="warning"] {
+          border-color: color-mix(in srgb, #f59e0b 34%, transparent);
+          background: color-mix(in srgb, #f59e0b 8%, transparent);
+        }
+
+        .orch-callout-head {
+          display: flex;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 8px 10px;
+          font-size: 12px;
+          font-weight: 600;
+          text-transform: uppercase;
+          letter-spacing: 0.05em;
+          color: var(--text-secondary);
+          border-bottom: 1px solid color-mix(in srgb, var(--text-secondary) 12%, transparent);
+        }
+
+        .orch-callout-time {
+          font-weight: 400;
+          color: color-mix(in srgb, var(--text-secondary) 55%, transparent);
+        }
+
+        .orch-callout-body {
+          margin: 0;
+          padding: 10px;
+          white-space: pre-wrap;
+          word-break: break-word;
+          color: var(--text-secondary);
+          font-size: 12px;
+          line-height: 1.5;
+        }
+
         .orch-msg-role {
           display: flex;
           align-items: center;
@@ -553,6 +683,11 @@ function AgentTranscriptLog(props: { items: AgentTranscriptItem[]; agentName: st
           color: var(--text-secondary);
           text-transform: uppercase;
           letter-spacing: 0.5px;
+        }
+
+        .orch-msg-time {
+          color: color-mix(in srgb, var(--text-secondary) 55%, transparent);
+          font-weight: 400;
         }
 
         .orch-msg-content {
@@ -677,7 +812,11 @@ function AgentTranscriptLog(props: { items: AgentTranscriptItem[]; agentName: st
           display: flex;
           align-items: center;
           gap: 10px;
+          width: 100%;
           padding: 12px 14px;
+          background: transparent;
+          border: none;
+          text-align: left;
           cursor: pointer;
           list-style: none;
           color: var(--text-secondary);
@@ -1142,18 +1281,20 @@ function OrchestratorDashboard(): ReturnType<Component> {
               {(claim) => {
                 const issueId = runIssueId(claim);
                 const id = runId(claim) || issueId;
+                const worker = workerId(claim) || id;
                 const project = projectFromRun(claim);
+                const status = String((claim as OrchestratorClaim).workerStatus ?? (claim as OrchestratorClaim).worker_status ?? "running");
                 return (
                   <div class="orch-live-row" onClick={() => setSelected(claim)}>
-                    <StatusPill tone="live" label="running" />
+                    <StatusPill tone="live" label={status} />
                     <div class="orch-live-main">
                       <div class="orch-live-id">{displayId(claim)}</div>
                       <div class="orch-live-meta">
                         <Show when={project}>
                           <span class="orch-chip">{project}</span>
                         </Show>
-                        <span class="orch-mono" title={id} onClick={(e) => { e.stopPropagation(); copy(id); }}>
-                          {copied() === id ? "copied" : shortRunId(id)}
+                        <span class="orch-mono" title={worker} onClick={(e) => { e.stopPropagation(); copy(worker); }}>
+                          {copied() === worker ? "copied" : shortRunId(worker)}
                         </span>
                       </div>
                     </div>
@@ -1217,13 +1358,14 @@ function OrchestratorDashboard(): ReturnType<Component> {
                 <For each={pagedRecent()}>
                   {(run) => {
                     const id = runId(run);
+                    const worker = workerId(run) || id;
                     const project = run.project_id ?? run.projectId;
                     return (
                       <div class="orch-recent-row" onClick={() => setSelected(run)}>
                         <StatusPill tone={outcomeTone(run)} label={outcomeLabel(run)} title={run.outcome ?? undefined} />
                         <span class="orch-recent-id">{displayId(run)}</span>
-                        <span class="orch-mono orch-recent-hash" title={id} onClick={(e) => { e.stopPropagation(); copy(id); }}>
-                          {copied() === id ? "copied" : shortRunId(id)}
+                        <span class="orch-mono orch-recent-hash" title={worker} onClick={(e) => { e.stopPropagation(); copy(worker); }}>
+                          {copied() === worker ? "copied" : shortRunId(worker)}
                         </span>
                         <Show when={project} fallback={<span class="orch-recent-proj orch-dim">—</span>}>
                           <span class="orch-recent-proj">{project}</span>
@@ -1286,7 +1428,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
 
                 <Show when={tab() === "logs"}>
                   <Show when={logItems().length} fallback={<div class="orch-quiet">No logs yet.</div>}>
-                    <AgentTranscriptLog items={logItems()} agentName="Agent" />
+                    <AgentTranscriptLog items={logItems()} />
                   </Show>
                 </Show>
 
