@@ -32,6 +32,8 @@ type ClaudeSession = {
   active: boolean;
   emit: (type: string, payload: unknown) => void;
   stdoutBuffer: string;
+  turnTimeoutMs: number;
+  turnTimer?: NodeJS.Timeout;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
 };
@@ -110,6 +112,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
   async abort(handle: WorkerRunnerHandle): Promise<void> {
     const session = this.sessionFromHandle(handle);
     if (!session || session.status.status !== "running") return;
+    this.clearTurnTimer(session);
     const aborted = await Promise.race([
       this.request(session, "abort", {})
         .then(() => true)
@@ -170,12 +173,14 @@ export class ClaudeRpcRunner implements WorkerRunner {
       active: false,
       emit: input.emitEvent ?? (() => undefined),
       stdoutBuffer: "",
+      turnTimeoutMs: input.workflow.agent.turn_timeout_ms ?? 3_600_000,
     };
     child.once("error", (error) => {
       session.status = { status: "error", raw: { message: error.message, code: (error as NodeJS.ErrnoException).code, state: session.state } };
       session.emit("worker.claude.process.error", session.status.raw);
     });
     child.once("exit", (code, signal) => {
+      this.clearTurnTimer(session);
       if (session.status.status === "running") {
         session.status = signal === "SIGTERM" || signal === "SIGINT"
           ? { status: "interrupted", exitCode: code ?? undefined, raw: { code, signal, state: session.state } }
@@ -199,6 +204,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
     session.status = { status: "running", raw: { pid: session.child.pid, state: session.state } };
     await this.request(session, "prompt", { message });
     session.active = true;
+    this.startTurnTimer(session);
     session.emit("worker.claude.prompt.accepted", { state: session.state });
   }
 
@@ -298,6 +304,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
       session.active = true;
       session.status = { status: "running", raw: { ...(objectValue(session.status.raw) ?? {}), state: session.state } };
     } else if (type === "agent_end" || type === "result") {
+      this.clearTurnTimer(session);
       session.active = false;
       const subtype = typeof event.subtype === "string" ? event.subtype : undefined;
       const status = typeof event.status === "string" ? event.status : undefined;
@@ -311,12 +318,15 @@ export class ClaudeRpcRunner implements WorkerRunner {
       }
       if (session.pendingMessageCount === 0 || isError) this.scheduleIdleCleanup(session);
     } else if (type === "extension_error" || type === "error") {
+      this.clearTurnTimer(session);
       session.active = false;
-      const error = objectValue(event.error);
-      const reason = typeof error?.reason === "string" ? error.reason : typeof event.reason === "string" ? event.reason : undefined;
-      session.status = reason === "aborted"
-        ? { status: "interrupted", raw: { event, state: session.state } }
-        : { status: "error", raw: { event, state: session.state } };
+      if (session.status.status === "running") {
+        const error = objectValue(event.error);
+        const reason = typeof error?.reason === "string" ? error.reason : typeof event.reason === "string" ? event.reason : undefined;
+        session.status = reason === "aborted"
+          ? { status: "interrupted", raw: { event, state: session.state } }
+          : { status: "error", raw: { event, state: session.state } };
+      }
       this.scheduleIdleCleanup(session);
     } else if (type === "queue_update") {
       if (typeof event.pendingMessageCount === "number") session.pendingMessageCount = event.pendingMessageCount;
@@ -417,6 +427,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
   }
 
   private removeSession(session: ClaudeSession, reason: string): void {
+    this.clearTurnTimer(session);
     this.cancelCleanup(session);
     for (const pending of session.pending.values()) pending.reject(new Error(`Claude RPC session removed: ${reason}`));
     session.pending.clear();
@@ -426,5 +437,30 @@ export class ClaudeRpcRunner implements WorkerRunner {
     }
     this.sessions.delete(session.key);
     session.emit("worker.claude.session.removed", { state: session.state, reason });
+  }
+
+  private startTurnTimer(session: ClaudeSession): void {
+    this.clearTurnTimer(session);
+    session.turnTimer = setTimeout(() => {
+      session.turnTimer = undefined;
+      if (session.status.status !== "running") return;
+      session.active = false;
+      session.status = { status: "interrupted", raw: { reason: "turn_timeout", turnTimeoutMs: session.turnTimeoutMs, state: session.state } };
+      session.emit("worker.claude.turn.timeout", { turnTimeoutMs: session.turnTimeoutMs, state: session.state });
+      Promise.race([
+        this.request(session, "abort", {}).then(() => true).catch(() => false),
+        sleep(this.options.abortTimeoutMs ?? 5_000).then(() => false),
+      ]).then((aborted) => {
+        if (!aborted && session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) session.child.kill("SIGTERM");
+        this.scheduleIdleCleanup(session);
+      }).catch(() => undefined);
+    }, session.turnTimeoutMs);
+  }
+
+  private clearTurnTimer(session: ClaudeSession): void {
+    if (session.turnTimer) {
+      clearTimeout(session.turnTimer);
+      session.turnTimer = undefined;
+    }
   }
 }

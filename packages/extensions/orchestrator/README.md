@@ -207,7 +207,7 @@ Path rules:
 - `thinking`: optional workflow-owned thinking/reasoning level. This is the preferred key and overrides profile/default thinking when present. Aliases are accepted for compatibility with existing AIHub config: `reasoning`, `reasoningEffort`, and `reasoning_effort`. If more than one key is set, precedence is `thinking`, `reasoningEffort`, `reasoning_effort`, then `reasoning`. Allowed values are runner-specific: Pi accepts `off`, `low`, `medium`, `high`, `xhigh`; Codex accepts `low`, `medium`, `high`, `xhigh`; Claude accepts `low`, `medium`, `high`, `xhigh`, `max`.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
 - `max_turns`: workflow hint for worker prompt/runtime.
-- `turn_timeout_ms`: per-turn time budget hint. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. Core validates and stores this value but does not yet abort turns on expiry.
+- `turn_timeout_ms`: per-turn time budget. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. When a turn exceeds this budget the runner aborts/interrupts it and surfaces an `interrupted` status with `reason: "turn_timeout"`.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `300000` (5 minutes, Symphony parity).
 - `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended.
 
