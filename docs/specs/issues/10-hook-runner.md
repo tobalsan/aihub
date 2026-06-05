@@ -16,7 +16,7 @@ parent: docs/specs/orchestrator-extension-prd.md
 - `after_create` — once, immediately after a fresh workspace is created.
 - `before_run` — every dispatch, before the subagent is started.
 - `after_run` — after the subagent exits (success or failure); receives `AIHUB_EXIT_CODE`.
-- `before_remove` — before the workspace is removed (terminal + `cleanup_on_terminal=true`, or kill).
+- `before_remove` — before the workspace is removed for an allowed cleanup release (`terminal`, `hook_failed`, or `dispatch_failed`) when `cleanup_on_terminal=true`, or kill.
 
 Exec: `spawn("sh", ["-c", cmd], { cwd: workspace, env })`. Hook env: `AIHUB_ISSUE_ID`, `AIHUB_ISSUE_IDENTIFIER`, `AIHUB_WORKSPACE`, `AIHUB_REPO`, `AIHUB_BRANCH`, plus `AIHUB_EXIT_CODE` on `after_run` only. `LINEAR_API_KEY` is explicitly excluded from hook env (same boundary as worker spawn).
 

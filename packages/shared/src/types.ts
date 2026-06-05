@@ -931,6 +931,7 @@ export interface ExtensionContext {
 export type ExtensionAgentToolContext = {
   agent: AgentConfig;
   config: GatewayConfig;
+  env?: Record<string, string>;
 };
 
 export type ExtensionAgentTool = {
@@ -1289,7 +1290,11 @@ export const StreamEventSchema = z.discriminatedUnion("type", [
       .optional(),
   }),
   FileOutputEventSchema,
-  z.object({ type: z.literal("error"), message: z.string(), code: z.string().optional() }),
+  z.object({
+    type: z.literal("error"),
+    message: z.string(),
+    code: z.string().optional(),
+  }),
 ]);
 export type StreamEvent = z.infer<typeof StreamEventSchema>;
 

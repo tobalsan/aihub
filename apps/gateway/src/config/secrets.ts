@@ -2,7 +2,10 @@ function isSecretRef(value: string): boolean {
   return value.startsWith("$env:");
 }
 
-export async function resolveSecretValue(value: string): Promise<string> {
+export async function resolveSecretValue(
+  value: string,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+): Promise<string> {
   if (value.startsWith("$secret:")) {
     const name = value.slice("$secret:".length);
     throw new Error(
@@ -12,7 +15,7 @@ export async function resolveSecretValue(value: string): Promise<string> {
 
   if (value.startsWith("$env:")) {
     const envName = value.slice("$env:".length);
-    const envValue = process.env[envName];
+    const envValue = env[envName];
     if (envValue === undefined) {
       throw new Error(`Env var "${envName}" not set`);
     }
@@ -22,13 +25,16 @@ export async function resolveSecretValue(value: string): Promise<string> {
   return value;
 }
 
-export async function resolveConfigSecrets<T>(config: T): Promise<T> {
+export async function resolveConfigSecrets<T>(
+  config: T,
+  env: NodeJS.ProcessEnv | Record<string, string | undefined> = process.env
+): Promise<T> {
   async function walk(value: unknown): Promise<unknown> {
     if (typeof value === "string") {
       if (value.startsWith("$secret:")) {
-        return resolveSecretValue(value);
+        return resolveSecretValue(value, env);
       }
-      return isSecretRef(value) ? resolveSecretValue(value) : value;
+      return isSecretRef(value) ? resolveSecretValue(value, env) : value;
     }
     if (Array.isArray(value)) {
       const resolved = await Promise.all(value.map((entry) => walk(entry)));
