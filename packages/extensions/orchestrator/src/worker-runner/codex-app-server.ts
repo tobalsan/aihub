@@ -29,6 +29,8 @@ type CodexSession = {
   activeTurn: boolean;
   initialized: Promise<void>;
   emit: (type: string, payload: unknown) => void;
+  turnTimeoutMs: number;
+  turnTimer?: NodeJS.Timeout;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
   removed?: boolean;
@@ -126,6 +128,7 @@ export class CodexAppServerRunner implements WorkerRunner {
   async abort(handle: WorkerRunnerHandle): Promise<void> {
     const session = this.sessionFromHandle(handle);
     if (!session || session.status.status !== "running") return;
+    this.clearTurnTimer(session);
     if (session.threadId && session.turnId && session.activeTurn) {
       const interrupted = await Promise.race([
         this.request(session, "turn/interrupt", { threadId: session.threadId, turnId: session.turnId })
@@ -173,12 +176,14 @@ export class CodexAppServerRunner implements WorkerRunner {
       activeTurn: false,
       initialized: Promise.resolve(),
       emit: input.emitEvent ?? (() => undefined),
+      turnTimeoutMs: input.workflow.agent.turn_timeout_ms ?? 3_600_000,
     };
     child.once("error", (error) => {
       session.status = { status: "error", raw: { message: error.message, code: (error as NodeJS.ErrnoException).code } };
       session.emit("worker.codex.process.error", session.status.raw);
     });
     child.once("exit", (code, signal) => {
+      this.clearTurnTimer(session);
       if (session.status.status === "running") {
         session.status = signal === "SIGTERM" || signal === "SIGINT"
           ? { status: "interrupted", exitCode: code ?? undefined, raw: { code, signal } }
@@ -222,6 +227,7 @@ export class CodexAppServerRunner implements WorkerRunner {
     });
     session.turnId = this.extractTurnId(result);
     session.activeTurn = true;
+    this.startTurnTimer(session);
     session.emit("worker.codex.turn.started.request", { threadId: session.threadId, turnId: session.turnId, raw: result });
   }
 
@@ -313,14 +319,17 @@ export class CodexAppServerRunner implements WorkerRunner {
       session.turnId = typeof turn?.id === "string" ? turn.id : session.turnId;
       session.activeTurn = true;
     } else if (method === "turn/completed") {
+      this.clearTurnTimer(session);
       const turn = objectValue(params?.turn);
       const status = turn?.status;
       session.activeTurn = false;
-      session.status = status === "completed"
-        ? { status: "done", exitCode: 0, raw: message.params }
-        : status === "interrupted"
-          ? { status: "interrupted", raw: message.params }
-          : { status: "error", raw: message.params };
+      if (session.status.status === "running") {
+        session.status = status === "completed"
+          ? { status: "done", exitCode: 0, raw: message.params }
+          : status === "interrupted"
+            ? { status: "interrupted", raw: message.params }
+            : { status: "error", raw: message.params };
+      }
       this.scheduleIdleCleanup(session);
     } else if (method === "error") {
       session.status = { status: "error", raw: message.params };
@@ -411,6 +420,7 @@ export class CodexAppServerRunner implements WorkerRunner {
   private removeSession(session: CodexSession, reason: string): void {
     if (session.removed) return;
     session.removed = true;
+    this.clearTurnTimer(session);
     this.cancelCleanup(session);
     this.rejectPending(session, new Error(reason === "shutdown" ? "Codex app-server runner shut down" : `Codex app-server session removed: ${reason}`));
     if (session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) {
@@ -427,5 +437,43 @@ export class CodexAppServerRunner implements WorkerRunner {
       pending.reject(error);
     }
     session.pending.clear();
+  }
+
+  private startTurnTimer(session: CodexSession): void {
+    this.clearTurnTimer(session);
+    session.turnTimer = setTimeout(() => {
+      session.turnTimer = undefined;
+      if (session.status.status !== "running") return;
+      session.activeTurn = false;
+      session.status = { status: "interrupted", raw: { reason: "turn_timeout", turnTimeoutMs: session.turnTimeoutMs } };
+      session.emit("worker.codex.turn.timeout", { turnTimeoutMs: session.turnTimeoutMs, threadId: session.threadId, turnId: session.turnId });
+      if (session.threadId && session.turnId) {
+        Promise.race([
+          this.request(session, "turn/interrupt", { threadId: session.threadId, turnId: session.turnId })
+            .then(() => true)
+            .catch((error: Error) => {
+              session.emit("worker.codex.interrupt.error", { error: error.message });
+              return false;
+            }),
+          new Promise<false>((resolve) => setTimeout(() => resolve(false), this.options.interruptTimeoutMs ?? 5_000)),
+        ]).then((interrupted) => {
+          if (!interrupted) {
+            session.emit("worker.codex.interrupt.timeout", { threadId: session.threadId, turnId: session.turnId });
+            if (session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) session.child.kill("SIGTERM");
+          }
+          this.scheduleIdleCleanup(session);
+        }).catch(() => undefined);
+      } else {
+        if (session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) session.child.kill("SIGTERM");
+        this.scheduleIdleCleanup(session);
+      }
+    }, session.turnTimeoutMs);
+  }
+
+  private clearTurnTimer(session: CodexSession): void {
+    if (session.turnTimer) {
+      clearTimeout(session.turnTimer);
+      session.turnTimer = undefined;
+    }
   }
 }

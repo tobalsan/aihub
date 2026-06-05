@@ -1038,6 +1038,28 @@ describe("Codex app-server worker runner", () => {
       delete process.env.MOCK_CODEX_MODE;
     }
   });
+
+  it("aborts a turn that exceeds turn_timeout_ms and emits a turn.timeout event", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-codex-turn-timeout-"));
+    const script = await writeMockCodexAppServer(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CODEX_MODE = "stall";
+    const runner = new CodexAppServerRunner({ interruptTimeoutMs: 100, idleCleanupMs: 100 });
+    try {
+      const handle = await runner.start(codexRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+        workflow: {
+          ...codexRunnerInput(root, [process.execPath, script]).workflow,
+          agent: { runner: "codex", command: [process.execPath, script], turn_timeout_ms: 50 },
+        },
+      }));
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "interrupted", raw: expect.objectContaining({ reason: "turn_timeout" }) }), { timeout: 3_000 });
+      expect(events.map((event) => event.type)).toContain("worker.codex.turn.timeout");
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      await runner.shutdown();
+    }
+  });
 });
 
 async function writeMockPiRpcServer(dir: string): Promise<string> {
@@ -1386,6 +1408,28 @@ describe("Pi RPC worker runner", () => {
         emitEvent: (type, payload) => events.push({ type, payload }),
       }))).rejects.toThrow("Pi RPC follow_up timed out");
       expect(events.map((event) => event.type)).toContain("worker.pi.session.removed");
+    } finally {
+      delete process.env.MOCK_PI_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("aborts a turn that exceeds turn_timeout_ms and emits a turn.timeout event", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-pi-turn-timeout-"));
+    const script = await writeMockPiRpcServer(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_PI_MODE = "stall";
+    const runner = new PiRpcRunner({ abortTimeoutMs: 100, idleCleanupMs: 100 });
+    try {
+      const handle = await runner.start(piRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+        workflow: {
+          ...piRunnerInput(root, [process.execPath, script]).workflow,
+          agent: { runner: "pi", command: [process.execPath, script], turn_timeout_ms: 50 },
+        },
+      }));
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "interrupted", raw: expect.objectContaining({ reason: "turn_timeout" }) }), { timeout: 3_000 });
+      expect(events.map((event) => event.type)).toContain("worker.pi.turn.timeout");
     } finally {
       delete process.env.MOCK_PI_MODE;
       await runner.shutdown();
@@ -1767,6 +1811,28 @@ describe("Claude RPC worker runner", () => {
       }));
       await expect(runner.status(handle)).resolves.toMatchObject({ status: "error", raw: { message: "Claude RPC prompt timed out" } });
       expect(events.map((event) => event.type)).toContain("worker.claude.start.error");
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("aborts a turn that exceeds turn_timeout_ms and emits a turn.timeout event", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-turn-timeout-"));
+    const script = await writeMockClaudeRpcShim(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CLAUDE_MODE = "stall";
+    const runner = new ClaudeRpcRunner({ abortTimeoutMs: 100, idleCleanupMs: 100 });
+    try {
+      const handle = await runner.start(claudeRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+        workflow: {
+          ...claudeRunnerInput(root, [process.execPath, script]).workflow,
+          agent: { runner: "claude", command: [process.execPath, script], turn_timeout_ms: 50 },
+        },
+      }));
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "interrupted", raw: expect.objectContaining({ reason: "turn_timeout" }) }), { timeout: 3_000 });
+      expect(events.map((event) => event.type)).toContain("worker.claude.turn.timeout");
     } finally {
       delete process.env.MOCK_CLAUDE_MODE;
       await runner.shutdown();

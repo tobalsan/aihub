@@ -29,6 +29,8 @@ type PiSession = {
   active: boolean;
   emit: (type: string, payload: unknown) => void;
   stdoutBuffer: string;
+  turnTimeoutMs: number;
+  turnTimer?: NodeJS.Timeout;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
 };
@@ -107,6 +109,7 @@ export class PiRpcRunner implements WorkerRunner {
   async abort(handle: WorkerRunnerHandle): Promise<void> {
     const session = this.sessionFromHandle(handle);
     if (!session || session.status.status !== "running") return;
+    this.clearTurnTimer(session);
     const aborted = await Promise.race([
       this.request(session, "abort", {})
         .then(() => true)
@@ -166,12 +169,14 @@ export class PiRpcRunner implements WorkerRunner {
       active: false,
       emit: input.emitEvent ?? (() => undefined),
       stdoutBuffer: "",
+      turnTimeoutMs: input.workflow.agent.turn_timeout_ms ?? 3_600_000,
     };
     child.once("error", (error) => {
       session.status = { status: "error", raw: { message: error.message, code: (error as NodeJS.ErrnoException).code, state: session.state } };
       session.emit("worker.pi.process.error", session.status.raw);
     });
     child.once("exit", (code, signal) => {
+      this.clearTurnTimer(session);
       if (session.status.status === "running") {
         session.status = signal === "SIGTERM" || signal === "SIGINT"
           ? { status: "interrupted", exitCode: code ?? undefined, raw: { code, signal, state: session.state } }
@@ -195,6 +200,7 @@ export class PiRpcRunner implements WorkerRunner {
     session.status = { status: "running", raw: { pid: session.child.pid, state: session.state } };
     await this.request(session, "prompt", { message });
     session.active = true;
+    this.startTurnTimer(session);
     session.emit("worker.pi.prompt.accepted", { state: session.state });
   }
 
@@ -293,12 +299,14 @@ export class PiRpcRunner implements WorkerRunner {
       session.active = true;
       session.status = { status: "running", raw: { ...(objectValue(session.status.raw) ?? {}), state: session.state } };
     } else if (type === "agent_end") {
+      this.clearTurnTimer(session);
       session.active = false;
       if (session.status.status === "running") session.status = { status: "done", exitCode: 0, raw: { event, state: session.state } };
       this.scheduleIdleCleanup(session);
     } else if (type === "extension_error") {
+      this.clearTurnTimer(session);
       session.active = false;
-      session.status = { status: "error", raw: { event, state: session.state } };
+      if (session.status.status === "running") session.status = { status: "error", raw: { event, state: session.state } };
       this.scheduleIdleCleanup(session);
     } else if (type === "auto_retry_start" || type === "auto_retry_end") {
       session.emit("worker.pi.retry", event);
@@ -334,11 +342,14 @@ export class PiRpcRunner implements WorkerRunner {
     if (deltaType.startsWith("toolcall_")) {
       session.emit("worker.pi.tool", event);
     } else if (deltaType === "error") {
+      this.clearTurnTimer(session);
       const reason = typeof assistantEvent.reason === "string" ? assistantEvent.reason : undefined;
       session.active = false;
-      session.status = reason === "aborted"
-        ? { status: "interrupted", raw: { event, state: session.state } }
-        : { status: "error", raw: { event, state: session.state } };
+      if (session.status.status === "running") {
+        session.status = reason === "aborted"
+          ? { status: "interrupted", raw: { event, state: session.state } }
+          : { status: "error", raw: { event, state: session.state } };
+      }
       this.scheduleIdleCleanup(session);
     }
   }
@@ -393,6 +404,7 @@ export class PiRpcRunner implements WorkerRunner {
   }
 
   private removeSession(session: PiSession, reason: string): void {
+    this.clearTurnTimer(session);
     this.cancelCleanup(session);
     for (const pending of session.pending.values()) pending.reject(new Error(`Pi RPC session removed: ${reason}`));
     session.pending.clear();
@@ -402,5 +414,32 @@ export class PiRpcRunner implements WorkerRunner {
     }
     this.sessions.delete(session.key);
     session.emit("worker.pi.session.removed", { state: session.state, reason });
+  }
+
+  private startTurnTimer(session: PiSession): void {
+    this.clearTurnTimer(session);
+    session.turnTimer = setTimeout(() => {
+      session.turnTimer = undefined;
+      if (session.status.status !== "running") return;
+      session.active = false;
+      session.status = { status: "interrupted", raw: { reason: "turn_timeout", turnTimeoutMs: session.turnTimeoutMs, state: session.state } };
+      session.emit("worker.pi.turn.timeout", { turnTimeoutMs: session.turnTimeoutMs, state: session.state });
+      Promise.race([
+        this.request(session, "abort", {}).then(() => true).catch(() => false),
+        sleep(this.options.abortTimeoutMs ?? 5_000).then(() => false),
+      ]).then((aborted) => {
+        if (!aborted && session.child.exitCode === null && session.child.signalCode === null && !session.child.killed) {
+          session.child.kill("SIGTERM");
+        }
+        this.scheduleIdleCleanup(session);
+      }).catch(() => undefined);
+    }, session.turnTimeoutMs);
+  }
+
+  private clearTurnTimer(session: PiSession): void {
+    if (session.turnTimer) {
+      clearTimeout(session.turnTimer);
+      session.turnTimer = undefined;
+    }
   }
 }
