@@ -2604,14 +2604,14 @@ Do {{issue.identifier}}
     store.close();
   });
 
-  it("uses default max_active_runs of 5 and does not park below threshold", async () => {
+  it("uses default max_active_runs of 3 and does not park below threshold", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-cap-default-"));
     await writeWorkflow(root);
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
     const projectId = path.basename(root);
     const t = Date.now();
-    for (let i = 0; i < 4; i++) {
+    for (let i = 0; i < 2; i++) {
       const runId = `seed-${i}`;
       store.insertRun({ runId, projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + i).toISOString() });
       store.finishRun(runId, "completed");
@@ -2633,7 +2633,7 @@ Do {{issue.identifier}}
     claims.release("lin_1", projectId);
     await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 0 });
     expect(worker.start).not.toHaveBeenCalled();
-    expect(client.commentCreate).toHaveBeenCalledWith("lin_1", expect.stringContaining("max_active_runs=5"));
+    expect(client.commentCreate).toHaveBeenCalledWith("lin_1", expect.stringContaining("max_active_runs=3"));
     await daemon.stop();
     store.close();
   });

@@ -419,7 +419,7 @@ export class OrchestratorDaemon {
       );
       return false;
     }
-    const maxActiveRuns = resolvedWorkflow.config.agent.max_active_runs ?? 5;
+    const maxActiveRuns = resolvedWorkflow.config.agent.max_active_runs ?? 3;
     const consecutiveCompleted = this.deps.store.countConsecutiveCompletedRuns(issue.id, project.id);
     if (consecutiveCompleted >= maxActiveRuns) {
       await this.park(
