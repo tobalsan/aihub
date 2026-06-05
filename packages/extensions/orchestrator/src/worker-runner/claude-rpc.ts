@@ -434,8 +434,10 @@ export class ClaudeRpcRunner implements WorkerRunner {
   private scheduleRetentionCleanup(session: ClaudeSession): void {
     if (session.retentionTimer) return;
     session.retentionTimer = setTimeout(() => {
-      this.sessions.delete(session.key);
-      session.emit("worker.claude.session.removed", { state: session.state });
+      if (this.sessions.get(session.key) === session) {
+        this.sessions.delete(session.key);
+        session.emit("worker.claude.session.removed", { state: session.state });
+      }
     }, this.options.terminalRetentionMs ?? 300_000);
   }
 
@@ -454,7 +456,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
       session.child.stdin?.end();
       session.child.kill("SIGTERM");
     }
-    this.sessions.delete(session.key);
+    if (this.sessions.get(session.key) === session) this.sessions.delete(session.key);
     session.emit("worker.claude.session.removed", { state: session.state, reason });
   }
 }

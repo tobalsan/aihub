@@ -1846,6 +1846,31 @@ process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result
       await runner.shutdown();
     }
   });
+
+  it("does not let a stale retention timer evict a newer session occupying the same key", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-retention-replace-"));
+    const script = await writeMockClaudeRpcShim(root);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    process.env.MOCK_CLAUDE_MODE = "complete";
+    const runner = new ClaudeRpcRunner({ idleCleanupMs: 10, terminalRetentionMs: 40 });
+    try {
+      const first = await runner.start(claudeRunnerInput(root, [process.execPath, script], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await vi.waitFor(async () => expect(await runner.status(first)).toMatchObject({ status: "done" }));
+      await vi.waitFor(() => expect(events.map((e) => e.type)).toContain("worker.claude.process.exit"), { timeout: 1000 });
+
+      process.env.MOCK_CLAUDE_MODE = "hold";
+      const second = await runner.start(claudeRunnerInput(root, [process.execPath, script]));
+      // Wait long enough for the old session's retention timer (40 ms) to fire
+      await new Promise((resolve) => setTimeout(resolve, 80));
+      expect(await runner.status(second)).toMatchObject({ status: "running" });
+      await runner.abort(second);
+    } finally {
+      delete process.env.MOCK_CLAUDE_MODE;
+      await runner.shutdown();
+    }
+  });
 });
 
 describe("orchestrator daemon", () => {
