@@ -25,12 +25,8 @@ const projectsOutputDir = path.join(outputDir, "projects");
 
 const orchestratorProjects = [
   {
-    folder: "projectA",
-    linearProjectSlug: "3j9refshfj30j",
-  },
-  {
-    folder: "projectB",
-    linearProjectSlug: "af093j2r9f02fmn1",
+    folder: "orchestrator-test",
+    linearProjectSlug: "a48c97c1f7fc",
   },
 ];
 
@@ -84,7 +80,8 @@ workspace:
   root: ./workspaces
   cleanup_on_terminal: false
 agent:
-  profile: Worker
+  runner: claude
+  model: claude-sonnet-4-6
   max_concurrent: 3
 ---
 You are working on Linear issue {{issue.identifier}}.
