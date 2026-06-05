@@ -67,6 +67,7 @@ export type WorkflowFrontmatter = {
     turn_timeout_ms?: number;
     stall_timeout_ms?: number;
     max_concurrent?: number;
+    max_active_runs?: number;
   };
   hooks?: Partial<Record<"after_create" | "before_run" | "after_run" | "before_remove", string>>;
   server?: { notify_channel?: string };

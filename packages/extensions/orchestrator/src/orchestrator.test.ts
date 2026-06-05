@@ -2494,4 +2494,147 @@ Do {{issue.identifier}}
     store.finishRun("r1", "done", 0);
     store.close();
   });
+
+  it("countConsecutiveCompletedRuns counts streak of completed outcomes since last non-completed", () => {
+    const store = new StateStore(":memory:");
+    store.bootstrap();
+    const t = Date.now();
+    const seed = (runId: string, outcome: string, offset: number) => {
+      store.insertRun({ runId, projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "w", workflowSha: "s", pid: null, startedAt: new Date(t + offset).toISOString() });
+      store.finishRun(runId, outcome);
+    };
+
+    expect(store.countConsecutiveCompletedRuns("i1", "p1")).toBe(0);
+    seed("r1", "completed", 0);
+    expect(store.countConsecutiveCompletedRuns("i1", "p1")).toBe(1);
+    seed("r2", "completed", 1);
+    expect(store.countConsecutiveCompletedRuns("i1", "p1")).toBe(2);
+    seed("r3", "terminal", 2);
+    expect(store.countConsecutiveCompletedRuns("i1", "p1")).toBe(0);
+    seed("r4", "completed", 3);
+    expect(store.countConsecutiveCompletedRuns("i1", "p1")).toBe(1);
+    store.close();
+  });
+
+  it("parks issue after max_active_runs consecutive completed runs", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-cap-park-"));
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
+tracker:
+  kind: linear
+  api_key: test-key
+  project_slug: proj-a
+  active_states: [Ready]
+  terminal_states: [Done]
+agent:
+  profile: default
+  max_active_runs: 2
+  max_concurrent: 1
+workspace:
+  root: ./workspaces
+---
+Do {{issue.identifier}}
+`);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const projectId = path.basename(root);
+    const t = Date.now();
+    for (let i = 0; i < 2; i++) {
+      const runId = `seed-${i}`;
+      store.insertRun({ runId, projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + i).toISOString() });
+      store.finishRun(runId, "completed");
+    }
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Loop", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
+    const worker = mockWorkerRunner();
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
+
+    await daemon.start();
+    await daemon.tick();
+
+    expect(worker.start).not.toHaveBeenCalled();
+    expect(client.commentCreate).toHaveBeenCalledWith("lin_1", expect.stringContaining("2 consecutive run"));
+    expect(client.issueUpdateStateByName).toHaveBeenCalledWith("lin_1", "Needs Human");
+    await daemon.stop();
+    store.close();
+  });
+
+  it("resets consecutive run count after a non-completed outcome so future dispatches proceed", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-cap-reset-"));
+    await fs.writeFile(path.join(root, "WORKFLOW.md"), `---
+tracker:
+  kind: linear
+  api_key: test-key
+  project_slug: proj-a
+  active_states: [Ready]
+  terminal_states: [Done]
+agent:
+  profile: default
+  max_active_runs: 2
+  max_concurrent: 1
+workspace:
+  root: ./workspaces
+---
+Do {{issue.identifier}}
+`);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const projectId = path.basename(root);
+    const t = Date.now();
+    for (let i = 0; i < 2; i++) {
+      const runId = `seed-completed-${i}`;
+      store.insertRun({ runId, projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + i).toISOString() });
+      store.finishRun(runId, "completed");
+    }
+    store.insertRun({ runId: "seed-terminal", projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + 2).toISOString() });
+    store.finishRun("seed-terminal", "terminal");
+
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Reset", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
+    const worker = mockWorkerRunner();
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
+
+    await daemon.start();
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1 });
+
+    expect(worker.start).toHaveBeenCalledOnce();
+    expect(client.issueUpdateStateByName).not.toHaveBeenCalledWith("lin_1", "Needs Human");
+    await daemon.stop();
+    store.close();
+  });
+
+  it("uses default max_active_runs of 5 and does not park below threshold", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-cap-default-"));
+    await writeWorkflow(root);
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    const projectId = path.basename(root);
+    const t = Date.now();
+    for (let i = 0; i < 4; i++) {
+      const runId = `seed-${i}`;
+      store.insertRun({ runId, projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + i).toISOString() });
+      store.finishRun(runId, "completed");
+    }
+    const claims = new ClaimsRegistry();
+    const client = { pollIssues: vi.fn(async () => [{ id: "lin_1", identifier: "ENG-1", title: "Default", state: "Ready", labels: [], projectSlug: "proj-a" }]), commentCreate: vi.fn(async () => undefined), issueUpdateStateByName: vi.fn(async () => undefined) } as any;
+    const worker = mockWorkerRunner();
+    const ctx = { getDataDir: () => path.dirname(root), getConfig: () => ({ extensions: { subagents: { profiles }, orchestrator: { projects: [root] } } }), emit: vi.fn() } as any;
+    const daemon = new OrchestratorDaemon({ ctx, store, claims, getConfig: () => ({ projects: [root] }), workerRunner: worker.runner, createLinearClient: () => client });
+
+    await daemon.start();
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 1 });
+    expect(worker.start).toHaveBeenCalledOnce();
+    expect(client.issueUpdateStateByName).not.toHaveBeenCalledWith("lin_1", "Needs Human");
+
+    store.insertRun({ runId: "seed-5th", projectId, issueId: "lin_1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: "WORKFLOW.md", workflowSha: "s", pid: null, startedAt: new Date(t + 100).toISOString() });
+    store.finishRun("seed-5th", "completed");
+    worker.start.mockClear();
+    claims.release("lin_1", projectId);
+    await expect(daemon.tick()).resolves.toMatchObject({ dispatched: 0 });
+    expect(worker.start).not.toHaveBeenCalled();
+    expect(client.commentCreate).toHaveBeenCalledWith("lin_1", expect.stringContaining("max_active_runs=5"));
+    await daemon.stop();
+    store.close();
+  });
 });

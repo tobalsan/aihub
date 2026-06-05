@@ -207,12 +207,13 @@ Path rules:
 - `model`: optional model passed to protocol runners that support it.
 - `thinking`: optional workflow-owned thinking/reasoning level. This is the preferred key and overrides profile/default thinking when present. Aliases are accepted for compatibility with existing AIHub config: `reasoning`, `reasoningEffort`, and `reasoning_effort`. If more than one key is set, precedence is `thinking`, `reasoningEffort`, `reasoning_effort`, then `reasoning`. Allowed values are runner-specific: Pi accepts `off`, `low`, `medium`, `high`, `xhigh`; Codex accepts `low`, `medium`, `high`, `xhigh`; Claude accepts `low`, `medium`, `high`, `xhigh`, `max`.
 - `max_concurrent`: per-project worker cap. Effective cap also respects `extensions.orchestrator.concurrency.global`.
+- `max_active_runs`: maximum consecutive clean completions allowed while the issue remains in an active state before the orchestrator parks it. A clean completion that leaves the issue in an active state increments the counter; any other outcome (terminal, needs_human, stalled, etc.) resets it. When the counter reaches this threshold the issue is moved to `needsHuman` with a HITL notification. Default `5`. Must be a positive number when set.
 - `max_turns`: workflow hint for worker prompt/runtime.
 - `turn_timeout_ms`: per-turn time budget. Optional; default `3600000` (1 hour, Symphony parity). Must be a positive number. When a turn exceeds this budget the runner aborts/interrupts it and surfaces an `interrupted` status with `reason: "turn_timeout"`.
 - `stall_timeout_ms`: time without observed events before parking/stall handling. Default `300000` (5 minutes, Symphony parity).
 - `settings`: optional runner-specific settings. Codex reads `approvalPolicy`/`approval_policy` and `sandboxPolicy`/`sandbox_policy`; by default it starts app-server threads with `approvalPolicy: never` and full-access sandbox (`dangerFullAccess`) so orchestrator workers can load trusted project `.codex` config and run unattended. Claude reads `permissionMode`/`permission_mode` and defaults to `--permission-mode bypassPermissions` so workers run unattended; override via `agent.settings.permissionMode` in `WORKFLOW.md`.
 
-`thinking`, `max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, and `max_concurrent` are validated when set. Invalid thinking values fail config load for explicit `runner` values and fail before runner startup when the effective runner comes from a profile.
+`thinking`, `max_turns`, `turn_timeout_ms`, `stall_timeout_ms`, `max_concurrent`, and `max_active_runs` are validated when set. Invalid thinking values fail config load for explicit `runner` values and fail before runner startup when the effective runner comes from a profile.
 
 Runner config belongs in project `WORKFLOW.md`, not in `extensions.subagents`. AIHub profiles are runner defaults, not Symphony roles. No label-to-profile routing exists.
 

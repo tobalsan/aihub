@@ -419,6 +419,17 @@ export class OrchestratorDaemon {
       );
       return false;
     }
+    const maxActiveRuns = resolvedWorkflow.config.agent.max_active_runs ?? 5;
+    const consecutiveCompleted = this.deps.store.countConsecutiveCompletedRuns(issue.id, project.id);
+    if (consecutiveCompleted >= maxActiveRuns) {
+      await this.park(
+        client,
+        issue,
+        resolvedWorkflow.config.tracker.needsHuman,
+        `issue completed ${consecutiveCompleted} consecutive run(s) without leaving active state (max_active_runs=${maxActiveRuns})`
+      );
+      return false;
+    }
     const runId = `orchestrator:${project.id}:${issue.id}:${Date.now()}`;
     const label = `${issue.identifier}-${runId.split(":").at(-1)}`;
     const claim = await this.deps.claims.tryClaim(issue.id, runId, project.id);

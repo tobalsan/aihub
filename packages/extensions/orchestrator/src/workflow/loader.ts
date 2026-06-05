@@ -83,6 +83,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
     "agent.turn_timeout_ms": agent.turn_timeout_ms,
     "agent.stall_timeout_ms": agent.stall_timeout_ms,
     "agent.max_concurrent": agent.max_concurrent,
+    "agent.max_active_runs": agent.max_active_runs,
   })) {
     if (value !== undefined && (!Number.isFinite(value) || value <= 0)) throw new Error(`${key} must be a positive number`);
   }
