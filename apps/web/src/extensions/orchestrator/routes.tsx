@@ -972,6 +972,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
   const [now, setNow] = createSignal(Date.now());
   const [statusFilter, setStatusFilter] = createSignal<Set<Tone>>(new Set(FILTER_TONES));
   const [recentPage, setRecentPage] = createSignal(0);
+  const [recentTotal, setRecentTotal] = createSignal(0);
   const [stickBottom, setStickBottom] = createSignal(true);
   let drawerEl: HTMLElement | undefined;
 
@@ -993,12 +994,8 @@ function OrchestratorDashboard(): ReturnType<Component> {
     return recent().filter((run) => active.has(outcomeTone(run)));
   });
   const recentPageCount = createMemo(() =>
-    Math.max(1, Math.ceil(filteredRecent().length / RECENT_PAGE_SIZE))
+    Math.max(1, Math.ceil(recentTotal() / RECENT_PAGE_SIZE))
   );
-  const pagedRecent = createMemo(() => {
-    const start = recentPage() * RECENT_PAGE_SIZE;
-    return filteredRecent().slice(start, start + RECENT_PAGE_SIZE);
-  });
 
   const toggleTone = (tone: Tone) => {
     setStatusFilter((prev) => {
@@ -1008,6 +1005,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
       return next;
     });
     setRecentPage(0);
+    void load(0);
   };
 
   const onDrawerScroll = () => {
@@ -1023,16 +1021,17 @@ function OrchestratorDashboard(): ReturnType<Component> {
     window.setTimeout(() => setCopied((c) => (c === value ? undefined : c)), 1200);
   };
 
-  const load = async () => {
+  const load = async (page = recentPage()) => {
     try {
       const [nextHealth, runs, projectList] = await Promise.all([
         fetchOrchestratorHealth(),
-        fetchOrchestratorRuns(),
+        fetchOrchestratorRuns(RECENT_PAGE_SIZE, undefined, page * RECENT_PAGE_SIZE),
         fetchOrchestratorProjects(),
       ]);
       setHealth(nextHealth);
       setActive(runs.active ?? []);
       setRecent(runs.recent ?? []);
+      setRecentTotal(runs.total ?? 0);
       setProjects(projectList.items ?? []);
       setError(undefined);
     } catch (err) {
@@ -1355,7 +1354,7 @@ function OrchestratorDashboard(): ReturnType<Component> {
           >
             <div class="orch-recent-scroll">
               <div class="orch-recent-list">
-                <For each={pagedRecent()}>
+                <For each={filteredRecent()}>
                   {(run) => {
                     const id = runId(run);
                     const worker = workerId(run) || id;
@@ -1387,12 +1386,14 @@ function OrchestratorDashboard(): ReturnType<Component> {
             <Show when={recentPageCount() > 1}>
               <div class="orch-recent-foot">
                 <span class="orch-page-info">
-                  {recentPage() * RECENT_PAGE_SIZE + 1}–{Math.min((recentPage() + 1) * RECENT_PAGE_SIZE, filteredRecent().length)} of {filteredRecent().length}
+                  {statusFilter().size < FILTER_TONES.length
+                    ? `${filteredRecent().length} shown`
+                    : `${recentPage() * RECENT_PAGE_SIZE + 1}–${Math.min((recentPage() + 1) * RECENT_PAGE_SIZE, recentTotal())} of ${recentTotal()}`}
                 </span>
                 <div class="orch-page-ctrls">
-                  <button class="orch-btn" disabled={recentPage() === 0} onClick={() => setRecentPage((p) => Math.max(0, p - 1))}>Prev</button>
+                  <button class="orch-btn" disabled={recentPage() === 0} onClick={() => { const p = Math.max(0, recentPage() - 1); setRecentPage(p); void load(p); }}>Prev</button>
                   <span class="orch-page-num">{recentPage() + 1} / {recentPageCount()}</span>
-                  <button class="orch-btn" disabled={recentPage() >= recentPageCount() - 1} onClick={() => setRecentPage((p) => Math.min(recentPageCount() - 1, p + 1))}>Next</button>
+                  <button class="orch-btn" disabled={recentPage() >= recentPageCount() - 1} onClick={() => { const p = Math.min(recentPageCount() - 1, recentPage() + 1); setRecentPage(p); void load(p); }}>Next</button>
                 </div>
               </div>
             </Show>

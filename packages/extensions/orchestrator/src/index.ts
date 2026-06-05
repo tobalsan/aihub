@@ -229,9 +229,12 @@ function register(app: Hono) {
   app.get("/orchestrator/runs", (c) => {
     const issue = c.req.query("issue");
     const project = c.req.query("project");
+    const limit = Number(c.req.query("limit") ?? 50);
+    const offset = Number(c.req.query("offset") ?? 0);
     const active = activeRuns(project, issue);
-    const recent = (store?.listRecent(Number(c.req.query("limit") ?? 50), project) ?? []).filter((run: any) => !issue || run.issue_id === issue || run.issueId === issue);
-    return c.json({ active, recent });
+    const recent = (store?.listRecent(limit, project, offset) ?? []).filter((run: any) => !issue || run.issue_id === issue || run.issueId === issue);
+    const total = store?.countRecent(project) ?? 0;
+    return c.json({ active, recent, total });
   });
   app.get("/orchestrator/runs/:id", (c) => {
     const id = c.req.param("id");

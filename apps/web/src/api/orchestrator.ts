@@ -78,6 +78,7 @@ export type OrchestratorLogsResponse = {
 export type OrchestratorRunsResponse = {
   active: OrchestratorClaim[];
   recent: OrchestratorRun[];
+  total: number;
 };
 
 export type OrchestratorWorkflow = {
@@ -107,8 +108,8 @@ export async function fetchOrchestratorProjects(): Promise<{ items: Orchestrator
   return parseJson(await apiFetch(`${API_BASE}/orchestrator/projects`));
 }
 
-export async function fetchOrchestratorRuns(limit = 50, project?: string): Promise<OrchestratorRunsResponse> {
-  const params = new URLSearchParams({ limit: String(limit) });
+export async function fetchOrchestratorRuns(limit = 50, project?: string, offset = 0): Promise<OrchestratorRunsResponse> {
+  const params = new URLSearchParams({ limit: String(limit), offset: String(offset) });
   if (project) params.set("project", project);
   return parseJson(await apiFetch(`${API_BASE}/orchestrator/runs?${params.toString()}`));
 }
