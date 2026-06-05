@@ -110,6 +110,8 @@ function normalizeLogType(type: string | undefined): string | undefined {
   if (!type) return type;
   if (type.endsWith(".message") || type.endsWith(".message_update") || type.endsWith(".agent_message")) return "assistant";
   if (type.endsWith(".thinking")) return "thinking";
+  if (type.endsWith(".user_prompt")) return "user";
+  if (type.endsWith(".tool_output")) return "tool_output";
   if (type.endsWith(".tool") || type.includes("commandExecution") || type.includes("tool_execution")) return "tool_call";
   if (type.endsWith(".stderr") || type.endsWith(".process.error") || type.endsWith(".start.error") || type.endsWith(".protocol.error")) return "error";
   return type;

@@ -44,6 +44,20 @@ function sleep(ms: number): Promise<void> {
   return new Promise((resolve) => setTimeout(resolve, ms));
 }
 
+function toolResultText(content: unknown): string {
+  if (typeof content === "string") return content;
+  if (Array.isArray(content)) {
+    return content
+      .map((part) => {
+        const record = objectValue(part);
+        return typeof record?.text === "string" ? record.text : "";
+      })
+      .filter(Boolean)
+      .join("\n");
+  }
+  return "";
+}
+
 function commandParts(input: WorkerRunnerStartInput): [string, ...string[]] {
   const command = input.workflow.agent.command;
   if (command) {
@@ -96,6 +110,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
     const session = this.spawnSession(key, input);
     this.sessions.set(key, session);
     try {
+      session.emit("worker.claude.user_prompt", { message: input.prompt });
       await this.prompt(session, input.prompt);
       await this.refreshState(session).catch((error: Error) => session.emit("worker.claude.state.error", { error: error.message }));
     } catch (error) {
@@ -330,7 +345,7 @@ export class ClaudeRpcRunner implements WorkerRunner {
       session.emit("worker.claude.queue", event);
     }
 
-    if (type === "assistant" || type === "message" || type === "message_start" || type === "message_delta" || type === "message_stop") {
+    if (type === "assistant" || type === "message" || type === "user" || type === "message_start" || type === "message_delta" || type === "message_stop") {
       this.handleMessageEvent(session, event);
       return;
     }
@@ -358,15 +373,23 @@ export class ClaudeRpcRunner implements WorkerRunner {
     const content = objectValue(event.content);
     const message = objectValue(event.message);
     const messageContent = Array.isArray(message?.content) ? message.content.map(objectValue).filter((value): value is Record<string, unknown> => !!value) : [];
-    const nestedTypes = [delta?.type, contentBlock?.type, content?.type, ...messageContent.map((block) => block.type)].filter((value): value is string => typeof value === "string");
+    const blocks = [delta, contentBlock, content, ...messageContent].filter((value): value is Record<string, unknown> => !!value);
+    const nestedTypes = blocks.map((block) => block.type).filter((value): value is string => typeof value === "string");
     let emitted = false;
     if (nestedTypes.some((type) => type === "thinking" || type === "thinking_delta")) {
       session.emit("worker.claude.thinking", event);
       emitted = true;
     }
-    if (nestedTypes.some((type) => type === "tool_use" || type === "tool_result")) {
-      session.emit("worker.claude.tool", event);
-      emitted = true;
+    for (const block of blocks) {
+      if (block.type === "tool_use") {
+        const name = typeof block.name === "string" ? block.name : "tool";
+        session.emit("worker.claude.tool", { item: { type: "tool_use", id: block.id, name, input: block.input }, text: name });
+        emitted = true;
+      } else if (block.type === "tool_result") {
+        const output = toolResultText(block.content);
+        session.emit("worker.claude.tool_output", { item: { type: "tool_result", id: block.tool_use_id, name: "result", aggregated_output: output }, text: output || "result" });
+        emitted = true;
+      }
     }
     if (!emitted || nestedTypes.some((type) => type === "text" || type === "text_delta")) {
       session.emit("worker.claude.message", event);

@@ -1407,7 +1407,7 @@ describe("Claude RPC worker runner", () => {
         "worker.claude.state",
         "worker.claude.result",
       ]));
-      expect(events.some((event) => event.type === "worker.claude.tool" && (event.payload as { type?: string }).type === "assistant")).toBe(true);
+      expect(events.some((event) => event.type === "worker.claude.tool" && (event.payload as { item?: { type?: string } }).item?.type === "tool_use")).toBe(true);
       const sent = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as { type: string; message?: string });
       expect(sent.find((message) => message.type === "prompt")?.message).toBe("Initial rendered workflow instructions");
       expect(sent.some((message) => message.type === "get_state")).toBe(true);
@@ -1534,6 +1534,43 @@ describe("Claude RPC worker runner", () => {
     } finally {
       delete process.env.MOCK_CLAUDE_MODE;
       await wedged.shutdown();
+    }
+  });
+
+  it("emits user_prompt, tool, and tool_output events when Claude CLI nests tool blocks", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-claude-tool-events-"));
+    const binDir = path.join(root, "bin");
+    await fs.mkdir(binDir);
+    const cliScript = path.join(binDir, "claude");
+    await fs.writeFile(cliScript, `#!/usr/bin/env node
+process.stdout.write(JSON.stringify({ type: "system", session_id: "shim_session" }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "assistant", message: { role: "assistant", content: [{ type: "tool_use", id: "tu_1", name: "Bash", input: { command: "ls" } }] } }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "user", message: { role: "user", content: [{ type: "tool_result", tool_use_id: "tu_1", content: [{ type: "text", text: "file.txt" }] }] } }) + "\\n");
+process.stdout.write(JSON.stringify({ type: "result", subtype: "success", result: "done" }) + "\\n");
+`);
+    await fs.chmod(cliScript, 0o755);
+    const events: Array<{ type: string; payload: unknown }> = [];
+    const previousPath = process.env.PATH;
+    process.env.PATH = `${binDir}${path.delimiter}${previousPath ?? ""}`;
+    const runner = new ClaudeRpcRunner({ idleCleanupMs: 50, terminalRetentionMs: 200 });
+    try {
+      const handle = await runner.start(claudeRunnerInput(root, [], {
+        emitEvent: (type, payload) => events.push({ type, payload }),
+      }));
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }), { timeout: 5000 });
+
+      const userPromptEvent = events.find((e) => e.type === "worker.claude.user_prompt");
+      expect(userPromptEvent?.payload).toMatchObject({ message: "Initial rendered workflow instructions" });
+
+      const toolEvent = events.find((e) => e.type === "worker.claude.tool");
+      expect((toolEvent?.payload as { item?: { name?: string } } | undefined)?.item?.name).toBe("Bash");
+
+      const toolOutputEvent = events.find((e) => e.type === "worker.claude.tool_output");
+      expect((toolOutputEvent?.payload as { item?: { aggregated_output?: string } } | undefined)?.item?.aggregated_output).toContain("file.txt");
+    } finally {
+      if (previousPath === undefined) delete process.env.PATH;
+      else process.env.PATH = previousPath;
+      await runner.shutdown();
     }
   });
 });
