@@ -13,11 +13,14 @@ import {
   writeCronRunOutput,
 } from "./output.js";
 
+const DEFAULT_JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+
 export type SchedulerState = {
   nextRunAtMs?: number;
   lastRunAtMs?: number;
   lastStatus?: "ok" | "error";
   lastError?: string;
+  runningForMs?: number;
 };
 
 export type SchedulerRunResult = {
@@ -30,7 +33,7 @@ export type SchedulerRunResult = {
   error?: string;
 };
 
-type JobWithState = ScheduleJob & { state?: SchedulerState };
+type JobWithState = ScheduleJob & { state?: SchedulerState; timeoutMs?: number };
 
 let schedulerCtx: ExtensionContext | null = null;
 
@@ -80,9 +83,9 @@ export class SchedulerService {
   private store: ScheduleStore = { version: 1, jobs: [] };
   private jobStore: PerAgentScheduleStore;
   private timer: NodeJS.Timeout | null = null;
-  private running = false;
   private loaded = false;
   private executingJobs = new Set<string>();
+  private runningJobStartedAtMs = new Map<string, number>();
   private skippedScheduledFireKeys = new Set<string>();
 
   constructor() {
@@ -132,7 +135,20 @@ export class SchedulerService {
 
   async list(agentId?: string): Promise<ScheduleJob[]> {
     await this.load();
-    return this.store.jobs.filter((job) => !agentId || job.agentId === agentId);
+    const now = Date.now();
+    return (this.store.jobs as JobWithState[])
+      .filter((job) => !agentId || job.agentId === agentId)
+      .map((job) => {
+        const key = this.executionKey(job);
+        const startedAt = this.runningJobStartedAtMs.get(key);
+        if (startedAt !== undefined) {
+          return {
+            ...job,
+            state: { ...(job.state ?? {}), runningForMs: now - startedAt },
+          };
+        }
+        return job;
+      });
   }
 
   async add(agentId: string, input: Omit<CreateScheduleRequest, "agentId">): Promise<ScheduleJob> {
@@ -252,7 +268,7 @@ export class SchedulerService {
     );
   }
 
-  private armTimer() {
+  armTimer() {
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
@@ -277,40 +293,42 @@ export class SchedulerService {
     return Math.min(...enabled.map((j) => j.state!.nextRunAtMs!));
   }
 
-  private async tick() {
-    if (this.running) return;
-    this.running = true;
-
+  async tick() {
     try {
       await this.runDueJobs();
-      this.armTimer();
     } finally {
-      this.running = false;
+      // Re-arm in finally so a hung or erroring job never wedges the scheduler loop.
+      this.armTimer();
     }
   }
 
-  private async runDueJobs() {
+  async runDueJobs() {
     const now = Date.now();
     const due = (this.store.jobs as JobWithState[]).filter((j) => {
       if (!j.enabled) return false;
       return j.state?.nextRunAtMs && now >= j.state.nextRunAtMs;
     });
 
-    for (const job of due) {
-      try {
-        await this.executeJob(job);
-      } catch (error) {
-        if (error instanceof ScheduleAlreadyRunningError) {
-          getSchedulerContext().logger.warn(error.message);
-          job.state = job.state ?? {};
-          job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-          this.skippedScheduledFireKeys.add(this.executionKey(job));
-          await this.saveAgent(job.agentId);
-          continue;
+    // Run all due jobs concurrently so one slow/hung job doesn't delay others.
+    await Promise.allSettled(
+      due.map(async (job) => {
+        try {
+          await this.executeJob(job);
+        } catch (error) {
+          if (error instanceof ScheduleAlreadyRunningError) {
+            getSchedulerContext().logger.warn(error.message);
+            job.state = job.state ?? {};
+            job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+            this.skippedScheduledFireKeys.add(this.executionKey(job));
+            await this.saveAgent(job.agentId);
+            return;
+          }
+          getSchedulerContext().logger.error(
+            `[scheduler] Unexpected error executing job ${job.name}: ${error instanceof Error ? error.message : String(error)}`
+          );
         }
-        throw error;
-      }
-    }
+      })
+    );
   }
 
   private executionKey(job: Pick<ScheduleJob, "agentId" | "id">): string {
@@ -323,8 +341,14 @@ export class SchedulerService {
       throw new ScheduleAlreadyRunningError(job.agentId, job.id);
     }
     this.executingJobs.add(key);
+    this.runningJobStartedAtMs.set(key, Date.now());
 
     const ctx = getSchedulerContext();
+    const config = ctx.getConfig();
+    const defaultTimeoutMs =
+      config.extensions?.scheduler?.jobTimeoutMs ?? DEFAULT_JOB_TIMEOUT_MS;
+    const timeoutMs = job.timeoutMs ?? defaultTimeoutMs;
+
     const agent = ctx.getAgent(job.agentId);
     const firedAt = new Date();
     const sessionId = job.payload.sessionId ?? `scheduler:${job.id}:${uuidv7()}`;
@@ -367,14 +391,25 @@ export class SchedulerService {
       let outputPath: string | undefined;
       let runError: string | undefined;
 
+      let timeoutId: NodeJS.Timeout | undefined;
+      const timeoutPromise = new Promise<never>((_, reject) => {
+        timeoutId = setTimeout(() => {
+          reject(new Error(`Job timed out after ${timeoutMs}ms`));
+        }, timeoutMs);
+        timeoutId.unref?.();
+      });
+
       try {
-        const result = await ctx.runAgent({
-          agentId: job.agentId,
-          message: job.payload.message,
-          sessionId,
-          model: job.model,
-          source: "scheduler",
-        });
+        const result = await Promise.race([
+          ctx.runAgent({
+            agentId: job.agentId,
+            message: job.payload.message,
+            sessionId,
+            model: job.model,
+            source: "scheduler",
+          }),
+          timeoutPromise,
+        ]);
 
         runSessionId = result.meta.sessionId;
         job.state = job.state ?? {};
@@ -425,6 +460,8 @@ export class SchedulerService {
           durationMs: Date.now() - firedAt.getTime(),
           error: err,
         });
+      } finally {
+        clearTimeout(timeoutId);
       }
 
       const finishedAt = new Date();
@@ -442,6 +479,7 @@ export class SchedulerService {
       };
     } finally {
       this.executingJobs.delete(key);
+      this.runningJobStartedAtMs.delete(key);
     }
   }
 }
