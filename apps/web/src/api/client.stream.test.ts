@@ -133,6 +133,64 @@ describe("streamMessage", () => {
 
     expect(onError).toHaveBeenCalledWith("Connection error");
   });
+
+  it("calls onError when socket closes without a terminal done/error event", () => {
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    streamMessage("agent-3", "hi", "main", vi.fn(), onDone, onError);
+
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    // Socket closes with no done/error — stale thinking state scenario
+    ws.close();
+
+    expect(onError).toHaveBeenCalledWith("Connection closed");
+    expect(onDone).not.toHaveBeenCalled();
+  });
+
+  it("does not call onError on close after a done event was received", () => {
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    streamMessage("agent-4", "hi", "main", vi.fn(), onDone, onError);
+
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    ws.receive({ type: "done", meta: { durationMs: 50 } });
+    ws.close();
+
+    expect(onDone).toHaveBeenCalledTimes(1);
+    expect(onError).not.toHaveBeenCalled();
+  });
+
+  it("does not call onError on close after an error event was received", () => {
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    streamMessage("agent-5", "hi", "main", vi.fn(), onDone, onError);
+
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    ws.receive({ type: "error", message: "backend failure" });
+    ws.close();
+
+    expect(onError).toHaveBeenCalledTimes(1);
+    expect(onError).toHaveBeenCalledWith("backend failure");
+  });
+
+  it("does not call onError on close after explicit cleanup", () => {
+    const onDone = vi.fn();
+    const onError = vi.fn();
+
+    const cleanup = streamMessage("agent-6", "hi", "main", vi.fn(), onDone, onError);
+
+    const ws = MockWebSocket.instances[0];
+    ws.open();
+    cleanup();
+
+    expect(onError).not.toHaveBeenCalled();
+  });
 });
 
 describe("subscribeToSession", () => {

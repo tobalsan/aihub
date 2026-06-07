@@ -862,3 +862,148 @@ describe("ChatView abort handling", () => {
     dispose();
   });
 });
+
+describe("ChatView stale-thinking reconciliation", () => {
+  beforeEach(() => {
+    delegateEvents(["click", "input", "keydown"]);
+    Element.prototype.scrollIntoView = vi.fn();
+
+    fetchAgentMock.mockResolvedValue({
+      id: "agent-1",
+      name: "Agent",
+      model: { provider: "openai", model: "gpt-5" },
+      queueMode: "queue",
+    });
+    fetchCapabilitiesMock.mockResolvedValue({
+      version: 2,
+      extensions: {},
+      agents: ["agent-1"],
+      multiUser: false,
+      agentFab: false,
+    });
+    setCapabilitiesForTests({ multiUser: false });
+    getSessionKeyMock.mockReturnValue("main");
+    streamMessageMock.mockImplementation(() => () => {});
+    postAbortMock.mockResolvedValue(undefined);
+    routeState.view = undefined;
+    routeState.session = undefined;
+  });
+
+  afterEach(() => {
+    document.body.innerHTML = "";
+    resetCapabilitiesForTests();
+    vi.clearAllMocks();
+  });
+
+  it("clears stale thinking state via subscription history_updated when no direct stream is active", async () => {
+    // Simulate backend still appearing as streaming on initial load
+    fetchAgentStatusesMock.mockResolvedValue({
+      statuses: { "agent-1": "streaming" },
+    });
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [],
+      isStreaming: true,
+      activeTurn: {
+        userText: "do you have linear tools?",
+        userTimestamp: Date.now() - 3600000,
+        startedAt: Date.now() - 3600000,
+        thinking: "",
+        text: "",
+        toolCalls: [],
+      },
+    });
+
+    let capturedHistoryUpdated: (() => void) | undefined;
+    subscribeToSessionMock.mockImplementation(
+      (_agentId: string, _key: string, callbacks: { onHistoryUpdated?: () => void }) => {
+        capturedHistoryUpdated = callbacks.onHistoryUpdated;
+        return () => {};
+      }
+    );
+    subscribeToRealtimeMock.mockImplementation(() => () => {});
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    // UI should be in thinking state (stop button visible)
+    expect(container.querySelector(".stop-btn")).toBeTruthy();
+
+    // Backend finishes: history is now available and isStreaming is false
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "user" as const,
+          content: [{ type: "text" as const, text: "do you have linear tools?" }],
+          timestamp: 100,
+        },
+        {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: "Yes I do!" }],
+          timestamp: 200,
+        },
+      ],
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    // Subscription delivers history_updated — should clear stale state and reload
+    capturedHistoryUpdated?.();
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".stop-btn")).toBeFalsy();
+    expect(container.textContent).toContain("Yes I do!");
+
+    dispose();
+  });
+
+  it("clears stale thinking state via status idle event when no direct stream is active", async () => {
+    fetchAgentStatusesMock.mockResolvedValue({
+      statuses: { "agent-1": "idle" },
+    });
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [],
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    let capturedOnEvent: ((event: { type: string; agentId?: string; status?: string }) => void) | undefined;
+    subscribeToRealtimeMock.mockImplementation(({ onEvent }: { onEvent: (event: unknown) => void }) => {
+      capturedOnEvent = onEvent as typeof capturedOnEvent;
+      return () => {};
+    });
+    subscribeToSessionMock.mockImplementation(() => () => {});
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    // Simulate backend starting to stream (e.g. page was loaded mid-run)
+    capturedOnEvent?.({ type: "status", agentId: "agent-1", status: "streaming" });
+    await tick();
+
+    expect(container.querySelector(".stop-btn")).toBeTruthy();
+
+    // Backend goes idle — no active streamMessage cleanup, so state should clear
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [
+        {
+          role: "assistant" as const,
+          content: [{ type: "text" as const, text: "Done!" }],
+          timestamp: 100,
+        },
+      ],
+      isStreaming: false,
+      activeTurn: null,
+    });
+    capturedOnEvent?.({ type: "status", agentId: "agent-1", status: "idle" });
+    await tick();
+    await tick();
+
+    expect(container.querySelector(".stop-btn")).toBeFalsy();
+    expect(container.textContent).toContain("Done!");
+
+    dispose();
+  });
+});
