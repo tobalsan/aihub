@@ -330,7 +330,9 @@ export class WsBroker {
 
       const { agentId, sessionId: eventSessionId, ...streamEvent } = event;
       this.send(ws, streamEvent);
-      if (event.type === "done") {
+      // Send history_updated after terminal events so subscribers reload state.
+      // Errors are terminal too: clients need to reconcile after a failed run.
+      if (event.type === "done" || event.type === "error") {
         this.send(ws, { type: "history_updated", agentId, sessionId: eventSessionId });
       }
     }

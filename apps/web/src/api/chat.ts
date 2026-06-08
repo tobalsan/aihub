@@ -143,6 +143,7 @@ export function streamMessage(
   options?: StreamMessageOptions
 ): () => void {
   const ws = new WebSocket(getWsUrl());
+  let terminated = false;
 
   ws.onopen = () => {
     const payload: Record<string, unknown> = {
@@ -162,7 +163,9 @@ export function streamMessage(
   };
 
   ws.onmessage = (e) => {
-    dispatchWsEvent(JSON.parse(e.data) as WsStreamEvent, {
+    const event = JSON.parse(e.data) as WsStreamEvent;
+    if (event.type === "done" || event.type === "error") terminated = true;
+    dispatchWsEvent(event, {
       ...callbacks,
       onText,
       onDone,
@@ -171,10 +174,21 @@ export function streamMessage(
   };
 
   ws.onerror = () => {
+    terminated = true;
     onError("Connection error");
   };
 
+  // If the socket closes without a terminal done/error event (e.g. network drop,
+  // server restart), surface a recoverable error so the UI can clear isStreaming.
+  ws.onclose = () => {
+    if (!terminated) {
+      terminated = true;
+      onError("Connection closed");
+    }
+  };
+
   return () => {
+    terminated = true;
     if (
       ws.readyState === WebSocket.OPEN ||
       ws.readyState === WebSocket.CONNECTING

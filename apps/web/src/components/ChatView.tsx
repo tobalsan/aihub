@@ -921,7 +921,13 @@ export function ChatView() {
     streaming: boolean,
     turn: import("../api").ActiveTurn | null
   ) => {
-    if (!streaming || !turn) return;
+    if (!streaming) {
+      // Backend says not streaming: clear stale isStreaming if we don't own a
+      // direct stream ourselves (cleanup null means no active streamMessage).
+      if (!cleanup && isStreaming()) resetStreamingState();
+      return;
+    }
+    if (!turn) return;
     if (cleanup) return;
     applyActiveTurnSnapshot(turn);
   };
@@ -1141,8 +1147,11 @@ export function ChatView() {
           void refreshContextUsage();
           return;
         }
-        // Refetch history when background run completes
-        if (!isStreaming()) {
+        // Refetch history when background run completes. Also reconcile if
+        // isStreaming is stale-true but we don't own the direct stream — the
+        // history_updated signal means the backend finished and history is ready.
+        if (!isStreaming() || !cleanup) {
+          if (isStreaming() && !cleanup) resetStreamingState();
           if (pendingQueuedMessages().length > 0) {
             setPendingQueuedMessages((prev) => prev.slice(1));
           }
