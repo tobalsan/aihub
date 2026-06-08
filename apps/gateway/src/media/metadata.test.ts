@@ -74,4 +74,60 @@ describe("media metadata", () => {
       agentId: outbound.agentId,
     });
   });
+
+  it("keeps every entry when registrations run concurrently", async () => {
+    const { MEDIA_OUTBOUND_DIR, readMediaMetadata, registerMediaFile } =
+      await import("./metadata.js");
+
+    // A multi-file send_file fires registrations concurrently. Without
+    // serialization they collide on the temp file (ENOENT) and clobber each
+    // other's entries.
+    const count = 8;
+    await Promise.all(
+      Array.from({ length: count }, (_, i) =>
+        registerMediaFile({
+          direction: "outbound",
+          fileId: `out-${i}`,
+          filename: `f${i}.csv`,
+          storedFilename: `out-${i}.csv`,
+          path: path.join(MEDIA_OUTBOUND_DIR, `out-${i}.csv`),
+          mimeType: "text/csv",
+          size: i,
+        })
+      )
+    );
+
+    const store = await readMediaMetadata();
+    expect(Object.keys(store).sort()).toEqual(
+      Array.from({ length: count }, (_, i) => `out-${i}`).sort()
+    );
+  });
+
+  it("quarantines a corrupt store and self-heals instead of throwing", async () => {
+    const { MEDIA_METADATA_PATH, MEDIA_OUTBOUND_DIR, readMediaMetadata, registerMediaFile } =
+      await import("./metadata.js");
+
+    // Trailing junk after a valid object: a complete JSON value followed by
+    // non-whitespace, which is exactly how the prod store got corrupted.
+    await fs.mkdir(path.dirname(MEDIA_METADATA_PATH), { recursive: true });
+    await fs.writeFile(MEDIA_METADATA_PATH, '{"old": 1}\n  }\n}\n');
+
+    // Reading must not throw, and the bad file is quarantined.
+    await expect(readMediaMetadata()).resolves.toEqual({});
+    await expect(fs.stat(`${MEDIA_METADATA_PATH}.corrupt`)).resolves.toBeTruthy();
+
+    // A subsequent registration rebuilds a valid store.
+    const entry = await registerMediaFile({
+      direction: "outbound",
+      fileId: "out-2",
+      filename: "fresh.csv",
+      storedFilename: "out-2.csv",
+      path: path.join(MEDIA_OUTBOUND_DIR, "out-2.csv"),
+      mimeType: "text/csv",
+      size: 5,
+    });
+    await expect(readMediaMetadata()).resolves.toMatchObject({
+      "out-2": { fileId: entry.fileId },
+    });
+  });
 });

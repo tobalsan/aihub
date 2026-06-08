@@ -48,13 +48,42 @@ export async function ensureMediaDirectories(): Promise<void> {
   ]);
 }
 
+// Serializes read-modify-write of the shared metadata store. Concurrent
+// registrations (e.g. a multi-file send_file) would otherwise race: collide on
+// the temp file (ENOENT on rename) and clobber each other's entries.
+let metadataLock: Promise<unknown> = Promise.resolve();
+
+function withMetadataLock<T>(fn: () => Promise<T>): Promise<T> {
+  const run = metadataLock.then(fn, fn);
+  metadataLock = run.then(
+    () => undefined,
+    () => undefined
+  );
+  return run;
+}
+
 export async function readMediaMetadata(): Promise<MediaMetadataStore> {
+  let raw: string;
   try {
-    const raw = await fs.readFile(getMetadataPath(), "utf8");
-    return JSON.parse(raw) as MediaMetadataStore;
+    raw = await fs.readFile(getMetadataPath(), "utf8");
   } catch (error) {
     if (isNotFoundError(error)) return {};
     throw error;
+  }
+  try {
+    return JSON.parse(raw) as MediaMetadataStore;
+  } catch (error) {
+    // A corrupt store would otherwise throw on every media registration and
+    // never self-heal (registerMediaFile reads before it writes). Quarantine
+    // the bad file and start fresh so the next write rebuilds a valid store.
+    const quarantinePath = `${getMetadataPath()}.corrupt`;
+    await fs.rename(getMetadataPath(), quarantinePath).catch(() => {});
+    console.error(
+      `[media] metadata store was corrupt; quarantined to ${quarantinePath}: ${
+        error instanceof Error ? error.message : String(error)
+      }`
+    );
+    return {};
   }
 }
 
@@ -143,17 +172,18 @@ export async function registerMediaFile(input: {
     sessionId: input.sessionId,
   };
 
-  const metadata = await readMediaMetadata();
-  metadata[fileId] = entry;
-  await writeMediaMetadata(metadata);
-
-  return entry;
+  return withMetadataLock(async () => {
+    const metadata = await readMediaMetadata();
+    metadata[fileId] = entry;
+    await writeMediaMetadata(metadata);
+    return entry;
+  });
 }
 
 async function writeMediaMetadata(metadata: MediaMetadataStore): Promise<void> {
   const metadataPath = getMetadataPath();
   await fs.mkdir(getMediaDir(), { recursive: true });
-  const tempPath = `${metadataPath}.${process.pid}.tmp`;
+  const tempPath = `${metadataPath}.${process.pid}.${randomUUID()}.tmp`;
   await fs.writeFile(tempPath, `${JSON.stringify(metadata, null, 2)}\n`);
   await fs.rename(tempPath, metadataPath);
 }
