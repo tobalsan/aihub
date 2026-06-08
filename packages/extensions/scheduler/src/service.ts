@@ -86,6 +86,7 @@ export class SchedulerService {
   private loaded = false;
   private executingJobs = new Set<string>();
   private runningJobStartedAtMs = new Map<string, number>();
+  private executingJobControllers = new Map<string, AbortController>();
   private skippedScheduledFireKeys = new Set<string>();
 
   constructor() {
@@ -352,135 +353,149 @@ export class SchedulerService {
     const agent = ctx.getAgent(job.agentId);
     const firedAt = new Date();
     const sessionId = job.payload.sessionId ?? `scheduler:${job.id}:${uuidv7()}`;
-    try {
-      if (!agent) {
-        console.error(`[scheduler] Agent not found: ${job.agentId}`);
-        job.state = job.state ?? {};
-        job.state.lastStatus = "error";
-        job.state.lastError = "Agent not found";
-        job.state.lastRunAtMs = firedAt.getTime();
-        job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-        return {
-          job,
-          status: "error",
-          firedAt: firedAt.toISOString(),
-          finishedAt: new Date().toISOString(),
-          sessionId,
-          error: "Agent not found",
-        };
-      }
 
-      // Skip if agent not active (single-agent mode filter)
-      if (!ctx.isAgentActive(job.agentId)) {
-        job.state = job.state ?? {};
-        job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-        return {
-          job,
-          status: "skipped",
-          firedAt: firedAt.toISOString(),
-          finishedAt: new Date().toISOString(),
-          sessionId,
-          error: "Agent not active",
-        };
-      }
-
-      console.log(`[scheduler] Running job: ${job.name} -> ${agent.name}`);
-
-      let runStatus: SchedulerRunResult["status"] = "ok";
-      let runSessionId = sessionId;
-      let outputPath: string | undefined;
-      let runError: string | undefined;
-
-      let timeoutId: NodeJS.Timeout | undefined;
-      const timeoutPromise = new Promise<never>((_, reject) => {
-        timeoutId = setTimeout(() => {
-          reject(new Error(`Job timed out after ${timeoutMs}ms`));
-        }, timeoutMs);
-        timeoutId.unref?.();
-      });
-
-      try {
-        const result = await Promise.race([
-          ctx.runAgent({
-            agentId: job.agentId,
-            message: job.payload.message,
-            sessionId,
-            model: job.model,
-            source: "scheduler",
-          }),
-          timeoutPromise,
-        ]);
-
-        runSessionId = result.meta.sessionId;
-        job.state = job.state ?? {};
-        job.state.lastStatus = "ok";
-        job.state.lastError = undefined;
-        outputPath = await writeCronRunOutput({
-          workspaceDir: ctx.resolveWorkspaceDir(agent),
-          jobId: job.id,
-          agentId: job.agentId,
-          sessionId: result.meta.sessionId,
-          model: job.model ?? {
-            provider: agent.model.provider ?? "",
-            model: agent.model.model,
-          },
-          runType: "cron",
-          name: job.name,
-          prompt: job.payload.message,
-          schedule: formatScheduleForOutput(job.schedule),
-          firedAt,
-          finishedAt: new Date(),
-          status: "ok",
-          durationMs: Date.now() - firedAt.getTime(),
-          response: latestAssistantText(result.payloads),
-        });
-      } catch (err) {
-        runStatus = "error";
-        runError = err instanceof Error ? err.message : String(err);
-        job.state = job.state ?? {};
-        job.state.lastStatus = "error";
-        job.state.lastError = runError;
-        console.error(`[scheduler] Job failed: ${job.name}`, err);
-        outputPath = await writeCronRunOutput({
-          workspaceDir: ctx.resolveWorkspaceDir(agent),
-          jobId: job.id,
-          agentId: job.agentId,
-          sessionId,
-          model: job.model ?? {
-            provider: agent.model.provider ?? "",
-            model: agent.model.model,
-          },
-          runType: "cron",
-          name: job.name,
-          prompt: job.payload.message,
-          schedule: formatScheduleForOutput(job.schedule),
-          firedAt,
-          finishedAt: new Date(),
-          status: "error",
-          durationMs: Date.now() - firedAt.getTime(),
-          error: err,
-        });
-      } finally {
-        clearTimeout(timeoutId);
-      }
-
-      const finishedAt = new Date();
-      job.state.lastRunAtMs = firedAt.getTime();
-      job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
-      await this.saveAgent(job.agentId);
-      return {
-        job,
-        status: runStatus,
-        firedAt: firedAt.toISOString(),
-        finishedAt: finishedAt.toISOString(),
-        sessionId: runSessionId,
-        outputPath,
-        error: runError,
-      };
-    } finally {
+    if (!agent) {
+      console.error(`[scheduler] Agent not found: ${job.agentId}`);
       this.executingJobs.delete(key);
       this.runningJobStartedAtMs.delete(key);
+      job.state = job.state ?? {};
+      job.state.lastStatus = "error";
+      job.state.lastError = "Agent not found";
+      job.state.lastRunAtMs = firedAt.getTime();
+      job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+      return {
+        job,
+        status: "error",
+        firedAt: firedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        sessionId,
+        error: "Agent not found",
+      };
     }
+
+    // Skip if agent not active (single-agent mode filter)
+    if (!ctx.isAgentActive(job.agentId)) {
+      this.executingJobs.delete(key);
+      this.runningJobStartedAtMs.delete(key);
+      job.state = job.state ?? {};
+      job.state.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+      return {
+        job,
+        status: "skipped",
+        firedAt: firedAt.toISOString(),
+        finishedAt: new Date().toISOString(),
+        sessionId,
+        error: "Agent not active",
+      };
+    }
+
+    console.log(`[scheduler] Running job: ${job.name} -> ${agent.name}`);
+
+    // Each execution gets its own AbortController so timeout can cancel the run.
+    const controller = new AbortController();
+    this.executingJobControllers.set(key, controller);
+
+    // Start the underlying run. executingJobs stays populated until runPromise
+    // actually settles — even if executeJob returns early due to timeout —
+    // so the next scheduled fire cannot overlap with a still-aborting run.
+    const runPromise = ctx.runAgent({
+      agentId: job.agentId,
+      message: job.payload.message,
+      sessionId,
+      model: job.model,
+      source: "scheduler",
+      signal: controller.signal,
+    });
+
+    runPromise.catch(() => {}).finally(() => {
+      this.executingJobs.delete(key);
+      this.runningJobStartedAtMs.delete(key);
+      this.executingJobControllers.delete(key);
+    });
+
+    let timeoutId: NodeJS.Timeout | undefined;
+    const timeoutPromise = new Promise<never>((_, reject) => {
+      timeoutId = setTimeout(() => {
+        controller.abort();
+        reject(new Error(`Job timed out after ${timeoutMs}ms`));
+      }, timeoutMs);
+      timeoutId.unref?.();
+    });
+
+    let runStatus: SchedulerRunResult["status"] = "ok";
+    let runSessionId = sessionId;
+    let outputPath: string | undefined;
+    let runError: string | undefined;
+
+    try {
+      const result = await Promise.race([runPromise, timeoutPromise]);
+
+      runSessionId = result.meta.sessionId;
+      job.state = job.state ?? {};
+      job.state.lastStatus = "ok";
+      job.state.lastError = undefined;
+      outputPath = await writeCronRunOutput({
+        workspaceDir: ctx.resolveWorkspaceDir(agent),
+        jobId: job.id,
+        agentId: job.agentId,
+        sessionId: result.meta.sessionId,
+        model: job.model ?? {
+          provider: agent.model.provider ?? "",
+          model: agent.model.model,
+        },
+        runType: "cron",
+        name: job.name,
+        prompt: job.payload.message,
+        schedule: formatScheduleForOutput(job.schedule),
+        firedAt,
+        finishedAt: new Date(),
+        status: "ok",
+        durationMs: Date.now() - firedAt.getTime(),
+        response: latestAssistantText(result.payloads),
+      });
+    } catch (err) {
+      runStatus = "error";
+      runError = err instanceof Error ? err.message : String(err);
+      job.state = job.state ?? {};
+      job.state.lastStatus = "error";
+      job.state.lastError = runError;
+      console.error(`[scheduler] Job failed: ${job.name}`, err);
+      outputPath = await writeCronRunOutput({
+        workspaceDir: ctx.resolveWorkspaceDir(agent),
+        jobId: job.id,
+        agentId: job.agentId,
+        sessionId,
+        model: job.model ?? {
+          provider: agent.model.provider ?? "",
+          model: agent.model.model,
+        },
+        runType: "cron",
+        name: job.name,
+        prompt: job.payload.message,
+        schedule: formatScheduleForOutput(job.schedule),
+        firedAt,
+        finishedAt: new Date(),
+        status: "error",
+        durationMs: Date.now() - firedAt.getTime(),
+        error: err,
+      });
+    } finally {
+      clearTimeout(timeoutId);
+    }
+
+    const finishedAt = new Date();
+    job.state!.lastRunAtMs = firedAt.getTime();
+    job.state!.nextRunAtMs = computeNextRunAtMs(job.schedule, Date.now());
+    await this.saveAgent(job.agentId);
+    return {
+      job,
+      status: runStatus,
+      firedAt: firedAt.toISOString(),
+      finishedAt: finishedAt.toISOString(),
+      sessionId: runSessionId,
+      outputPath,
+      error: runError,
+    };
   }
 }
 

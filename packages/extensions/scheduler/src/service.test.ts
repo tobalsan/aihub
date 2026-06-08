@@ -329,4 +329,108 @@ describe("SchedulerService timeout and loop isolation", () => {
 
     vi.useRealTimers();
   });
+
+  it("abort signal is fired on runAgent when job times out", async () => {
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-scheduler-abort-"));
+    const alpha = agent("alpha", path.join(tmpDir, "alpha"));
+
+    let receivedSignal: AbortSignal | undefined;
+    const runAgent = vi.fn((params: { signal?: AbortSignal }) => {
+      receivedSignal = params.signal;
+      return new Promise<never>(() => {}); // hangs forever
+    });
+
+    const config: GatewayConfig = {
+      version: 3,
+      agents: [alpha],
+      extensions: { scheduler: { enabled: true, jobTimeoutMs: 20 } },
+      sessions: { idleMinutes: 360 },
+      agentFab: false,
+    };
+    setSchedulerContext(context(config, runAgent));
+    const scheduler = new SchedulerService();
+    const job = await scheduler.add("alpha", {
+      name: "Hung",
+      schedule: { cron: "* * * * *", tz: "UTC" },
+      payload: { message: "Hang" },
+    });
+
+    const [loadedJob] = (await scheduler.list("alpha")) as Array<{
+      state?: { nextRunAtMs?: number };
+    }>;
+    loadedJob!.state = { nextRunAtMs: Date.now() - 1 };
+
+    const internals = scheduler as unknown as SchedulerWithInternals;
+    await internals.runDueJobs();
+
+    // The abort signal passed to runAgent must have been aborted on timeout.
+    expect(receivedSignal).toBeDefined();
+    expect(receivedSignal!.aborted).toBe(true);
+  });
+
+  it("executingJobs stays populated after timeout until runAgent actually resolves, blocking overlap", async () => {
+    // Real timers with a very short jobTimeoutMs to avoid fake-timer / I/O deadlocks.
+    vi.spyOn(console, "log").mockImplementation(() => {});
+    vi.spyOn(console, "error").mockImplementation(() => {});
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-scheduler-overlap-"));
+    const alpha = agent("alpha", path.join(tmpDir, "alpha"));
+
+    const rejectCallbacks: Array<(err: Error) => void> = [];
+    const runAgent = vi.fn(
+      () =>
+        new Promise<never>((_, reject) => {
+          rejectCallbacks.push(reject);
+        })
+    );
+
+    const config: GatewayConfig = {
+      version: 3,
+      agents: [alpha],
+      extensions: { scheduler: { enabled: true, jobTimeoutMs: 20 } },
+      sessions: { idleMinutes: 360 },
+      agentFab: false,
+    };
+    setSchedulerContext(context(config, runAgent));
+    const scheduler = new SchedulerService();
+    const job = await scheduler.add("alpha", {
+      name: "Hung",
+      schedule: { cron: "* * * * *", tz: "UTC" },
+      payload: { message: "Hang" },
+    });
+
+    const [loadedJob] = (await scheduler.list("alpha")) as Array<{
+      state?: { nextRunAtMs?: number };
+    }>;
+
+    const internals = scheduler as unknown as SchedulerWithInternals;
+
+    // First fire — job hangs and times out after 20ms.
+    loadedJob!.state = { nextRunAtMs: Date.now() - 1 };
+    await internals.runDueJobs();
+
+    // runDueJobs has returned but the underlying runPromise (#1) is still pending.
+    // executingJobs must still hold the key, blocking the next fire.
+    loadedJob!.state!.nextRunAtMs = Date.now() - 1;
+    await internals.runDueJobs();
+
+    // Only one call to runAgent: the second fire was blocked by ScheduleAlreadyRunningError.
+    expect(runAgent).toHaveBeenCalledTimes(1);
+
+    // Simulate abort completing: the original run rejects.
+    rejectCallbacks[0]!(new Error("aborted"));
+    // Drain microtasks so runPromise.finally() clears executingJobs.
+    await new Promise<void>((r) => setTimeout(r, 0));
+
+    // Now executingJobs is clear — the next fire should start a fresh run.
+    loadedJob!.state!.nextRunAtMs = Date.now() - 1;
+    await internals.runDueJobs();
+
+    expect(runAgent).toHaveBeenCalledTimes(2);
+
+    // Clean up: reject run #2 so its promise settles before afterEach deletes tmpDir.
+    if (rejectCallbacks[1]) rejectCallbacks[1](new Error("aborted"));
+    await new Promise<void>((r) => setTimeout(r, 50));
+  });
 });

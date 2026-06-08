@@ -827,6 +827,7 @@ export type RunAgentParams = {
   source?: string;
   trace?: AgentTraceContext;
   onEvent?: (event: StreamEvent) => void;
+  signal?: AbortSignal;
 };
 
 export type RunAgentResult = {
