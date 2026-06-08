@@ -305,6 +305,13 @@ export async function runAgent(
 
   const abortController = lifecycle.beginRun();
 
+  // Wire external abort signal (e.g. scheduler timeout) into the session abort path.
+  if (params.signal?.aborted) {
+    abortController.abort();
+  } else {
+    params.signal?.addEventListener("abort", () => abortController.abort(), { once: true });
+  }
+
   const started = Date.now();
   let aborted = false;
   let runCompleted = false;

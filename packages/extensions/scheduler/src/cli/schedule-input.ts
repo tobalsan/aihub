@@ -35,11 +35,20 @@ export type JobWithState = ScheduleJob & {
     lastRunAtMs?: number;
     lastStatus?: "ok" | "error";
     lastError?: string;
+    runningForMs?: number;
   };
 };
 
+function formatDuration(ms: number): string {
+  const s = Math.floor(ms / 1000);
+  if (s < 60) return `${s}s`;
+  const m = Math.floor(s / 60);
+  if (m < 60) return `${m}m${s % 60}s`;
+  return `${Math.floor(m / 60)}h${m % 60}m`;
+}
+
 export function renderJobsTable(jobs: JobWithState[]): string {
-  const headers = ["id", "name", "agent", "schedule", "next-run", "last-status"];
+  const headers = ["id", "name", "agent", "schedule", "next-run", "last-status", "running-for"];
   const formatCell = (value: unknown) =>
     String(value ?? "")
       .replace(/\r?\n/g, " ")
@@ -54,6 +63,7 @@ export function renderJobsTable(jobs: JobWithState[]): string {
       ? new Date(job.state.nextRunAtMs).toISOString()
       : "",
     job.state?.lastStatus ?? "",
+    job.state?.runningForMs != null ? formatDuration(job.state.runningForMs) : "",
   ]);
 
   const headerRow = `| ${headers.join(" | ")} |`;

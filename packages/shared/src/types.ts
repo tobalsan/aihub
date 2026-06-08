@@ -276,6 +276,7 @@ export const ScheduleJobFileSchema = z.object({
   model: RequiredModelConfigSchema.optional(),
   payload: SchedulePayloadSchema,
   createdAt: z.string().optional(),
+  timeoutMs: z.number().positive().optional(),
 });
 export type ScheduleJobFile = z.infer<typeof ScheduleJobFileSchema>;
 
@@ -499,6 +500,7 @@ export type NotificationsConfig = z.infer<typeof NotificationsConfigSchema>;
 
 export const SchedulerExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
+  jobTimeoutMs: z.number().positive().optional(),
 });
 export type SchedulerExtensionConfig = z.infer<
   typeof SchedulerExtensionConfigSchema
@@ -825,6 +827,7 @@ export type RunAgentParams = {
   source?: string;
   trace?: AgentTraceContext;
   onEvent?: (event: StreamEvent) => void;
+  signal?: AbortSignal;
 };
 
 export type RunAgentResult = {
