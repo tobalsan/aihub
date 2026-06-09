@@ -672,6 +672,7 @@ export const ExtensionsConfigSchema = z
     scheduler: z
       .object({
         enabled: z.boolean().optional(),
+        jobTimeoutMs: z.number().optional(),
       })
       .optional(),
     heartbeat: HeartbeatExtensionConfigSchema.optional(),
