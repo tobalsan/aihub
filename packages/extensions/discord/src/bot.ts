@@ -186,6 +186,7 @@ async function handleDiscordMessage(
 
   startTyping(client, data.channel_id, target.agent.id, { sessionKey }, false);
 
+  let context;
   try {
     const [channelMeta, threadStarter] = await Promise.all([
       getChannelMetadata(client, data.channel_id),
@@ -218,7 +219,7 @@ async function handleDiscordMessage(
           : placeChannel;
 
     const recentHistory = getHistory(data.channel_id, historyLimit);
-    const context = buildDiscordContext({
+    context = buildDiscordContext({
       metadata: {
         channel: "discord",
         place,
@@ -234,35 +235,77 @@ async function handleDiscordMessage(
       threadStarter: threadStarter ?? undefined,
       history: recentHistory.length > 0 ? recentHistory : undefined,
     });
+  } catch (err) {
+    console.error(`${target.logPrefix} Error:`, err);
+    await sendDiscordError(client, data.channel_id, replyToMode, data.id);
+    return;
+  }
 
-    const agentResult = await getDiscordContext().runAgent({
+  // Subscribe to agent stream events to send the reply when the run finishes.
+  // runAgent() is then fired without await so the Carbon listener returns fast,
+  // well within Carbon 0.16's 12 s listener-timeout on the standard lane.
+  let accumulatedText = "";
+  let replyHandled = false;
+  const unsubscribe = getDiscordContext().subscribe("agent.stream", async (payload) => {
+    const event = payload as AgentStreamEvent;
+    if (event.agentId !== target.agent.id) return;
+    if (event.sessionKey !== sessionKey) return;
+
+    if (event.type === "text") {
+      accumulatedText += event.data;
+      return;
+    }
+    if (event.type === "done") {
+      unsubscribe();
+      if (event.meta?.queued) {
+        // Agent was queued; extend the typing indicator with TTL to match pre-fix behaviour.
+        startTyping(client, data.channel_id, target.agent.id, { sessionKey }, true);
+        return;
+      }
+      replyHandled = true;
+      if (accumulatedText) {
+        try {
+          await sendDiscordReply(
+            client,
+            data.channel_id,
+            [{ text: accumulatedText }],
+            replyToMode,
+            data.id
+          );
+        } catch (err) {
+          console.error(`${target.logPrefix} Reply error:`, err);
+        }
+      }
+      if (clearHistoryAfterReply) {
+        clearHistory(data.channel_id);
+      }
+      return;
+    }
+    if (event.type === "error") {
+      if (replyHandled) return;
+      replyHandled = true;
+      unsubscribe();
+      sendDiscordError(client, data.channel_id, replyToMode, data.id).catch((err) => {
+        console.error(`${target.logPrefix} Error reply failed:`, err);
+      });
+    }
+  });
+
+  getDiscordContext()
+    .runAgent({
       agentId: target.agent.id,
       message: content,
       sessionKey,
       source: "discord",
       context,
+    })
+    .catch((err) => {
+      unsubscribe();
+      if (replyHandled) return;
+      replyHandled = true;
+      console.error(`${target.logPrefix} Error:`, err);
+      sendDiscordError(client, data.channel_id, replyToMode, data.id).catch(() => {});
     });
-
-    if (agentResult.meta.queued) {
-      startTyping(client, data.channel_id, target.agent.id, { sessionKey }, true);
-      return;
-    }
-
-    await sendDiscordReply(
-      client,
-      data.channel_id,
-      agentResult.payloads,
-      replyToMode,
-      data.id
-    );
-
-    if (clearHistoryAfterReply) {
-      clearHistory(data.channel_id);
-    }
-  } catch (err) {
-    console.error(`${target.logPrefix} Error:`, err);
-    await sendDiscordError(client, data.channel_id, replyToMode, data.id);
-  }
 }
 
 async function handleDiscordReaction(

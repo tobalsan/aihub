@@ -7,6 +7,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
+
+// Drain the microtask queue so async subscription callbacks complete before assertions.
+const flushPromises = () => new Promise<void>((resolve) => setImmediate(resolve));
 import type {
   AgentConfig,
   DiscordComponentConfig,
@@ -164,10 +167,27 @@ describe("Discord bot integration", () => {
       return mockClient;
     });
 
-    // Default runAgent mock
-    mockRunAgent.mockResolvedValue({
-      payloads: [{ text: "Hello from agent" }],
-      meta: { durationMs: 100, sessionId: "test-session" },
+    // Default runAgent mock — emits agent.stream events so the fire-and-forget
+    // subscription callback in handleDiscordMessage actually fires in tests.
+    mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string }) => {
+      extensionEventEmitter.emit("agent.stream", {
+        agentId: params.agentId,
+        sessionId: "test-session",
+        sessionKey: params.sessionKey,
+        type: "text",
+        data: "Hello from agent",
+      });
+      extensionEventEmitter.emit("agent.stream", {
+        agentId: params.agentId,
+        sessionId: "test-session",
+        sessionKey: params.sessionKey,
+        type: "done",
+        meta: { durationMs: 100 },
+      });
+      return Promise.resolve({
+        payloads: [{ text: "Hello from agent" }],
+        meta: { durationMs: 100, sessionId: "test-session" },
+      });
     });
   });
 
@@ -469,6 +489,9 @@ describe("Discord bot integration", () => {
           },
           mockClient
         );
+        // clearHistory is called after `await sendDiscordReply()` inside the
+        // async subscription callback, so we need to drain the microtask queue.
+        await flushPromises();
 
         expect(clearHistory).toHaveBeenCalledWith("channel-1");
       });
@@ -772,14 +795,20 @@ describe("Discord bot integration", () => {
         },
       });
 
-      // Return queued result
-      mockRunAgent.mockResolvedValue({
-        payloads: [],
-        meta: {
-          durationMs: 0,
+      // Return queued result — emit a done event with queued:true so the
+      // subscription callback in handleDiscordMessage calls startTyping(queued=true).
+      mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string }) => {
+        extensionEventEmitter.emit("agent.stream", {
+          agentId: params.agentId,
           sessionId: "test-session",
-          queued: true,
-        },
+          sessionKey: params.sessionKey,
+          type: "done",
+          meta: { durationMs: 0, queued: true },
+        });
+        return Promise.resolve({
+          payloads: [],
+          meta: { durationMs: 0, sessionId: "test-session", queued: true },
+        });
       });
 
       await createDiscordBot(agent);
@@ -1274,9 +1303,25 @@ describe("Discord component bot", () => {
       return mockClient;
     });
 
-    mockRunAgent.mockResolvedValue({
-      payloads: [{ text: "Hello from routed agent" }],
-      meta: { durationMs: 100, sessionId: "test-session" },
+    mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string }) => {
+      extensionEventEmitter.emit("agent.stream", {
+        agentId: params.agentId,
+        sessionId: "test-session",
+        sessionKey: params.sessionKey,
+        type: "text",
+        data: "Hello from routed agent",
+      });
+      extensionEventEmitter.emit("agent.stream", {
+        agentId: params.agentId,
+        sessionId: "test-session",
+        sessionKey: params.sessionKey,
+        type: "done",
+        meta: { durationMs: 100 },
+      });
+      return Promise.resolve({
+        payloads: [{ text: "Hello from routed agent" }],
+        meta: { durationMs: 100, sessionId: "test-session" },
+      });
     });
   });
 
