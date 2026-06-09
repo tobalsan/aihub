@@ -31,6 +31,8 @@ type CodexSession = {
   emit: (type: string, payload: unknown) => void;
   turnTimeoutMs: number;
   turnTimer?: NodeJS.Timeout;
+  settleTimer?: NodeJS.Timeout;
+  pendingTurnStatus?: WorkerRunnerStatus;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
   removed?: boolean;
@@ -81,7 +83,7 @@ function codexThreadSandbox(input: WorkerRunnerStartInput): string | undefined {
 export class CodexAppServerRunner implements WorkerRunner {
   private readonly sessions = new Map<string, CodexSession>();
 
-  constructor(private readonly options: { idleCleanupMs?: number; terminalRetentionMs?: number; interruptTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
+  constructor(private readonly options: { idleSettleMs?: number; idleCleanupMs?: number; terminalRetentionMs?: number; interruptTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
 
   async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
     validateWorkflowThinkingForRunner("codex", input.workflow.agent);
@@ -226,12 +228,12 @@ export class CodexAppServerRunner implements WorkerRunner {
       effort: reasoningEffortForRunner(input),
     });
     session.turnId = this.extractTurnId(result);
-    session.activeTurn = true;
     this.startTurnTimer(session);
     session.emit("worker.codex.turn.started.request", { threadId: session.threadId, turnId: session.turnId, raw: result });
   }
 
   private async continueTurn(session: CodexSession, input: WorkerRunnerStartInput): Promise<void> {
+    if (input.emitEvent !== undefined) session.emit = input.emitEvent;
     const guidance = `Continue the active orchestrator work for ${input.issue.identifier}. Reuse the current thread context and continue from the latest state.`;
     if (session.threadId && session.activeTurn && session.turnId) {
       await this.request(session, "turn/steer", { threadId: session.threadId, expectedTurnId: session.turnId, input: textFromInput(guidance) });
@@ -318,33 +320,48 @@ export class CodexAppServerRunner implements WorkerRunner {
       const turn = objectValue(params?.turn);
       session.turnId = typeof turn?.id === "string" ? turn.id : session.turnId;
       session.activeTurn = true;
+      this.cancelIdleSettle(session);
+      this.startTurnTimer(session);
     } else if (method === "turn/completed") {
       this.clearTurnTimer(session);
       const turn = objectValue(params?.turn);
-      const status = turn?.status;
+      const turnStatus = turn?.status;
       session.activeTurn = false;
       if (session.status.status === "running") {
-        session.status = status === "completed"
+        const terminalStatus: WorkerRunnerStatus = turnStatus === "completed"
           ? { status: "done", exitCode: 0, raw: message.params }
-          : status === "interrupted"
+          : turnStatus === "interrupted"
             ? { status: "interrupted", raw: message.params }
             : { status: "error", raw: message.params };
+        if (this.options.idleSettleMs !== undefined) {
+          // Quiescence mode: defer done/error until activity is quiet for idleSettleMs.
+          // Production callers set this; omitting it keeps the legacy immediate-done behavior.
+          this.scheduleIdleSettle(session, terminalStatus);
+        } else {
+          session.status = terminalStatus;
+          this.scheduleIdleCleanup(session);
+        }
+      } else {
+        this.scheduleIdleCleanup(session);
       }
-      this.scheduleIdleCleanup(session);
     } else if (method === "error") {
+      this.cancelIdleSettle(session);
       session.status = { status: "error", raw: message.params };
       const error = objectValue(params?.error);
       const codexErrorInfo = objectValue(error?.codexErrorInfo);
       if (codexErrorInfo?.type === "UsageLimitExceeded" || codexErrorInfo?.httpStatusCode === 429) session.emit("worker.codex.rate_limit", message.params);
     } else if (method === "thread/tokenUsage/updated") {
+      // noisy heartbeat — do not reset settle timer
       session.emit("worker.codex.tokens", message.params);
       return;
     } else if (method === "turn/diff/updated") {
+      this.resetIdleSettle(session);
       session.emit("worker.codex.tool", message.params);
       session.emit(`worker.codex.${method.replaceAll("/", ".")}`, message.params);
       return;
     }
     if (method.startsWith("item/")) {
+      this.resetIdleSettle(session);
       session.emit(this.itemEventType(method, message.params), message.params);
       return;
     }
@@ -392,6 +409,31 @@ export class CodexAppServerRunner implements WorkerRunner {
     return Boolean(session.threadId) && session.child.exitCode === null && session.child.signalCode === null && !session.child.killed && (session.status.status === "running" || session.status.status === "done");
   }
 
+  private scheduleIdleSettle(session: CodexSession, terminalStatus: WorkerRunnerStatus): void {
+    if (session.removed) return;
+    session.pendingTurnStatus = terminalStatus;
+    if (session.settleTimer) clearTimeout(session.settleTimer);
+    session.settleTimer = setTimeout(() => {
+      session.settleTimer = undefined;
+      const terminalStatus = session.pendingTurnStatus;
+      session.pendingTurnStatus = undefined;
+      if (!terminalStatus || session.removed || session.status.status !== "running") return;
+      session.status = terminalStatus;
+      this.scheduleIdleCleanup(session);
+    }, this.options.idleSettleMs!);
+  }
+
+  private resetIdleSettle(session: CodexSession): void {
+    if (!session.settleTimer || !session.pendingTurnStatus) return;
+    this.scheduleIdleSettle(session, session.pendingTurnStatus);
+  }
+
+  private cancelIdleSettle(session: CodexSession): void {
+    if (session.settleTimer) clearTimeout(session.settleTimer);
+    session.settleTimer = undefined;
+    session.pendingTurnStatus = undefined;
+  }
+
   private scheduleIdleCleanup(session: CodexSession): void {
     if (session.removed) return;
     if (session.cleanupTimer) return;
@@ -411,6 +453,7 @@ export class CodexAppServerRunner implements WorkerRunner {
   }
 
   private cancelCleanup(session: CodexSession): void {
+    this.cancelIdleSettle(session);
     if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
     if (session.retentionTimer) clearTimeout(session.retentionTimer);
     session.cleanupTimer = undefined;
