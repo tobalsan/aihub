@@ -51,19 +51,19 @@ export function renderMarkdown(
 ): string {
   const renderer = new marked.Renderer();
 
-  if (options?.rewriteHref) {
-    renderer.link = ({ href, title, text }: Tokens.Link) => {
-      const rawHref = normalizeHref(href) ?? "";
-      const resolvedHref = options.rewriteHref?.(rawHref) ?? rawHref;
-      const safeTitle =
-        typeof title === "string" && title ? ` title="${title}"` : "";
-      const safeText =
-        typeof text === "string" && text.trim().length > 0
-          ? text
-          : getFilenameFromHref(rawHref || resolvedHref || "");
-      return `<a href="${resolvedHref ?? ""}"${safeTitle} target="_blank" rel="noopener noreferrer">${safeText}</a>`;
-    };
+  renderer.link = ({ href, title, text }: Tokens.Link) => {
+    const rawHref = normalizeHref(href) ?? "";
+    const resolvedHref = options?.rewriteHref?.(rawHref) ?? rawHref;
+    const safeTitle =
+      typeof title === "string" && title ? ` title="${title}"` : "";
+    const safeText =
+      typeof text === "string" && text.trim().length > 0
+        ? text
+        : getFilenameFromHref(rawHref || resolvedHref || "");
+    return `<a href="${resolvedHref ?? ""}"${safeTitle} target="_blank" rel="noopener noreferrer">${safeText}</a>`;
+  };
 
+  if (options?.rewriteHref) {
     renderer.image = ({ href, title }: Tokens.Image) => {
       const rawHref = normalizeHref(href) ?? "";
       const resolvedHref = options.rewriteHref?.(rawHref) ?? rawHref;
@@ -86,8 +86,5 @@ export function renderMarkdown(
     }
   ) as string;
 
-  const sanitizeOptions = options?.rewriteHref
-    ? { ADD_ATTR: ["target", "rel"] as string[] }
-    : undefined;
-  return DOMPurify.sanitize(html, sanitizeOptions);
+  return DOMPurify.sanitize(html, { ADD_ATTR: ["target", "rel"] });
 }
