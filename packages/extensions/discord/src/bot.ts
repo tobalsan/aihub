@@ -259,6 +259,7 @@ async function handleDiscordMessage(
       unsubscribe();
       if (event.meta?.queued) {
         // Agent was queued; extend the typing indicator with TTL to match pre-fix behaviour.
+        replyHandled = true;
         startTyping(client, data.channel_id, target.agent.id, { sessionKey }, true);
         return;
       }
