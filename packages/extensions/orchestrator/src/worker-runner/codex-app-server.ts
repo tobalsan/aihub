@@ -33,6 +33,7 @@ type CodexSession = {
   turnTimer?: NodeJS.Timeout;
   settleTimer?: NodeJS.Timeout;
   pendingTurnStatus?: WorkerRunnerStatus;
+  activeItemIds: Set<string>;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
   removed?: boolean;
@@ -179,6 +180,7 @@ export class CodexAppServerRunner implements WorkerRunner {
       initialized: Promise.resolve(),
       emit: input.emitEvent ?? (() => undefined),
       turnTimeoutMs: input.workflow.agent.turn_timeout_ms ?? 3_600_000,
+      activeItemIds: new Set(),
     };
     child.once("error", (error) => {
       session.status = { status: "error", raw: { message: error.message, code: (error as NodeJS.ErrnoException).code } };
@@ -362,10 +364,24 @@ export class CodexAppServerRunner implements WorkerRunner {
     }
     if (method.startsWith("item/")) {
       this.resetIdleSettle(session);
+      const item = objectValue(objectValue(message.params)?.item);
+      const itemId = typeof item?.id === "string" ? item.id : undefined;
+      if (itemId) {
+        if (this.isItemStartMethod(method)) session.activeItemIds.add(itemId);
+        else if (this.isItemTerminalMethod(method)) session.activeItemIds.delete(itemId);
+      }
       session.emit(this.itemEventType(method, message.params), message.params);
       return;
     }
     session.emit(`worker.codex.${method.replaceAll("/", ".")}`, message.params);
+  }
+
+  private isItemStartMethod(method: string): boolean {
+    return method === "item/started" || method.endsWith("/started") || method.endsWith("/created");
+  }
+
+  private isItemTerminalMethod(method: string): boolean {
+    return method === "item/completed" || method.endsWith("/completed") || method.endsWith("/failed") || method.endsWith("/error");
   }
 
   private itemEventType(method: string, params: unknown): string {
@@ -416,15 +432,21 @@ export class CodexAppServerRunner implements WorkerRunner {
     session.settleTimer = setTimeout(() => {
       session.settleTimer = undefined;
       const terminalStatus = session.pendingTurnStatus;
-      session.pendingTurnStatus = undefined;
       if (!terminalStatus || session.removed || session.status.status !== "running") return;
+      if (session.activeItemIds.size > 0) {
+        // Items still in-flight — leave pendingTurnStatus set; resetIdleSettle re-arms when the next item/* arrives
+        return;
+      }
+      session.pendingTurnStatus = undefined;
       session.status = terminalStatus;
       this.scheduleIdleCleanup(session);
     }, this.options.idleSettleMs!);
   }
 
   private resetIdleSettle(session: CodexSession): void {
-    if (!session.settleTimer || !session.pendingTurnStatus) return;
+    if (!session.pendingTurnStatus) return;
+    if (session.settleTimer) clearTimeout(session.settleTimer);
+    session.settleTimer = undefined;
     this.scheduleIdleSettle(session, session.pendingTurnStatus);
   }
 
@@ -432,6 +454,7 @@ export class CodexAppServerRunner implements WorkerRunner {
     if (session.settleTimer) clearTimeout(session.settleTimer);
     session.settleTimer = undefined;
     session.pendingTurnStatus = undefined;
+    session.activeItemIds.clear();
   }
 
   private scheduleIdleCleanup(session: CodexSession): void {

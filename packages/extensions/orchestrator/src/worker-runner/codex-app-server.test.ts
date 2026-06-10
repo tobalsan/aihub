@@ -48,6 +48,16 @@ rl.on("line", (line) => {
         write({ method: "turn/completed", params: { turn: { id: "turn_2", status: "completed" } } });
         // After this, silence — runner must detect quiescence via settle timer
       }, 10);
+    } else if (mode === "long-tool") {
+      // turn/completed arrives first, then an item/started for a slow tool (no further output for >idleSettleMs)
+      write({ method: "turn/completed", params: { turn: { id: turnId, status: "completed" } } });
+      setTimeout(() => {
+        write({ method: "item/started", params: { item: { id: "slow_cmd_1", type: "commandExecution", command: ["pnpm", "test"] } } });
+      }, 5);
+      // item/completed arrives after 60ms — longer than the 20ms settle window used in the test
+      setTimeout(() => {
+        write({ method: "item/completed", params: { item: { id: "slow_cmd_1", type: "commandExecution", status: "completed" } } });
+      }, 60);
     }
     // mode "hold": no turn/completed emitted; session stays active
   } else if (message.method === "turn/steer") {
@@ -212,6 +222,28 @@ describe("CodexAppServerRunner quiescence", () => {
           expect(run1Events.filter((e) => e === type).length).toBeLessThanOrEqual(1);
         }
       }
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("(long-tool) in-flight item blocks settle — process not killed while item/started has no matching item/completed", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "alg204-long-tool-"));
+    const script = await writeMockServer(root);
+    process.env.MOCK_CODEX_MODE = "long-tool";
+    // idleSettleMs=20ms: shorter than the 60ms item/completed delay, so without in-flight tracking
+    // the timer would fire at t≈25ms and mark done while the tool is still running
+    const runner = new CodexAppServerRunner({ idleSettleMs: 20, idleCleanupMs: 500, terminalRetentionMs: 100 });
+    try {
+      const handle = await runner.start(makeInput(root, [process.execPath, script]));
+
+      // At t=30ms: settle timer has fired once (at t≈25ms) but item is in-flight — must still be running
+      await new Promise((r) => setTimeout(r, 30));
+      expect(await runner.status(handle)).toMatchObject({ status: "running" });
+
+      // After item/completed (t=60ms) + another settle window (20ms) → done
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }), { timeout: 500 });
     } finally {
       delete process.env.MOCK_CODEX_MODE;
       await runner.shutdown();
