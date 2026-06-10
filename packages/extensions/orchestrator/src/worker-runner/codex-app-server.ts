@@ -31,6 +31,11 @@ type CodexSession = {
   emit: (type: string, payload: unknown) => void;
   turnTimeoutMs: number;
   turnTimer?: NodeJS.Timeout;
+  idleSettleMs?: number;
+  settleTimer?: NodeJS.Timeout;
+  pendingTurnStatus?: WorkerRunnerStatus;
+  activeItemIds: Set<string>;
+  itemWatchdogs: Map<string, NodeJS.Timeout>;
   cleanupTimer?: NodeJS.Timeout;
   retentionTimer?: NodeJS.Timeout;
   removed?: boolean;
@@ -81,7 +86,7 @@ function codexThreadSandbox(input: WorkerRunnerStartInput): string | undefined {
 export class CodexAppServerRunner implements WorkerRunner {
   private readonly sessions = new Map<string, CodexSession>();
 
-  constructor(private readonly options: { idleCleanupMs?: number; terminalRetentionMs?: number; interruptTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
+  constructor(private readonly options: { idleSettleMs?: number; maxItemAgeMs?: number; idleCleanupMs?: number; terminalRetentionMs?: number; interruptTimeoutMs?: number; requestTimeoutMs?: number } = {}) {}
 
   async start(input: WorkerRunnerStartInput): Promise<WorkerRunnerHandle> {
     validateWorkflowThinkingForRunner("codex", input.workflow.agent);
@@ -129,6 +134,7 @@ export class CodexAppServerRunner implements WorkerRunner {
     const session = this.sessionFromHandle(handle);
     if (!session || session.status.status !== "running") return;
     this.clearTurnTimer(session);
+    this.cancelIdleSettle(session);
     if (session.threadId && session.turnId && session.activeTurn) {
       const interrupted = await Promise.race([
         this.request(session, "turn/interrupt", { threadId: session.threadId, turnId: session.turnId })
@@ -177,6 +183,9 @@ export class CodexAppServerRunner implements WorkerRunner {
       initialized: Promise.resolve(),
       emit: input.emitEvent ?? (() => undefined),
       turnTimeoutMs: input.workflow.agent.turn_timeout_ms ?? 3_600_000,
+      idleSettleMs: typeof input.workflow.agent.idle_settle_ms === "number" ? input.workflow.agent.idle_settle_ms : this.options.idleSettleMs,
+      activeItemIds: new Set(),
+      itemWatchdogs: new Map(),
     };
     child.once("error", (error) => {
       session.status = { status: "error", raw: { message: error.message, code: (error as NodeJS.ErrnoException).code } };
@@ -226,12 +235,13 @@ export class CodexAppServerRunner implements WorkerRunner {
       effort: reasoningEffortForRunner(input),
     });
     session.turnId = this.extractTurnId(result);
-    session.activeTurn = true;
     this.startTurnTimer(session);
     session.emit("worker.codex.turn.started.request", { threadId: session.threadId, turnId: session.turnId, raw: result });
   }
 
   private async continueTurn(session: CodexSession, input: WorkerRunnerStartInput): Promise<void> {
+    if (input.emitEvent !== undefined) session.emit = input.emitEvent;
+    session.idleSettleMs = typeof input.workflow.agent.idle_settle_ms === "number" ? input.workflow.agent.idle_settle_ms : this.options.idleSettleMs;
     const guidance = `Continue the active orchestrator work for ${input.issue.identifier}. Reuse the current thread context and continue from the latest state.`;
     if (session.threadId && session.activeTurn && session.turnId) {
       await this.request(session, "turn/steer", { threadId: session.threadId, expectedTurnId: session.turnId, input: textFromInput(guidance) });
@@ -318,37 +328,83 @@ export class CodexAppServerRunner implements WorkerRunner {
       const turn = objectValue(params?.turn);
       session.turnId = typeof turn?.id === "string" ? turn.id : session.turnId;
       session.activeTurn = true;
+      this.cancelIdleSettle(session);
+      this.startTurnTimer(session);
     } else if (method === "turn/completed") {
       this.clearTurnTimer(session);
       const turn = objectValue(params?.turn);
-      const status = turn?.status;
+      const turnStatus = turn?.status;
       session.activeTurn = false;
       if (session.status.status === "running") {
-        session.status = status === "completed"
+        const terminalStatus: WorkerRunnerStatus = turnStatus === "completed"
           ? { status: "done", exitCode: 0, raw: message.params }
-          : status === "interrupted"
+          : turnStatus === "interrupted"
             ? { status: "interrupted", raw: message.params }
             : { status: "error", raw: message.params };
+        if (session.idleSettleMs !== undefined) {
+          // Quiescence mode: defer done/error until activity is quiet for idleSettleMs.
+          // Set via constructor option (global default) or idle_settle_ms in workflow agent config.
+          this.scheduleIdleSettle(session, terminalStatus);
+        } else {
+          session.status = terminalStatus;
+          this.scheduleIdleCleanup(session);
+        }
+      } else {
+        this.scheduleIdleCleanup(session);
       }
-      this.scheduleIdleCleanup(session);
     } else if (method === "error") {
+      this.cancelIdleSettle(session);
       session.status = { status: "error", raw: message.params };
       const error = objectValue(params?.error);
       const codexErrorInfo = objectValue(error?.codexErrorInfo);
       if (codexErrorInfo?.type === "UsageLimitExceeded" || codexErrorInfo?.httpStatusCode === 429) session.emit("worker.codex.rate_limit", message.params);
     } else if (method === "thread/tokenUsage/updated") {
+      // noisy heartbeat — do not reset settle timer
       session.emit("worker.codex.tokens", message.params);
       return;
     } else if (method === "turn/diff/updated") {
+      this.resetIdleSettle(session);
       session.emit("worker.codex.tool", message.params);
       session.emit(`worker.codex.${method.replaceAll("/", ".")}`, message.params);
       return;
     }
     if (method.startsWith("item/")) {
+      this.resetIdleSettle(session);
+      const item = objectValue(objectValue(message.params)?.item);
+      const itemId = typeof item?.id === "string" ? item.id : undefined;
+      if (itemId) {
+        if (this.isItemStartMethod(method)) {
+          session.activeItemIds.add(itemId);
+          // Arm a per-item watchdog: if the terminal event is dropped, unblock settle after turnTimeoutMs.
+          const watchdogMs = this.options.maxItemAgeMs ?? session.turnTimeoutMs;
+          session.itemWatchdogs.set(itemId, setTimeout(() => {
+            if (!session.activeItemIds.has(itemId)) return;
+            session.activeItemIds.delete(itemId);
+            session.itemWatchdogs.delete(itemId);
+            session.emit("worker.codex.item.watchdog_expired", { itemId, watchdogMs });
+            this.resetIdleSettle(session);
+          }, watchdogMs));
+        } else if (this.isItemTerminalMethod(method)) {
+          session.activeItemIds.delete(itemId);
+          const watchdog = session.itemWatchdogs.get(itemId);
+          if (watchdog) {
+            clearTimeout(watchdog);
+            session.itemWatchdogs.delete(itemId);
+          }
+        }
+      }
       session.emit(this.itemEventType(method, message.params), message.params);
       return;
     }
     session.emit(`worker.codex.${method.replaceAll("/", ".")}`, message.params);
+  }
+
+  private isItemStartMethod(method: string): boolean {
+    return method === "item/started" || method.endsWith("/started") || method.endsWith("/created");
+  }
+
+  private isItemTerminalMethod(method: string): boolean {
+    return method === "item/completed" || method.endsWith("/completed") || method.endsWith("/failed") || method.endsWith("/error");
   }
 
   private itemEventType(method: string, params: unknown): string {
@@ -392,6 +448,40 @@ export class CodexAppServerRunner implements WorkerRunner {
     return Boolean(session.threadId) && session.child.exitCode === null && session.child.signalCode === null && !session.child.killed && (session.status.status === "running" || session.status.status === "done");
   }
 
+  private scheduleIdleSettle(session: CodexSession, terminalStatus: WorkerRunnerStatus): void {
+    if (session.removed) return;
+    session.pendingTurnStatus = terminalStatus;
+    if (session.settleTimer) clearTimeout(session.settleTimer);
+    session.settleTimer = setTimeout(() => {
+      session.settleTimer = undefined;
+      const terminalStatus = session.pendingTurnStatus;
+      if (!terminalStatus || session.removed || session.status.status !== "running") return;
+      if (session.activeItemIds.size > 0) {
+        // Items still in-flight — leave pendingTurnStatus set; resetIdleSettle re-arms when the next item/* arrives
+        return;
+      }
+      session.pendingTurnStatus = undefined;
+      session.status = terminalStatus;
+      this.scheduleIdleCleanup(session);
+    }, session.idleSettleMs!);
+  }
+
+  private resetIdleSettle(session: CodexSession): void {
+    if (!session.pendingTurnStatus) return;
+    if (session.settleTimer) clearTimeout(session.settleTimer);
+    session.settleTimer = undefined;
+    this.scheduleIdleSettle(session, session.pendingTurnStatus);
+  }
+
+  private cancelIdleSettle(session: CodexSession): void {
+    if (session.settleTimer) clearTimeout(session.settleTimer);
+    session.settleTimer = undefined;
+    session.pendingTurnStatus = undefined;
+    session.activeItemIds.clear();
+    for (const timer of session.itemWatchdogs.values()) clearTimeout(timer);
+    session.itemWatchdogs.clear();
+  }
+
   private scheduleIdleCleanup(session: CodexSession): void {
     if (session.removed) return;
     if (session.cleanupTimer) return;
@@ -411,6 +501,7 @@ export class CodexAppServerRunner implements WorkerRunner {
   }
 
   private cancelCleanup(session: CodexSession): void {
+    this.cancelIdleSettle(session);
     if (session.cleanupTimer) clearTimeout(session.cleanupTimer);
     if (session.retentionTimer) clearTimeout(session.retentionTimer);
     session.cleanupTimer = undefined;

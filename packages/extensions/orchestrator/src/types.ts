@@ -65,6 +65,7 @@ export type WorkflowFrontmatter = {
     settings?: Record<string, unknown>;
     max_turns?: number;
     turn_timeout_ms?: number;
+    idle_settle_ms?: number;
     stall_timeout_ms?: number;
     max_concurrent?: number;
     max_active_runs?: number;

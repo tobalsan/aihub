@@ -116,7 +116,7 @@ export class CliWorkerRunner implements WorkerRunner {
 export class WorkflowWorkerRunner implements WorkerRunner {
   private readonly fake = new FakeWorkerRunner();
   private readonly cli = new CliWorkerRunner();
-  private readonly codex = new CodexAppServerRunner();
+  private readonly codex = new CodexAppServerRunner({ idleSettleMs: 15_000 });
   private readonly pi = new PiRpcRunner();
   private readonly claude = new ClaudeRpcRunner();
 
