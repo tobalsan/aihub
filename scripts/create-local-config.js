@@ -101,7 +101,7 @@ Work only inside the issue workspace. If repositories are needed, clone or use t
 
 ## Linear Workflow
 
-Update Linear with concise progress, validation results, and final handoff. Keep one Linear comment updated instead of creating a noisy comment stream.
+Update Linear with concise progress, validation results, and final handoff. Prefer updating your initial Linear comment while no other comments follow it. If another person or agent has commented after your initial comment, post a new comment instead so the timeline stays clear.
 
 When the work is complete and validated, move the issue to \`In Review\`. If you are blocked, move the issue to \`Needs Human\` and update the comment with the blocker, what you tried, and the decision needed.
 
