@@ -960,6 +960,83 @@ describe("Discord bot integration", () => {
       resolvers[0]?.({ payloads: [], meta: { durationMs: 30000, sessionId: "test-session" } });
       resolvers[1]?.({ payloads: [], meta: { durationMs: 100, sessionId: "test-session" } });
     });
+
+    it("queued done from message B does not consume message A reply handler", async () => {
+      // Regression for the queued-overlap path: when B hits done.meta.queued=true while
+      // A is still running, B's onEvent must not set replyHandled on A's closure, and
+      // A must still receive its own done event and send its reply.
+      const agent = createTestAgent({
+        guilds: {
+          "guild-1": { requireMention: false, reactionNotifications: "off" },
+        },
+      });
+
+      const capturedOnEvents: Array<((event: unknown) => void) | undefined> = [];
+      const resolvers: Array<(value: unknown) => void> = [];
+
+      mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+        capturedOnEvents.push(params.onEvent);
+        const promise = new Promise((resolve) => resolvers.push(resolve));
+        return promise;
+      });
+
+      await createDiscordBot(agent);
+      capturedHandlers.onReady?.(
+        { user: { id: "bot-123", username: "TestBot" } },
+        mockClient
+      );
+
+      // Message A: long-running, not yet done
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-a",
+          content: "Message A - long run",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      // Message B: arrives in the same channel, hits the queue
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-b",
+          content: "Message B - queued",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-2", username: "testuser2", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+      const [onEventA, onEventB] = capturedOnEvents;
+
+      // B fires done+queued — only typing should be updated, no Discord reply sent
+      onEventB?.({ type: "done", meta: { durationMs: 0, queued: true } });
+      await flushPromises();
+
+      expect(mockClient.rest.post).not.toHaveBeenCalled();
+
+      // A now completes — its reply must still be delivered
+      onEventA?.({ type: "text", data: "Reply for A" });
+      onEventA?.({ type: "done", meta: { durationMs: 30000 } });
+      await flushPromises();
+
+      expect(mockClient.rest.post).toHaveBeenCalledTimes(1);
+      expect(mockClient.rest.post).toHaveBeenCalledWith(
+        "/channels/channel-1/messages",
+        expect.objectContaining({
+          body: expect.objectContaining({ content: "Reply for A" }),
+        })
+      );
+
+      resolvers[0]?.({ payloads: [], meta: { durationMs: 30000, sessionId: "test-session" } });
+      resolvers[1]?.({ payloads: [], meta: { durationMs: 0, sessionId: "test-session" } });
+    });
   });
 
   describe("error handling", () => {
