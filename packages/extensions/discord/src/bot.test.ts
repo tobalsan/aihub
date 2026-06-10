@@ -167,23 +167,11 @@ describe("Discord bot integration", () => {
       return mockClient;
     });
 
-    // Default runAgent mock — emits agent.stream events so the fire-and-forget
-    // subscription callback in handleDiscordMessage actually fires in tests.
-    mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string }) => {
-      extensionEventEmitter.emit("agent.stream", {
-        agentId: params.agentId,
-        sessionId: "test-session",
-        sessionKey: params.sessionKey,
-        type: "text",
-        data: "Hello from agent",
-      });
-      extensionEventEmitter.emit("agent.stream", {
-        agentId: params.agentId,
-        sessionId: "test-session",
-        sessionKey: params.sessionKey,
-        type: "done",
-        meta: { durationMs: 100 },
-      });
+    // Default runAgent mock — calls onEvent directly so the per-invocation
+    // callback in handleDiscordMessage fires in tests (no global bus needed).
+    mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string; onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({ type: "text", data: "Hello from agent" });
+      params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
       return Promise.resolve({
         payloads: [{ text: "Hello from agent" }],
         meta: { durationMs: 100, sessionId: "test-session" },
@@ -795,16 +783,10 @@ describe("Discord bot integration", () => {
         },
       });
 
-      // Return queued result — emit a done event with queued:true so the
-      // subscription callback in handleDiscordMessage calls startTyping(queued=true).
-      mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string }) => {
-        extensionEventEmitter.emit("agent.stream", {
-          agentId: params.agentId,
-          sessionId: "test-session",
-          sessionKey: params.sessionKey,
-          type: "done",
-          meta: { durationMs: 0, queued: true },
-        });
+      // Return queued result — call onEvent with done+queued so the
+      // per-invocation callback in handleDiscordMessage calls startTyping(queued=true).
+      mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string; onEvent?: (event: unknown) => void }) => {
+        params.onEvent?.({ type: "done", meta: { durationMs: 0, queued: true } });
         return Promise.resolve({
           payloads: [],
           meta: { durationMs: 0, sessionId: "test-session", queued: true },
@@ -838,6 +820,145 @@ describe("Discord bot integration", () => {
         expect.objectContaining({ sessionKey: "discord:channel-1" }),
         true // queued
       );
+    });
+  });
+
+  describe("ALG-205 regression: long-running agent", () => {
+    it("onMessage returns before runAgent resolves, reply sent when done fires later", async () => {
+      const agent = createTestAgent({
+        guilds: {
+          "guild-1": { requireMention: false, reactionNotifications: "off" },
+        },
+      });
+
+      let capturedOnEvent: ((event: unknown) => void) | undefined;
+      let resolveRunAgent!: (value: unknown) => void;
+      const runAgentPromise = new Promise((resolve) => {
+        resolveRunAgent = resolve;
+      });
+
+      mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+        capturedOnEvent = params.onEvent;
+        return runAgentPromise;
+      });
+
+      await createDiscordBot(agent);
+      capturedHandlers.onReady?.(
+        { user: { id: "bot-123", username: "TestBot" } },
+        mockClient
+      );
+
+      // onMessage returns quickly — runAgent is fire-and-forget
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "Complex long-running request",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      // Handler returned; runAgent was called but reply not sent yet
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+      expect(mockClient.rest.post).not.toHaveBeenCalled();
+
+      // Agent completes well after Carbon's 12 s timeout window
+      capturedOnEvent?.({ type: "text", data: "Long response" });
+      capturedOnEvent?.({ type: "done", meta: { durationMs: 30000 } });
+      await flushPromises();
+
+      expect(mockClient.rest.post).toHaveBeenCalledWith(
+        "/channels/channel-1/messages",
+        expect.objectContaining({
+          body: expect.objectContaining({ content: "Long response" }),
+        })
+      );
+
+      resolveRunAgent({ payloads: [], meta: { durationMs: 30000, sessionId: "test-session" } });
+    });
+
+    it("same-channel concurrent messages use isolated onEvent handlers (no cross-contamination)", async () => {
+      const agent = createTestAgent({
+        guilds: {
+          "guild-1": { requireMention: false, reactionNotifications: "off" },
+        },
+      });
+
+      const capturedOnEvents: Array<((event: unknown) => void) | undefined> = [];
+      const resolvers: Array<(value: unknown) => void> = [];
+
+      mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+        capturedOnEvents.push(params.onEvent);
+        const promise = new Promise((resolve) => resolvers.push(resolve));
+        return promise;
+      });
+
+      await createDiscordBot(agent);
+      capturedHandlers.onReady?.(
+        { user: { id: "bot-123", username: "TestBot" } },
+        mockClient
+      );
+
+      // Message A arrives — long run, not yet done
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-a",
+          content: "Message A - long run",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      // Message B arrives in the same channel while A is still running
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-b",
+          content: "Message B - quick",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-2", username: "testuser2", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+      const [onEventA, onEventB] = capturedOnEvents;
+
+      // B completes first — only B's reply should be sent
+      onEventB?.({ type: "text", data: "Reply for B" });
+      onEventB?.({ type: "done", meta: { durationMs: 100 } });
+      await flushPromises();
+
+      expect(mockClient.rest.post).toHaveBeenCalledTimes(1);
+      expect(mockClient.rest.post).toHaveBeenCalledWith(
+        "/channels/channel-1/messages",
+        expect.objectContaining({
+          body: expect.objectContaining({ content: "Reply for B" }),
+        })
+      );
+
+      // A completes later — A's reply should now also be sent
+      onEventA?.({ type: "text", data: "Reply for A" });
+      onEventA?.({ type: "done", meta: { durationMs: 30000 } });
+      await flushPromises();
+
+      expect(mockClient.rest.post).toHaveBeenCalledTimes(2);
+      expect(mockClient.rest.post).toHaveBeenLastCalledWith(
+        "/channels/channel-1/messages",
+        expect.objectContaining({
+          body: expect.objectContaining({ content: "Reply for A" }),
+        })
+      );
+
+      resolvers[0]?.({ payloads: [], meta: { durationMs: 30000, sessionId: "test-session" } });
+      resolvers[1]?.({ payloads: [], meta: { durationMs: 100, sessionId: "test-session" } });
     });
   });
 
@@ -1303,21 +1424,9 @@ describe("Discord component bot", () => {
       return mockClient;
     });
 
-    mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string }) => {
-      extensionEventEmitter.emit("agent.stream", {
-        agentId: params.agentId,
-        sessionId: "test-session",
-        sessionKey: params.sessionKey,
-        type: "text",
-        data: "Hello from routed agent",
-      });
-      extensionEventEmitter.emit("agent.stream", {
-        agentId: params.agentId,
-        sessionId: "test-session",
-        sessionKey: params.sessionKey,
-        type: "done",
-        meta: { durationMs: 100 },
-      });
+    mockRunAgent.mockImplementation((params: { agentId: string; sessionKey?: string; onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({ type: "text", data: "Hello from routed agent" });
+      params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
       return Promise.resolve({
         payloads: [{ text: "Hello from routed agent" }],
         meta: { durationMs: 100, sessionId: "test-session" },
