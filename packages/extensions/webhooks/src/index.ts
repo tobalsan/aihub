@@ -19,8 +19,14 @@ const WebhooksExtensionConfigSchema = z
   })
   .passthrough();
 
-function getGatewayBaseUrl(ctx: ExtensionContext): string {
+export function getGatewayBaseUrl(ctx: ExtensionContext): string {
   const config = ctx.getConfig();
+  if (process.env.AIHUB_DEV === "1") {
+    const host = config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
+    const publicHost = host === "0.0.0.0" ? "127.0.0.1" : host;
+    const port = process.env.AIHUB_GATEWAY_PORT ?? config.gateway?.port ?? 4000;
+    return `http://${publicHost}:${port}`;
+  }
   if (config.server?.baseUrl) return config.server.baseUrl.replace(/\/$/, "");
   const host = config.gateway?.host ?? resolveBindHost(config.gateway?.bind);
   const port = config.gateway?.port ?? 4000;
