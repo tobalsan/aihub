@@ -58,6 +58,14 @@ rl.on("line", (line) => {
       setTimeout(() => {
         write({ method: "item/completed", params: { item: { id: "slow_cmd_1", type: "commandExecution", status: "completed" } } });
       }, 60);
+    } else if (mode === "dropped-item") {
+      // turn/completed arrives, then item/started, but item/completed is never emitted.
+      // The per-item watchdog must fire and unblock the settle timer.
+      write({ method: "turn/completed", params: { turn: { id: turnId, status: "completed" } } });
+      setTimeout(() => {
+        write({ method: "item/started", params: { item: { id: "zombie_1", type: "commandExecution", command: ["pnpm", "test"] } } });
+      }, 5);
+      // item/completed intentionally omitted
     }
     // mode "hold": no turn/completed emitted; session stays active
   } else if (message.method === "turn/steer") {
@@ -222,6 +230,34 @@ describe("CodexAppServerRunner quiescence", () => {
           expect(run1Events.filter((e) => e === type).length).toBeLessThanOrEqual(1);
         }
       }
+    } finally {
+      delete process.env.MOCK_CODEX_MODE;
+      await runner.shutdown();
+    }
+  });
+
+  it("(watchdog) dropped item terminal event — watchdog unblocks settle and run reaches done", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "alg204-watchdog-"));
+    const script = await writeMockServer(root);
+    process.env.MOCK_CODEX_MODE = "dropped-item";
+    const events: string[] = [];
+    // maxItemAgeMs=50ms: watchdog fires 50ms after item/started (t≈55ms).
+    // idleSettleMs=20ms: settle re-arms after watchdog and fires at t≈75ms → done.
+    const runner = new CodexAppServerRunner({ idleSettleMs: 20, maxItemAgeMs: 50, idleCleanupMs: 500, terminalRetentionMs: 100 });
+    try {
+      const handle = await runner.start(makeInput(root, [process.execPath, script], {
+        emitEvent: (type) => events.push(type),
+      }));
+
+      // At t=30ms: settle timer fired once but item is in-flight — must still be running
+      await new Promise((r) => setTimeout(r, 30));
+      expect(await runner.status(handle)).toMatchObject({ status: "running" });
+
+      // After watchdog fires (t≈55ms) + settle window (20ms) → done
+      await vi.waitFor(async () => expect(await runner.status(handle)).toMatchObject({ status: "done" }), { timeout: 500 });
+
+      // Watchdog expiry event must have been emitted
+      expect(events).toContain("worker.codex.item.watchdog_expired");
     } finally {
       delete process.env.MOCK_CODEX_MODE;
       await runner.shutdown();
