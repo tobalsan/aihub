@@ -56,6 +56,7 @@ Config uses v3: `$AIHUB_HOME/aihub.json` holds global settings and `agents` disc
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agent.yaml` `extensions.<id>` opts that agent into tool-style extensions with optional per-agent overrides.
 Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, starts `Reviewer` subagents for `review`, and starts `Merger` subagents for `ready_to_merge`. The dispatcher is split internally into dispatch policy, prompt factory, and run planner modules. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`. HITL bursts require `hitl_channel` to name an existing `notifications.channels` key.
 Orchestrated Worker/Reviewer/Merger prompts tell agents to pass their role via `--author` when posting project or slice comments, so THREAD.md keeps role attribution.
+Orchestrator run indexes and small event metadata stay in SQLite, while new raw runner events are written beside the owning project `WORKFLOW.md` as `<project>/.aihub/codex/<timestamp>-<encoded-run-id>.jsonl`. Inspect them with `tail -f <project>/.aihub/codex/*.jsonl` or `jq -c . <project>/.aihub/codex/<run>.jsonl`; `/api/orchestrator/runs/:id/logs?since=<cursor>` still reads both JSONL-backed runs and legacy DB-only runs.
 
 ```json
 {

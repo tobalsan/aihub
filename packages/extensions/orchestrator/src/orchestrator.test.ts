@@ -11,6 +11,7 @@ import { piThinkingForRunner, reasoningEffortForRunner, runnerForWorkflow, workf
 import type { WorkerRunnerHandle, WorkerRunnerStatus } from "./worker-runner/runner.js";
 
 const require = createRequire(import.meta.url);
+const Database = require("better-sqlite3");
 const profiles = [{ name: "default", cli: "codex" as const }, { name: "claude", cli: "claude" as const }];
 
 function mockWorkerRunner(handle: WorkerRunnerHandle = { id: "worker_1", kind: "fake" }, statuses: Array<WorkerRunnerStatus | undefined> = [undefined]) {
@@ -2483,7 +2484,7 @@ Do {{issue.identifier}}
       identifier: "ENG-1",
       workspace: root,
       profileJson: "{}",
-      workflowPath: "WORKFLOW.md",
+      workflowPath: path.join(root, "WORKFLOW.md"),
       workflowSha: "abc",
       pid: 1,
       startedAt: new Date().toISOString(),
@@ -2492,6 +2493,134 @@ Do {{issue.identifier}}
     expect(store.listRecent(1, "p1")).toHaveLength(1);
     expect(store.listEvents("r1")).toHaveLength(1);
     store.finishRun("r1", "done", 0);
+    store.close();
+  });
+
+  it("stores new event payloads in per-run JSONL with sqlite metadata only", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-jsonl-"));
+    const dbPath = path.join(root, "state.db");
+    const store = new StateStore(dbPath);
+    store.bootstrap();
+    store.insertRun({ runId: "orchestrator:p1:i1:1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: path.join(root, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "abc", pid: null, startedAt: new Date(1).toISOString() });
+    store.appendEvent("orchestrator:p1:i1:1", "worker.codex.tool_output", { output: "x".repeat(6000) }, "p1");
+
+    const db = new Database(dbPath);
+    const row = db.prepare("SELECT payload, payload_preview, log_path, log_offset, log_line FROM events").get() as Record<string, unknown>;
+    db.close();
+    expect(row.payload).toBeNull();
+    expect(row.log_path).toBe(path.join(".aihub", "codex", "19700101T000000Z-b3JjaGVzdHJhdG9yOnAxOmkxOjE.jsonl"));
+    expect(row.log_offset).toBe(0);
+    expect(row.log_line).toBe(1);
+    expect(String(row.payload_preview).length).toBeLessThan(5000);
+
+    const logPath = path.join(root, String(row.log_path));
+    const line = JSON.parse((await fs.readFile(logPath, "utf8")).trim()) as Record<string, unknown>;
+    expect(line).toMatchObject({ project_id: "p1", run_id: "orchestrator:p1:i1:1", type: "worker.codex.tool_output" });
+    expect((line.payload as { output: string }).output).toHaveLength(6000);
+    const hydrated = store.listEvents("orchestrator:p1:i1:1") as Array<Record<string, unknown>>;
+    expect(JSON.parse(String(hydrated[0].payload)).output).toHaveLength(6000);
+    store.close();
+  });
+
+  it("handles undefined payloads and keeps encoded run log paths distinct", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-jsonl-undefined-"));
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    store.insertRun({ runId: "a:b", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
+    store.insertRun({ runId: "a_3Ab", projectId: "p1", issueId: "i2", identifier: "ENG-2", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(2).toISOString() });
+    store.appendEvent("a:b", "worker.empty", undefined, "p1");
+    store.appendEvent("a_3Ab", "worker.empty", undefined, "p1");
+
+    const first = store.listEvents("a:b") as Array<Record<string, unknown>>;
+    const second = store.listEvents("a_3Ab") as Array<Record<string, unknown>>;
+    expect(first).toEqual([expect.objectContaining({ payload: "null" })]);
+    expect(second).toEqual([expect.objectContaining({ payload: "null" })]);
+
+    const firstPath = String(first[0].log_path);
+    const secondPath = String(second[0].log_path);
+    expect(firstPath).not.toBe(secondPath);
+    await expect(fs.access(path.join(root, firstPath))).resolves.toBeUndefined();
+    await expect(fs.access(path.join(root, secondPath))).resolves.toBeUndefined();
+    store.close();
+  });
+
+  it("reads legacy DB-only events mixed with JSONL-backed events by cursor", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-mixed-"));
+    const dbPath = path.join(root, "state.db");
+    const store = new StateStore(dbPath);
+    store.bootstrap();
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
+    const db = new Database(dbPath);
+    db.prepare("INSERT INTO events (project_id,run_id,type,payload,created_at) VALUES (?,?,?,?,?)").run("p1", "r1", "worker.started", JSON.stringify({ legacy: true }), new Date().toISOString());
+    db.close();
+    store.appendEvent("r1", "worker.claude.message", { text: "jsonl" }, "p1");
+
+    expect(store.listEvents("r1", 0)).toEqual([
+      expect.objectContaining({ id: 1, payload: JSON.stringify({ legacy: true }) }),
+      expect.objectContaining({ id: 2, payload: JSON.stringify({ text: "jsonl" }) }),
+    ]);
+    expect(store.listEvents("r1", 1)).toEqual([
+      expect.objectContaining({ id: 2, payload: JSON.stringify({ text: "jsonl" }) }),
+    ]);
+    store.close();
+  });
+
+  it("reads and deletes prior state-root JSONL rows for runs with workflow paths", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-legacy-jsonl-"));
+    const project = path.join(root, "project");
+    const state = path.join(root, "state");
+    await fs.mkdir(path.join(state, "runs", "cjE"), { recursive: true });
+    const legacyLog = path.join(state, "runs", "cjE", "logs.jsonl");
+    await fs.writeFile(legacyLog, `${JSON.stringify({ payload: { text: "legacy jsonl payload" } })}\n`, "utf8");
+    const store = new StateStore(path.join(state, "state.db"));
+    store.bootstrap();
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(project, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
+    const db = new Database(path.join(state, "state.db"));
+    db.prepare("INSERT INTO events (project_id,run_id,type,payload,created_at,log_path,log_offset,log_line,payload_preview) VALUES (?,?,?,?,?,?,?,?,?)").run("p1", "r1", "worker.message", null, new Date().toISOString(), path.join("runs", "cjE", "logs.jsonl"), 0, 1, JSON.stringify({ text: "preview" }));
+    db.close();
+
+    expect(store.listEvents("r1")).toEqual([
+      expect.objectContaining({ payload: JSON.stringify({ text: "legacy jsonl payload" }) }),
+    ]);
+    expect(store.deleteRunLogs("r1")).toBe(true);
+    await expect(fs.access(legacyLog)).rejects.toThrow();
+    store.close();
+  });
+
+  it("can delete per-run JSONL while preserving preview metadata", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-delete-"));
+    const store = new StateStore(path.join(root, "state.db"));
+    store.bootstrap();
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
+    store.appendEvent("r1", "worker.claude.message", { text: "short preview" }, "p1");
+
+    expect(store.deleteRunLogs("r1")).toBe(true);
+    const rows = store.listEvents("r1") as Array<Record<string, unknown>>;
+    expect(rows).toEqual([
+      expect.objectContaining({ payload: JSON.stringify({ text: "short preview" }), payload_preview: JSON.stringify({ text: "short preview" }) }),
+    ]);
+    await expect(fs.access(path.join(root, ".aihub", "codex", "19700101T000000Z-cjE.jsonl"))).rejects.toThrow();
+    store.close();
+  });
+
+  it("ignores corrupted log paths outside the orchestrator state directory", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-path-root-"));
+    const sibling = `${root}-sibling`;
+    await fs.mkdir(sibling);
+    const outside = path.join(sibling, "outside.jsonl");
+    await fs.writeFile(outside, `${JSON.stringify({ payload: { text: "outside" } })}\n`);
+    const dbPath = path.join(root, "state.db");
+    const store = new StateStore(dbPath);
+    store.bootstrap();
+    const db = new Database(dbPath);
+    db.prepare("INSERT INTO events (project_id,run_id,type,payload,created_at,log_path,log_offset,log_line,payload_preview) VALUES (?,?,?,?,?,?,?,?,?)").run("p1", "r1", "worker.message", null, new Date().toISOString(), path.relative(root, outside), 0, 1, JSON.stringify({ text: "preview" }));
+    db.close();
+
+    expect(store.listEvents("r1")).toEqual([
+      expect.objectContaining({ payload: JSON.stringify({ text: "preview" }) }),
+    ]);
+    expect(store.deleteRunLogs("r1")).toBe(false);
+    await expect(fs.access(outside)).resolves.toBeUndefined();
     store.close();
   });
 
