@@ -352,6 +352,30 @@ Repo bootstrap should prefer deterministic hooks/tooling. Prompt-driven cloning 
 - Orchestrator dashboard/API surfaces orchestrator `worker_id`, worker status events, and persisted worker logs/events. It does not call `/api/subagents` for dispatched work.
 - Restart recovery uses Linear state + preserved workspace directories. SQLite is observability/history.
 
+### Run log storage
+
+Orchestrator stores run index/state in SQLite at `$AIHUB_HOME/orchestrator/state.db`. New worker events keep only query metadata in the `events` table: `run_id`, `project_id`, event `type`, `created_at`, JSONL path, byte offset, line number, and a small payload preview. Full raw payloads append to per-run JSONL:
+
+```text
+$AIHUB_HOME/orchestrator/runs/<encoded-run-id>/logs.jsonl
+```
+
+Each JSONL line is one raw event:
+
+```json
+{"project_id":"project","run_id":"orchestrator:project:issue:ts","type":"worker.codex.message","created_at":"...","payload":{}}
+```
+
+Inspect a live run directly:
+
+```bash
+tail -f "$AIHUB_HOME/orchestrator/runs/<encoded-run-id>/logs.jsonl"
+jq -c 'select(.type | startswith("worker.codex"))' "$AIHUB_HOME/orchestrator/runs/<encoded-run-id>/logs.jsonl"
+curl "http://localhost:4000/api/orchestrator/runs/<issue-or-run-id>/logs?project=<project-id>&since=0"
+```
+
+Databases created before JSONL storage may still have DB-only rows with full `events.payload`; the logs API reads both legacy rows and JSONL-backed rows in one cursor stream. If a per-run JSONL file is archived or deleted, run metadata remains intact and APIs fall back to the stored payload preview for those events.
+
 Useful commands:
 
 ```bash
