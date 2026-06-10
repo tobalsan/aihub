@@ -12,6 +12,13 @@ function encodeRunPath(runId: string): string {
   return Buffer.from(runId, "utf8").toString("base64url");
 }
 
+function timestampPrefix(runId: string, createdAt: string): string {
+  const lastSegment = runId.split(":").at(-1);
+  const numeric = lastSegment && /^\d+$/.test(lastSegment) ? Number(lastSegment) : NaN;
+  const date = Number.isFinite(numeric) ? new Date(numeric) : new Date(createdAt);
+  return date.toISOString().replace(/[-:]/g, "").replace(/\.\d{3}Z$/, "Z");
+}
+
 function toPayloadJson(payload: unknown): string {
   return JSON.stringify(payload) ?? "null";
 }
@@ -73,13 +80,11 @@ CREATE TABLE IF NOT EXISTS heartbeats (daemon_id TEXT PRIMARY KEY, pid INTEGER, 
     return rows.map((row) => this.hydrateEvent(row));
   }
   deleteRunLogs(runId: string): boolean {
-    if (!this.rootDir) return false;
     const rows = this.db.prepare(`SELECT DISTINCT log_path FROM events WHERE run_id=? AND log_path IS NOT NULL`).all(runId) as Array<{ log_path?: string }>;
     let removed = false;
     for (const row of rows) {
-      if (!row.log_path) continue;
-      const resolved = path.resolve(this.rootDir, row.log_path);
-      if (!isWithinRoot(this.rootDir, resolved)) continue;
+      const resolved = this.resolveLogPath(runId, row.log_path);
+      if (!resolved) continue;
       try { fs.unlinkSync(resolved); removed = true; } catch (error) { if ((error as NodeJS.ErrnoException).code !== "ENOENT") throw error; }
     }
     return removed;
@@ -99,9 +104,10 @@ CREATE TABLE IF NOT EXISTS heartbeats (daemon_id TEXT PRIMARY KEY, pid INTEGER, 
   close(): void { this.db.close(); }
 
   private appendJsonlEvent(input: { runId: string; projectId?: string; type: string; payload: unknown; createdAt: string }): { relativePath: string; offset: number; line: number } | undefined {
-    if (!this.rootDir) return undefined;
-    const relativePath = path.join("runs", encodeRunPath(input.runId), "logs.jsonl");
-    const absolutePath = path.join(this.rootDir, relativePath);
+    const projectRoot = this.projectRootForRun(input.runId);
+    if (!projectRoot) return undefined;
+    const relativePath = path.join(".aihub", "codex", `${timestampPrefix(input.runId, input.createdAt)}-${encodeRunPath(input.runId)}.jsonl`);
+    const absolutePath = path.join(projectRoot, relativePath);
     fs.mkdirSync(path.dirname(absolutePath), { recursive: true });
     const offset = fs.existsSync(absolutePath) ? fs.statSync(absolutePath).size : 0;
     const row = this.db.prepare(`SELECT COALESCE(MAX(CAST(log_line AS INTEGER)), 0) + 1 AS line FROM events WHERE run_id=?`).get(input.runId) as { line: number };
@@ -119,8 +125,8 @@ CREATE TABLE IF NOT EXISTS heartbeats (daemon_id TEXT PRIMARY KEY, pid INTEGER, 
 
   private readJsonlPayload(row: Record<string, unknown>): string | undefined {
     if (!this.rootDir || typeof row.log_path !== "string" || (typeof row.log_offset !== "string" && typeof row.log_offset !== "number")) return undefined;
-    const absolutePath = path.resolve(this.rootDir, row.log_path);
-    if (!isWithinRoot(this.rootDir, absolutePath)) return undefined;
+    const absolutePath = this.resolveLogPath(String(row.run_id ?? ""), row.log_path);
+    if (!absolutePath) return undefined;
     try {
       const fd = fs.openSync(absolutePath, "r");
       try {
@@ -148,5 +154,25 @@ CREATE TABLE IF NOT EXISTS heartbeats (daemon_id TEXT PRIMARY KEY, pid INTEGER, 
     } catch {
       return undefined;
     }
+  }
+
+  private projectRootForRun(runId: string): string | undefined {
+    const row = this.db.prepare(`SELECT workflow_path FROM runs WHERE run_id=? LIMIT 1`).get(runId) as { workflow_path?: unknown } | undefined;
+    if (typeof row?.workflow_path !== "string" || !row.workflow_path) return undefined;
+    return path.dirname(path.resolve(row.workflow_path));
+  }
+
+  private resolveLogPath(runId: string, logPath: unknown): string | undefined {
+    if (typeof logPath !== "string" || path.isAbsolute(logPath)) return undefined;
+    const isProjectLocalLog = logPath === path.join(".aihub", "codex") || logPath.startsWith(`${path.join(".aihub", "codex")}${path.sep}`);
+    const projectRoot = isProjectLocalLog && runId ? this.projectRootForRun(runId) : undefined;
+    if (projectRoot) {
+      const projectPath = path.resolve(projectRoot, logPath);
+      if (isWithinRoot(projectRoot, projectPath)) return projectPath;
+    }
+    if (!this.rootDir) return undefined;
+    const statePath = path.resolve(this.rootDir, logPath);
+    if (!isWithinRoot(this.rootDir, statePath)) return undefined;
+    return statePath;
   }
 }

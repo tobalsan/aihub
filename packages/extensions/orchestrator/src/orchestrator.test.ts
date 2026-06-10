@@ -2484,7 +2484,7 @@ Do {{issue.identifier}}
       identifier: "ENG-1",
       workspace: root,
       profileJson: "{}",
-      workflowPath: "WORKFLOW.md",
+      workflowPath: path.join(root, "WORKFLOW.md"),
       workflowSha: "abc",
       pid: 1,
       startedAt: new Date().toISOString(),
@@ -2501,13 +2501,14 @@ Do {{issue.identifier}}
     const dbPath = path.join(root, "state.db");
     const store = new StateStore(dbPath);
     store.bootstrap();
+    store.insertRun({ runId: "orchestrator:p1:i1:1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: path.join(root, "workspaces", "eng-1"), profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "abc", pid: null, startedAt: new Date(1).toISOString() });
     store.appendEvent("orchestrator:p1:i1:1", "worker.codex.tool_output", { output: "x".repeat(6000) }, "p1");
 
     const db = new Database(dbPath);
     const row = db.prepare("SELECT payload, payload_preview, log_path, log_offset, log_line FROM events").get() as Record<string, unknown>;
     db.close();
     expect(row.payload).toBeNull();
-    expect(row.log_path).toBe(path.join("runs", "b3JjaGVzdHJhdG9yOnAxOmkxOjE", "logs.jsonl"));
+    expect(row.log_path).toBe(path.join(".aihub", "codex", "19700101T000000Z-b3JjaGVzdHJhdG9yOnAxOmkxOjE.jsonl"));
     expect(row.log_offset).toBe(0);
     expect(row.log_line).toBe(1);
     expect(String(row.payload_preview).length).toBeLessThan(5000);
@@ -2525,6 +2526,8 @@ Do {{issue.identifier}}
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-jsonl-undefined-"));
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
+    store.insertRun({ runId: "a:b", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
+    store.insertRun({ runId: "a_3Ab", projectId: "p1", issueId: "i2", identifier: "ENG-2", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(2).toISOString() });
     store.appendEvent("a:b", "worker.empty", undefined, "p1");
     store.appendEvent("a_3Ab", "worker.empty", undefined, "p1");
 
@@ -2546,6 +2549,7 @@ Do {{issue.identifier}}
     const dbPath = path.join(root, "state.db");
     const store = new StateStore(dbPath);
     store.bootstrap();
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
     const db = new Database(dbPath);
     db.prepare("INSERT INTO events (project_id,run_id,type,payload,created_at) VALUES (?,?,?,?,?)").run("p1", "r1", "worker.started", JSON.stringify({ legacy: true }), new Date().toISOString());
     db.close();
@@ -2561,10 +2565,33 @@ Do {{issue.identifier}}
     store.close();
   });
 
+  it("reads and deletes prior state-root JSONL rows for runs with workflow paths", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-legacy-jsonl-"));
+    const project = path.join(root, "project");
+    const state = path.join(root, "state");
+    await fs.mkdir(path.join(state, "runs", "cjE"), { recursive: true });
+    const legacyLog = path.join(state, "runs", "cjE", "logs.jsonl");
+    await fs.writeFile(legacyLog, `${JSON.stringify({ payload: { text: "legacy jsonl payload" } })}\n`, "utf8");
+    const store = new StateStore(path.join(state, "state.db"));
+    store.bootstrap();
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(project, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
+    const db = new Database(path.join(state, "state.db"));
+    db.prepare("INSERT INTO events (project_id,run_id,type,payload,created_at,log_path,log_offset,log_line,payload_preview) VALUES (?,?,?,?,?,?,?,?,?)").run("p1", "r1", "worker.message", null, new Date().toISOString(), path.join("runs", "cjE", "logs.jsonl"), 0, 1, JSON.stringify({ text: "preview" }));
+    db.close();
+
+    expect(store.listEvents("r1")).toEqual([
+      expect.objectContaining({ payload: JSON.stringify({ text: "legacy jsonl payload" }) }),
+    ]);
+    expect(store.deleteRunLogs("r1")).toBe(true);
+    await expect(fs.access(legacyLog)).rejects.toThrow();
+    store.close();
+  });
+
   it("can delete per-run JSONL while preserving preview metadata", async () => {
     const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-delete-"));
     const store = new StateStore(path.join(root, "state.db"));
     store.bootstrap();
+    store.insertRun({ runId: "r1", projectId: "p1", issueId: "i1", identifier: "ENG-1", workspace: "/", profileJson: "{}", workflowPath: path.join(root, "WORKFLOW.md"), workflowSha: "s", pid: null, startedAt: new Date(1).toISOString() });
     store.appendEvent("r1", "worker.claude.message", { text: "short preview" }, "p1");
 
     expect(store.deleteRunLogs("r1")).toBe(true);
@@ -2572,7 +2599,7 @@ Do {{issue.identifier}}
     expect(rows).toEqual([
       expect.objectContaining({ payload: JSON.stringify({ text: "short preview" }), payload_preview: JSON.stringify({ text: "short preview" }) }),
     ]);
-    await expect(fs.access(path.join(root, "runs", "cjE", "logs.jsonl"))).rejects.toThrow();
+    await expect(fs.access(path.join(root, ".aihub", "codex", "19700101T000000Z-cjE.jsonl"))).rejects.toThrow();
     store.close();
   });
 
