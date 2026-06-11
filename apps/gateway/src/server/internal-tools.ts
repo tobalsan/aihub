@@ -85,6 +85,12 @@ export function createInternalTools(
       if (message.startsWith("Unknown tool: ")) {
         return c.json({ error: message }, 400);
       }
+      console.error("[internal-tools] tool execution failed", {
+        tool: parsed.data.tool,
+        agentId: parsed.data.agentId,
+        message,
+        stack: error instanceof Error ? error.stack : undefined,
+      });
       return c.json({ error: message }, 500);
     }
   });
