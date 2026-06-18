@@ -11,11 +11,19 @@ const fetchProjectsMock = vi.fn<() => Promise<unknown[]>>();
 const fetchAgentSessionsMock = vi.fn(async () => ({ items: [] as unknown[] }));
 const navigateMock = vi.fn();
 
+class UnauthenticatedError extends Error {
+  constructor() {
+    super("Unauthenticated");
+    this.name = "UnauthenticatedError";
+  }
+}
+
 vi.mock("../api", () => ({
   fetchProjects: fetchProjectsMock,
   fetchAgentSessions: fetchAgentSessionsMock,
   deleteAgentSession: vi.fn(),
   renameAgentSession: vi.fn(),
+  UnauthenticatedError,
 }));
 
 vi.mock("@solidjs/router", () => ({
@@ -217,5 +225,39 @@ describe("AgentSidebar", () => {
     expect(container.textContent).toContain("Agents");
 
     dispose();
+  });
+
+  it("navigates to /login and stops polling on 401 from fetchAgentSessions", async () => {
+    vi.useFakeTimers();
+    fetchAgentSessionsMock.mockRejectedValue(new UnauthenticatedError());
+
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [collapsed] = createSignal(false);
+
+    const dispose = render(
+      () => (
+        <AgentSidebar
+          collapsed={collapsed}
+          onToggleCollapse={() => {}}
+        />
+      ),
+      container
+    );
+
+    // Let the initial createEffect fetch settle (microtasks + async rejection)
+    await vi.advanceTimersByTimeAsync(50);
+
+    expect(navigateMock).toHaveBeenCalledWith("/login");
+
+    navigateMock.mockClear();
+
+    // Advance past several poll intervals — polling must be stopped, no further navigations
+    await vi.advanceTimersByTimeAsync(15000);
+
+    expect(navigateMock).not.toHaveBeenCalled();
+
+    dispose();
+    vi.useRealTimers();
   });
 });

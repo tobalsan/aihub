@@ -15,6 +15,7 @@ import {
   deleteAgentSession,
   fetchAgentSessions,
   renameAgentSession,
+  UnauthenticatedError,
 } from "../api";
 import type { SessionSummary } from "../api/types";
 
@@ -83,16 +84,29 @@ export function AgentSidebar(props: AgentSidebarProps) {
   const [search, setSearch] = createSignal("");
   const [searchOpen, setSearchOpen] = createSignal(false);
 
-  const refreshSessions = () => {
-    void fetchAgentSessions().then((res) => setSessions(res.items));
+  let pollStopped = false;
+
+  const refreshSessions = async () => {
+    if (pollStopped || document.visibilityState !== "visible") return;
+    try {
+      const res = await fetchAgentSessions();
+      setSessions(res.items);
+    } catch (err) {
+      if (err instanceof UnauthenticatedError) {
+        pollStopped = true;
+        navigate("/login");
+      }
+    }
   };
 
   createEffect(refreshSessions);
   const poll = window.setInterval(refreshSessions, 3000);
   window.addEventListener("focus", refreshSessions);
+  document.addEventListener("visibilitychange", refreshSessions);
   onCleanup(() => {
     window.clearInterval(poll);
     window.removeEventListener("focus", refreshSessions);
+    document.removeEventListener("visibilitychange", refreshSessions);
   });
 
   const visibleSessions = () => {

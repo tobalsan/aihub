@@ -72,8 +72,16 @@ export async function postAbort(
   });
 }
 
+export class UnauthenticatedError extends Error {
+  constructor() {
+    super("Unauthenticated");
+    this.name = "UnauthenticatedError";
+  }
+}
+
 export async function fetchAgentSessions(): Promise<{ items: SessionSummary[] }> {
   const res = await fetch(`${API_BASE}/agents/sessions`);
+  if (res.status === 401) throw new UnauthenticatedError();
   if (!res.ok) return { items: [] };
   return res.json();
 }
