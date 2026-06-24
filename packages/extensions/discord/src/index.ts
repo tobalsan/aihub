@@ -135,3 +135,4 @@ export {
   type SetThreadSessionBindingInput,
   type ThreadSessionBinding,
 } from "./thread-session-bindings.js";
+export { getForumSubscribers } from "./forum-subscribers.js";
