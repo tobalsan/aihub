@@ -1688,6 +1688,309 @@ describe("Discord component bot", () => {
     }
   });
 
+  it("resumes a bound session when a forum thread receives a reply", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    const store = createThreadSessionBindingStore(dataDir);
+    store.setBinding({
+      threadId: "thread-1",
+      sessionId: "session-alpha",
+      agentId: "alpha",
+      channelId: "forum-1",
+    });
+    store.close();
+
+    mockClient.rest.get.mockResolvedValueOnce({
+      id: "thread-1",
+      type: 11,
+      parent_id: "forum-1",
+      guild_id: "guild-1",
+    });
+    mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({ type: "text", data: "Resumed reply" });
+      params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+      return Promise.resolve({
+        payloads: [{ text: "Resumed reply" }],
+        meta: { durationMs: 100, sessionId: "session-alpha" },
+      });
+    });
+
+    try {
+      await createDiscordComponentBot([alpha], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "Follow-up",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+      await flushPromises();
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "alpha",
+          message: "Follow-up",
+          sessionId: "session-alpha",
+          sessionKey: "discord:forum:thread-1:alpha",
+          source: "discord",
+        })
+      );
+      expect(mockClient.rest.post).toHaveBeenCalledWith(
+        "/channels/thread-1/messages",
+        expect.objectContaining({ body: { content: "Resumed reply" } })
+      );
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("resumes a bound forum thread even when channel enrichment fails", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    const store = createThreadSessionBindingStore(dataDir);
+    store.setBinding({
+      threadId: "thread-1",
+      sessionId: "session-alpha",
+      agentId: "alpha",
+      channelId: "forum-1",
+    });
+    store.close();
+
+    mockClient.rest.get.mockRejectedValueOnce(new Error("missing channel access"));
+
+    try {
+      await createDiscordComponentBot([alpha], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "Follow-up",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+      await flushPromises();
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "alpha",
+          message: "Follow-up",
+          sessionId: "session-alpha",
+          sessionKey: "discord:forum:thread-1:alpha",
+          source: "discord",
+        })
+      );
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("ignores bot and webhook messages in bound forum threads", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    const store = createThreadSessionBindingStore(dataDir);
+    store.setBinding({
+      threadId: "thread-1",
+      sessionId: "session-alpha",
+      agentId: "alpha",
+      channelId: "forum-1",
+    });
+    store.close();
+
+    try {
+      await createDiscordComponentBot([alpha], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-bot",
+          content: "Bot echo",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "bot-1", username: "bot", bot: true },
+          mentions: [],
+        },
+        mockClient
+      );
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-webhook",
+          content: "Webhook echo",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          webhook_id: "webhook-1",
+          author: { id: "webhook-1", username: "webhook", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      expect(mockClient.rest.get).not.toHaveBeenCalled();
+      expect(mockRunAgent).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("falls back to the forum opening path when a thread reply has no binding", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    mockClient.rest.get.mockResolvedValueOnce({
+      id: "thread-1",
+      type: 11,
+      parent_id: "forum-1",
+      guild_id: "guild-1",
+    });
+    mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({ type: "text", data: "New binding reply" });
+      params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+      return Promise.resolve({
+        payloads: [{ text: "New binding reply" }],
+        meta: { durationMs: 100, sessionId: "session-alpha" },
+      });
+    });
+
+    try {
+      await createDiscordComponentBot([alpha], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "Unbound follow-up",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+      await flushPromises();
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "alpha",
+          message: "Unbound follow-up",
+          sessionKey: "discord:forum:thread-1:alpha",
+          source: "discord",
+        })
+      );
+      expect(mockRunAgent.mock.calls[0][0]).not.toHaveProperty("sessionId");
+      const store = createThreadSessionBindingStore(dataDir);
+      try {
+        expect(store.getBinding("thread-1", "alpha")).toMatchObject({
+          threadId: "thread-1",
+          sessionId: "session-alpha",
+          agentId: "alpha",
+          channelId: "forum-1",
+        });
+      } finally {
+        store.close();
+      }
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not start duplicate fallback openings for rapid unbound thread replies", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    mockClient.rest.get.mockResolvedValue({
+      id: "thread-1",
+      type: 11,
+      parent_id: "forum-1",
+      guild_id: "guild-1",
+    });
+
+    let resolveRunAgent: (() => void) | undefined;
+    mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({ type: "text", data: "New binding reply" });
+      return new Promise((resolve) => {
+        resolveRunAgent = () => {
+          params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+          resolve({
+            payloads: [{ text: "New binding reply" }],
+            meta: { durationMs: 100, sessionId: "session-alpha" },
+          });
+        };
+      });
+    });
+
+    try {
+      await createDiscordComponentBot([alpha], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "First unbound follow-up",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-2",
+          content: "Second unbound follow-up",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+
+      expect(mockRunAgent).toHaveBeenCalledTimes(1);
+
+      resolveRunAgent?.();
+      await flushPromises();
+
+      const store = createThreadSessionBindingStore(dataDir);
+      try {
+        expect(store.getBinding("thread-1", "alpha")).toMatchObject({
+          sessionId: "session-alpha",
+        });
+      } finally {
+        store.close();
+      }
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("does not spawn sessions when Discord reports an existing forum thread", async () => {
     const alpha = createTestAgent({ forumChannels: ["forum-1"] });
     alpha.id = "alpha";
