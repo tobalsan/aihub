@@ -325,7 +325,8 @@ function gatewayTool(
         input.agentToken,
         name,
         params,
-        input.agentId
+        input.agentId,
+        input.sessionId
       );
       const text = await formatGatewayToolResult(
         input,

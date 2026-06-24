@@ -91,7 +91,8 @@ describe("internal tools", () => {
       "project.get",
       { projectId: "PRO-1" },
       expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
-      runtime
+      runtime,
+      undefined
     );
   });
 
@@ -146,7 +147,8 @@ describe("internal tools", () => {
       "project.get",
       { projectId: "PRO-1" },
       expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
-      runtime
+      runtime,
+      undefined
     );
   });
 
@@ -172,7 +174,31 @@ describe("internal tools", () => {
       "scratchpad.read",
       {},
       expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
-      runtime
+      runtime,
+      undefined
+    );
+  });
+
+  it("passes sessionId through to extension tool execution", async () => {
+    const { app, executeExtensionTool, runtime } = createDeps();
+    registerToken("token-7");
+
+    const response = await postTool(app, {
+      tool: "discord.create_forum_thread",
+      args: { channel_id: "forum-1", title: "Title", body: "Body" },
+      agentId: "agent-1",
+      agentToken: "token-7",
+      sessionId: "session-1",
+    });
+
+    expect(response.status).toBe(200);
+    expect(executeExtensionTool).toHaveBeenCalledWith(
+      expect.objectContaining({ id: "agent-1" }),
+      "discord.create_forum_thread",
+      { channel_id: "forum-1", title: "Title", body: "Body" },
+      expect.objectContaining({ agents: expect.any(Array), extensions: {} }),
+      runtime,
+      "session-1"
     );
   });
 

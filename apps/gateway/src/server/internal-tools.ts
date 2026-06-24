@@ -12,6 +12,7 @@ const InternalToolRequestSchema = z.object({
   args: z.unknown(),
   agentId: z.string(),
   agentToken: z.string(),
+  sessionId: z.string().optional(),
 });
 
 type InternalToolsDeps = {
@@ -32,7 +33,8 @@ async function dispatchInternalTool(
   deps: InternalToolsDeps,
   tool: string,
   args: unknown,
-  agentId: string
+  agentId: string,
+  sessionId?: string
 ): Promise<unknown> {
   const config = deps.getConfig();
   const agent = config.agents.find((candidate) => candidate.id === agentId);
@@ -42,7 +44,8 @@ async function dispatchInternalTool(
     tool,
     args,
     config,
-    deps.getRuntime()
+    deps.getRuntime(),
+    sessionId
   );
   if (extensionResult.found) return extensionResult.result;
   throw new Error(`Unknown tool: ${tool}`);
@@ -76,7 +79,8 @@ export function createInternalTools(
         deps,
         parsed.data.tool,
         parsed.data.args,
-        parsed.data.agentId
+        parsed.data.agentId,
+        parsed.data.sessionId
       );
       return c.json(result);
     } catch (error) {

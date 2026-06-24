@@ -170,14 +170,15 @@ export class ExtensionRuntime {
     agent: AgentConfig,
     toolName: string,
     args: unknown,
-    config: GatewayConfig
+    config: GatewayConfig,
+    sessionId?: string
   ): Promise<{ found: boolean; result?: unknown }> {
     const tool = await this.getTool(agent, toolName, config);
     if (!tool) return { found: false };
     const env = resolveAgentEnv(agent, config);
     return {
       found: true,
-      result: await tool.execute(args, { agent, config, env }),
+      result: await tool.execute(args, { agent, config, env, sessionId }),
     };
   }
 

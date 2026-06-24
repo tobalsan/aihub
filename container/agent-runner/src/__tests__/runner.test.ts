@@ -292,6 +292,7 @@ describe("Pi runner", () => {
           args: {},
           agentId: "agent-1",
           agentToken: "token-1",
+          sessionId: "session-1",
         }),
       })
     );

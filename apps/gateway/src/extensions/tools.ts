@@ -22,7 +22,8 @@ export async function executeExtensionAgentTool(
   toolName: string,
   args: unknown,
   config: GatewayConfig = loadConfig(),
-  runtime: ExtensionRuntime = getExtensionRuntime()
+  runtime: ExtensionRuntime = getExtensionRuntime(),
+  sessionId?: string
 ): Promise<{ found: boolean; result?: unknown }> {
-  return runtime.executeTool(agent, toolName, args, config);
+  return runtime.executeTool(agent, toolName, args, config, sessionId);
 }

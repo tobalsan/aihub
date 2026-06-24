@@ -4,8 +4,11 @@ import type {
   ExtensionAgentTool,
   GatewayConfig,
 } from "@aihub/shared";
+import path from "node:path";
 import { z } from "zod";
 import { getActiveBot } from "./bot-registry.js";
+import { getDiscordContext } from "./context.js";
+import { createThreadSessionBindingStore } from "./thread-session-bindings.js";
 import { splitMessage } from "./utils/chunk.js";
 
 type DiscordRestClient = {
@@ -46,6 +49,11 @@ type DiscordDmChannel = {
   id?: string;
 };
 
+type DiscordForumThread = {
+  id?: string;
+  message?: DiscordMessage;
+};
+
 const sendMessageSchema = z
   .object({
     channel: z.string().min(1).optional(),
@@ -66,6 +74,12 @@ const listUsersSchema = z.object({
   guildId: z.string().min(1).optional(),
   query: z.string().min(1).optional(),
   limit: z.number().int().positive().max(200).optional(),
+});
+
+const createForumThreadSchema = z.object({
+  channel_id: z.string().min(1),
+  title: z.string().min(1),
+  body: z.string().min(1),
 });
 
 function toolError(error: unknown) {
@@ -262,6 +276,30 @@ async function sendToChannel(
   return { channelId, messageId: firstMessageId };
 }
 
+async function createForumThread(
+  client: DiscordRestClient,
+  channelId: string,
+  title: string,
+  body: string
+): Promise<{ threadId: string; messageId: string }> {
+  const thread = (await client.post(`/channels/${channelId}/threads`, {
+    body: {
+      name: title,
+      message: {
+        content: body,
+      },
+    },
+  })) as DiscordForumThread;
+  if (!thread.id) {
+    throw new Error("Discord did not return a thread ID.");
+  }
+  const messageId = thread.message?.id;
+  if (!messageId) {
+    throw new Error("Discord did not return a forum starter message ID.");
+  }
+  return { threadId: thread.id, messageId };
+}
+
 function displayUser(member: DiscordMember): string | undefined {
   return (
     member.nick?.trim() ||
@@ -298,8 +336,97 @@ function validateComponentSendTarget(
   return "Discord channel is not configured for this agent.";
 }
 
+function validateComponentChannelTarget(
+  agent: AgentConfig,
+  config: GatewayConfig,
+  channelId: string
+): string | undefined {
+  const component = getComponentDiscord(config);
+  if (!component) return undefined;
+  const route = component.channels?.[channelId];
+  if (route) {
+    return route.agent === agent.id
+      ? undefined
+      : "Discord channel is routed to a different agent.";
+  }
+  if (configuredChannelIds(agent, config).includes(channelId)) {
+    return undefined;
+  }
+  return "Discord channel is not configured for this agent.";
+}
+
 export function discordAgentTools(): ExtensionAgentTool[] {
   return [
+    {
+      name: "discord.create_forum_thread",
+      description:
+        "Create a new Discord forum thread in a forum channel and bind it to the current agent session. Provide channel_id as the forum channel ID, title as the thread title, and body as the starter post content.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel_id: {
+            type: "string",
+            description: "Discord forum channel ID where the thread is created.",
+          },
+          title: {
+            type: "string",
+            description: "Thread title.",
+          },
+          body: {
+            type: "string",
+            description: "Starter post body. Discord markdown is sent as-is.",
+          },
+        },
+        required: ["channel_id", "title", "body"],
+        additionalProperties: false,
+      },
+      async execute(args, { agent, config, sessionId }) {
+        const input = createForumThreadSchema.parse(args);
+        if (!sessionId) {
+          throw new Error("No active session ID is available for binding.");
+        }
+        const resolved = resolveDiscordClient(agent, config);
+        if (!resolved) {
+          throw new Error("No Discord token is configured for this agent.");
+        }
+        if (resolved.source === "component") {
+          const error = validateComponentChannelTarget(
+            agent,
+            config,
+            input.channel_id
+          );
+          if (error) {
+            throw new Error(error);
+          }
+        }
+        const result = await createForumThread(
+          resolved.rest,
+          input.channel_id,
+          input.title,
+          input.body
+        );
+        const dataDir = path.join(
+          getDiscordContext().getDataDir(),
+          "extensions",
+          "discord"
+        );
+        const store = createThreadSessionBindingStore(dataDir);
+        try {
+          store.setBinding({
+            threadId: result.threadId,
+            sessionId,
+            agentId: agent.id,
+            channelId: input.channel_id,
+          });
+        } finally {
+          store.close();
+        }
+        return {
+          thread_id: result.threadId,
+          message_id: result.messageId,
+        };
+      },
+    },
     {
       name: "discord.send_message",
       description:

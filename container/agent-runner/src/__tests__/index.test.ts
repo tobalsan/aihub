@@ -137,7 +137,8 @@ describe("gateway client", () => {
       "token-1",
       "project.get",
       { projectId: "PRO-1" },
-      "agent-1"
+      "agent-1",
+      "session-1"
     );
 
     expect(result).toEqual({ ok: true, value: 42 });
@@ -155,6 +156,7 @@ describe("gateway client", () => {
           args: { projectId: "PRO-1" },
           agentId: "agent-1",
           agentToken: "token-1",
+          sessionId: "session-1",
         }),
       })
     );
