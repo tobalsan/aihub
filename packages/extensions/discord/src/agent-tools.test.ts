@@ -72,7 +72,9 @@ describe("discord agent tools", () => {
   });
 
   it("create_forum_thread creates the thread and binds it to the current session", async () => {
-    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-tool-"));
+    const dataDir = await fs.mkdtemp(
+      path.join(os.tmpdir(), "aihub-discord-tool-")
+    );
     const rest = {
       get: vi.fn(),
       post: vi.fn().mockResolvedValue({
@@ -100,9 +102,7 @@ describe("discord agent tools", () => {
         },
       });
 
-      const store = createThreadSessionBindingStore(
-        path.join(dataDir, "extensions", "discord")
-      );
+      const store = createThreadSessionBindingStore(dataDir);
       try {
         expect(store.getBinding("thread-1")).toMatchObject({
           threadId: "thread-1",
@@ -281,7 +281,6 @@ describe("discord agent tools", () => {
     expect(rest.post).not.toHaveBeenCalled();
   });
 
-
   it("send_message errors when no token is configured and no bot is active", async () => {
     const result = await tool("discord.send_message").execute(
       { channel: "c1", text: "x" },
@@ -421,13 +420,11 @@ describe("discord agent tools", () => {
   });
 
   it("falls back to a token-backed REST client when no bot is active", async () => {
-    const fetch = vi
-      .fn()
-      .mockResolvedValueOnce({
-        ok: true,
-        status: 200,
-        json: async () => ({ id: "m4", channel_id: "c9" }),
-      });
+    const fetch = vi.fn().mockResolvedValueOnce({
+      ok: true,
+      status: 200,
+      json: async () => ({ id: "m4", channel_id: "c9" }),
+    });
     vi.stubGlobal("fetch", fetch);
 
     const result = await tool("discord.send_message").execute(
