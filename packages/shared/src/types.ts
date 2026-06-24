@@ -939,6 +939,7 @@ export type ExtensionAgentToolContext = {
   agent: AgentConfig;
   config: GatewayConfig;
   env?: Record<string, string>;
+  sessionId?: string;
 };
 
 export type ExtensionAgentTool = {

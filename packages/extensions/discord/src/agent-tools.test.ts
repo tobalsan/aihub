@@ -1,8 +1,13 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentConfig, GatewayConfig } from "@aihub/shared";
 import { clearDiscordClientCache, discordAgentTools } from "./agent-tools.js";
 import { clearActiveBots, registerActiveBot } from "./bot-registry.js";
 import type { DiscordBot } from "./bot.js";
+import { clearDiscordContext, setDiscordContext } from "./context.js";
+import { createThreadSessionBindingStore } from "./thread-session-bindings.js";
 
 type MockRest = {
   get: ReturnType<typeof vi.fn>;
@@ -52,16 +57,108 @@ describe("discord agent tools", () => {
   afterEach(() => {
     clearActiveBots();
     clearDiscordClientCache();
+    clearDiscordContext();
     vi.unstubAllGlobals();
     vi.clearAllMocks();
   });
 
-  it("exposes send_message, list_channels, and list_users", () => {
+  it("exposes create_forum_thread, send_message, list_channels, and list_users", () => {
     expect(discordAgentTools().map((t) => t.name)).toEqual([
+      "discord.create_forum_thread",
       "discord.send_message",
       "discord.list_channels",
       "discord.list_users",
     ]);
+  });
+
+  it("create_forum_thread creates the thread and binds it to the current session", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-tool-"));
+    const rest = {
+      get: vi.fn(),
+      post: vi.fn().mockResolvedValue({
+        id: "thread-1",
+        message: { id: "message-1", channel_id: "thread-1" },
+      }),
+    };
+    registerMockBot("alpha", rest);
+    setDiscordContext({ getDataDir: () => dataDir } as never);
+
+    try {
+      const result = await tool("discord.create_forum_thread").execute(
+        { channel_id: "forum-1", title: "Build notes", body: "First post" },
+        { agent: agent("alpha"), config: config(), sessionId: "session-1" }
+      );
+
+      expect(result).toEqual({
+        thread_id: "thread-1",
+        message_id: "message-1",
+      });
+      expect(rest.post).toHaveBeenCalledWith("/channels/forum-1/threads", {
+        body: {
+          name: "Build notes",
+          message: { content: "First post" },
+        },
+      });
+
+      const store = createThreadSessionBindingStore(
+        path.join(dataDir, "extensions", "discord")
+      );
+      try {
+        expect(store.getBinding("thread-1")).toMatchObject({
+          threadId: "thread-1",
+          sessionId: "session-1",
+          agentId: "alpha",
+          channelId: "forum-1",
+        });
+      } finally {
+        store.close();
+      }
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("create_forum_thread bubbles Discord API errors", async () => {
+    const rest = {
+      get: vi.fn(),
+      post: vi.fn().mockRejectedValue(new Error("Missing Permissions")),
+    };
+    registerMockBot("alpha", rest);
+    setDiscordContext({ getDataDir: () => os.tmpdir() } as never);
+
+    await expect(
+      tool("discord.create_forum_thread").execute(
+        { channel_id: "forum-1", title: "Build notes", body: "First post" },
+        { agent: agent("alpha"), config: config(), sessionId: "session-1" }
+      )
+    ).rejects.toThrow("Missing Permissions");
+  });
+
+  it("create_forum_thread rejects component channels routed to another agent", async () => {
+    const rest = {
+      get: vi.fn(),
+      post: vi.fn(),
+    };
+    registerMockBot("discord", rest);
+    setDiscordContext({ getDataDir: () => os.tmpdir() } as never);
+
+    await expect(
+      tool("discord.create_forum_thread").execute(
+        { channel_id: "forum-2", title: "Build notes", body: "First post" },
+        {
+          agent: agent("alpha"),
+          config: config({
+            token: "bot-token",
+            channels: {
+              "forum-1": { agent: "alpha" },
+              "forum-2": { agent: "beta" },
+            },
+          }),
+          sessionId: "session-1",
+        }
+      )
+    ).rejects.toThrow("Discord channel is routed to a different agent.");
+    expect(rest.post).not.toHaveBeenCalled();
   });
 
   it("send_message posts to a channel via the active bot client", async () => {

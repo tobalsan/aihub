@@ -99,8 +99,13 @@ async function createPiExtensionTools(
     label: tool.description,
     description: tool.description,
     parameters: tool.parameters as unknown as AgentTool["parameters"],
-    execute: async (_toolCallId, params) => {
-      const result = await tool.execute(params, { agent, config, env });
+    execute: async (_toolCallId, toolParams) => {
+      const result = await tool.execute(toolParams, {
+        agent,
+        config,
+        env,
+        sessionId: params.sessionId,
+      });
       return {
         content: [{ type: "text", text: stringifyToolResult(result) }],
         details: result,
