@@ -382,7 +382,8 @@ async function handleForumThreadOpening(
   client: CarbonClient,
   target: ResolvedDiscordForumTarget,
   threadId: string,
-  parentChannelId: string
+  parentChannelId: string,
+  onSettled?: () => void
 ): Promise<void> {
   const content = data.content?.trim();
   if (!content || data.author.bot) return;
@@ -418,6 +419,7 @@ async function handleForumThreadOpening(
   } catch (err) {
     console.error(`${target.logPrefix} Forum thread context error:`, err);
     await sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id);
+    onSettled?.();
     return;
   }
 
@@ -482,6 +484,111 @@ async function handleForumThreadOpening(
       } finally {
         store.close();
       }
+    })
+    .catch((err) => {
+      if (replyHandled) return;
+      replyHandled = true;
+      console.error(`${target.logPrefix} Forum thread error:`, err);
+      sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id).catch(
+        () => {}
+      );
+    })
+    .finally(() => {
+      onSettled?.();
+    });
+}
+
+async function handleForumThreadReply(
+  data: MessageData,
+  client: CarbonClient,
+  target: ResolvedDiscordForumTarget,
+  sessionId: string,
+  threadId: string,
+  parentChannelId: string
+): Promise<void> {
+  const content = data.content?.trim();
+  if (!content || data.author.bot) return;
+
+  const sessionKey = `discord:forum:${threadId}:${target.agent.id}`;
+  startTyping(client, threadId, target.agent.id, { sessionKey }, false);
+
+  let context;
+  try {
+    const [channelMeta, parentChannelMeta, threadStarter] = await Promise.all([
+      getChannelMetadata(client, threadId),
+      getChannelMetadata(client, parentChannelId),
+      getThreadStarter(client, threadId),
+    ]);
+    const sender = data.author.username ?? data.author.id;
+    context = buildDiscordContext({
+      metadata: {
+        channel: "discord",
+        place: `#${parentChannelMeta.name ?? parentChannelId} / ${
+          channelMeta.name ?? `thread:${threadId}`
+        }`,
+        conversationType: "thread_reply",
+        sender,
+      },
+      channelName: parentChannelMeta.name,
+      channelTopic: parentChannelMeta.topic,
+      threadName: channelMeta.name ?? `thread:${threadId}`,
+      threadStarter: threadStarter ?? undefined,
+    });
+  } catch (err) {
+    console.error(`${target.logPrefix} Forum thread context error:`, err);
+    await sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id);
+    return;
+  }
+
+  let accumulatedText = "";
+  let replyHandled = false;
+
+  getDiscordContext()
+    .runAgent({
+      agentId: target.agent.id,
+      message: content,
+      sessionId,
+      sessionKey,
+      source: "discord",
+      context,
+      onEvent: (event) => {
+        if (event.type === "text") {
+          accumulatedText += event.data;
+          return;
+        }
+        if (event.type === "done") {
+          if (event.meta?.queued) {
+            replyHandled = true;
+            startTyping(client, threadId, target.agent.id, { sessionKey }, true);
+            return;
+          }
+          replyHandled = true;
+          if (accumulatedText) {
+            sendDiscordReply(
+              client,
+              threadId,
+              [{ text: accumulatedText }],
+              target.config.replyToMode ?? "off",
+              data.id
+            ).catch((err) => {
+              console.error(`${target.logPrefix} Forum thread reply error:`, err);
+            });
+          }
+          return;
+        }
+        if (event.type === "error") {
+          if (replyHandled) return;
+          replyHandled = true;
+          sendDiscordError(
+            client,
+            threadId,
+            target.config.replyToMode ?? "off",
+            data.id
+          ).catch((err) => {
+            console.error(`${target.logPrefix} Forum thread error reply failed:`, err);
+          });
+        }
+      },
     })
     .catch((err) => {
       if (replyHandled) return;
@@ -763,6 +870,7 @@ async function createConfiguredDiscordBot(
   const textAccumulators = new Map<string, string>();
   const handledMessageIds = new Set<string>();
   const handledThreadIds = new Set<string>();
+  const openingForumThreadIds = new Set<string>();
   const unlockedThreadIds = new Set<string>();
   let cleanupBroadcasts: (() => void) | null = null;
   let botUserId: string | undefined;
@@ -841,6 +949,8 @@ async function createConfiguredDiscordBot(
   };
 
   const handleMessage: MessageHandler = async (data, client) => {
+    if (data.author.bot || "webhook_id" in data) return;
+
     if (data.type === MessageType.ThreadCreated) {
       await handleCreatedThread(
         {
@@ -859,8 +969,72 @@ async function createConfiguredDiscordBot(
     if (handledMessageIds.has(data.id)) return;
     handledMessageIds.add(data.id);
 
+    const baseMsgData = toMessageData(data);
+    const store = createThreadSessionBindingStore(getDiscordContext().getDataDir());
+    let bindings;
+    try {
+      bindings = store.getBindings(baseMsgData.channel_id);
+    } finally {
+      store.close();
+    }
+
+    if (bindings.length > 0) {
+      const forumTargets = options.resolveForumThreadTargets({
+        id: baseMsgData.channel_id,
+        guildId: baseMsgData.guild_id,
+        parentId: bindings[0].channelId,
+      });
+      for (const binding of bindings) {
+        const target = forumTargets.find(
+          (candidate) => candidate.agent.id === binding.agentId
+        );
+        if (!target) continue;
+        await handleForumThreadReply(
+          baseMsgData,
+          client,
+          target,
+          binding.sessionId,
+          binding.threadId,
+          binding.channelId
+        );
+      }
+      return;
+    }
+
+    const enrichedMsgData = await enrichThreadParent(baseMsgData, client);
+    if (enrichedMsgData.parent_channel_id) {
+      const forumTargets = options.resolveForumThreadTargets({
+        id: enrichedMsgData.channel_id,
+        guildId: enrichedMsgData.guild_id,
+        parentId: enrichedMsgData.parent_channel_id,
+      });
+      if (forumTargets.length > 0) {
+        if (!enrichedMsgData.content.trim()) return;
+        if (openingForumThreadIds.has(enrichedMsgData.channel_id)) return;
+        openingForumThreadIds.add(enrichedMsgData.channel_id);
+        let pendingOpenings = forumTargets.length;
+        const markOpeningSettled = () => {
+          pendingOpenings -= 1;
+          if (pendingOpenings <= 0) {
+            openingForumThreadIds.delete(enrichedMsgData.channel_id);
+          }
+        };
+        for (const target of forumTargets) {
+          await handleForumThreadOpening(
+            enrichedMsgData,
+            client,
+            target,
+            enrichedMsgData.channel_id,
+            enrichedMsgData.parent_channel_id,
+            markOpeningSettled
+          );
+        }
+        return;
+      }
+    }
+
     const resolved = await resolveTargetForMessage(
-      toMessageData(data),
+      enrichedMsgData,
       client,
       options.resolveMessageTarget
     );
