@@ -34,7 +34,26 @@ describe("thread session bindings", () => {
     expect(store.getBinding("missing")).toBeUndefined();
   });
 
-  it("enforces one session per Discord thread", () => {
+  it("stores one session per agent in a Discord thread", () => {
+    const first = store.setBinding({
+      threadId: "thread-1",
+      sessionId: "session-1",
+      agentId: "agent-1",
+      channelId: "channel-1",
+    });
+    const second = store.setBinding({
+      threadId: "thread-1",
+      sessionId: "session-2",
+      agentId: "agent-2",
+      channelId: "channel-1",
+    });
+
+    expect(store.getBinding("thread-1", "agent-1")).toEqual(first);
+    expect(store.getBinding("thread-1", "agent-2")).toEqual(second);
+    expect(store.getBindings("thread-1")).toEqual([first, second]);
+  });
+
+  it("enforces one session per agent in a Discord thread", () => {
     store.setBinding({
       threadId: "thread-1",
       sessionId: "session-1",
@@ -46,10 +65,10 @@ describe("thread session bindings", () => {
       store.setBinding({
         threadId: "thread-1",
         sessionId: "session-2",
-        agentId: "agent-2",
+        agentId: "agent-1",
         channelId: "channel-2",
       })
-    ).toThrow(/UNIQUE constraint failed: thread_sessions\.thread_id/);
+    ).toThrow(/UNIQUE constraint failed/);
 
     expect(store.getBinding("thread-1")?.sessionId).toBe("session-1");
   });

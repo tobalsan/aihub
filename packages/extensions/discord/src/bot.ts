@@ -27,6 +27,8 @@ import { recordMessage, getHistory, clearHistory } from "./utils/history.js";
 import { splitMessage } from "./utils/chunk.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
 import { getDiscordContext } from "./context.js";
+import { getForumSubscribers } from "./forum-subscribers.js";
+import { createThreadSessionBindingStore } from "./thread-session-bindings.js";
 
 export type DiscordBot = {
   client: CarbonClient;
@@ -54,6 +56,12 @@ type ResolvedDiscordReactionTarget = DiscordReactionTarget & {
   logPrefix: string;
 };
 
+type ResolvedDiscordForumTarget = {
+  agent: AgentConfig;
+  config: DiscordConfig;
+  logPrefix: string;
+};
+
 function disconnectGateway(client: CarbonClient): void {
   const gateway = getGatewayPlugin(client);
   if (!gateway) return;
@@ -75,6 +83,9 @@ type DiscordBotFactoryOptions = {
   applicationId?: string;
   logPrefix: string;
   resolveMessageTarget: (data: MessageData) => ResolvedDiscordMessageTarget | null;
+  resolveForumThreadTargets: (
+    thread: { id: string; guildId?: string; parentId?: string | null }
+  ) => ResolvedDiscordForumTarget[];
   resolveReactionTarget: (data: ReactionData) => ResolvedDiscordReactionTarget | null;
   createCommands?: () => ReturnType<typeof createSlashCommands> | undefined;
   acceptsAgent: (agentId: string) => boolean;
@@ -364,6 +375,122 @@ async function handleDiscordReaction(
   } catch (err) {
     console.error(`${target.logPrefix} Reaction error:`, err);
   }
+}
+
+async function handleForumThreadOpening(
+  data: MessageData,
+  client: CarbonClient,
+  target: ResolvedDiscordForumTarget,
+  threadId: string,
+  parentChannelId: string
+): Promise<void> {
+  const content = data.content?.trim();
+  if (!content || data.author.bot) return;
+
+  const sessionKey = `discord:forum:${threadId}:${target.agent.id}`;
+  startTyping(client, threadId, target.agent.id, { sessionKey }, false);
+
+  let context;
+  try {
+    const [channelMeta, parentChannelMeta] = await Promise.all([
+      getChannelMetadata(client, threadId),
+      getChannelMetadata(client, parentChannelId),
+    ]);
+    const sender = data.author.username ?? data.author.id;
+    context = buildDiscordContext({
+      metadata: {
+        channel: "discord",
+        place: `#${parentChannelMeta.name ?? parentChannelId} / ${
+          channelMeta.name ?? `thread:${threadId}`
+        }`,
+        conversationType: "thread_reply",
+        sender,
+      },
+      channelName: parentChannelMeta.name,
+      channelTopic: parentChannelMeta.topic,
+      threadName: channelMeta.name ?? `thread:${threadId}`,
+      threadStarter: {
+        author: sender,
+        content,
+        timestamp: Date.now(),
+      },
+    });
+  } catch (err) {
+    console.error(`${target.logPrefix} Forum thread context error:`, err);
+    await sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id);
+    return;
+  }
+
+  let accumulatedText = "";
+  let replyHandled = false;
+
+  getDiscordContext()
+    .runAgent({
+      agentId: target.agent.id,
+      message: content,
+      sessionKey,
+      source: "discord",
+      context,
+      onEvent: (event) => {
+        if (event.type === "text") {
+          accumulatedText += event.data;
+          return;
+        }
+        if (event.type === "done") {
+          if (event.meta?.queued) {
+            replyHandled = true;
+            startTyping(client, threadId, target.agent.id, { sessionKey }, true);
+            return;
+          }
+          replyHandled = true;
+          if (accumulatedText) {
+            sendDiscordReply(
+              client,
+              threadId,
+              [{ text: accumulatedText }],
+              target.config.replyToMode ?? "off",
+              data.id
+            ).catch((err) => {
+              console.error(`${target.logPrefix} Forum thread reply error:`, err);
+            });
+          }
+          return;
+        }
+        if (event.type === "error") {
+          if (replyHandled) return;
+          replyHandled = true;
+          sendDiscordError(
+            client,
+            threadId,
+            target.config.replyToMode ?? "off",
+            data.id
+          ).catch((err) => {
+            console.error(`${target.logPrefix} Forum thread error reply failed:`, err);
+          });
+        }
+      },
+    })
+    .then((result) => {
+      const store = createThreadSessionBindingStore(getDiscordContext().getDataDir());
+      try {
+        store.setBinding({
+          threadId,
+          sessionId: result.meta.sessionId,
+          agentId: target.agent.id,
+          channelId: parentChannelId,
+        });
+      } finally {
+        store.close();
+      }
+    })
+    .catch((err) => {
+      if (replyHandled) return;
+      replyHandled = true;
+      console.error(`${target.logPrefix} Forum thread error:`, err);
+      sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id).catch(
+        () => {}
+      );
+    });
 }
 
 function toMessageData(data: {
@@ -667,6 +794,21 @@ async function createConfiguredDiscordBot(
         }),
         parent_channel_id: thread.parentId ?? undefined,
       };
+      if (thread.parentId) {
+        const forumTargets = options.resolveForumThreadTargets(thread);
+        if (forumTargets.length > 0) {
+          for (const target of forumTargets) {
+            await handleForumThreadOpening(
+              msgData,
+              client,
+              target,
+              thread.id,
+              thread.parentId
+            );
+          }
+          return;
+        }
+      }
       const target = options.resolveMessageTarget(msgData);
       if (!target) return;
       if (mentionsBot(msgData, botUserId)) {
@@ -758,7 +900,25 @@ async function createConfiguredDiscordBot(
   };
 
   const handleThreadCreate: ThreadHandler = async (data, client) => {
-    await handleCreatedThread(data.thread, client);
+    const thread = data as {
+      id: string;
+      guild_id?: string;
+      guildId?: string;
+      parent_id?: string | null;
+      parentId?: string | null;
+      newly_created?: boolean;
+      join?: () => Promise<void>;
+    };
+    if (thread.newly_created !== true) return;
+    await handleCreatedThread(
+      {
+        id: thread.id,
+        guildId: thread.guild_id ?? thread.guildId,
+        parentId: thread.parent_id ?? thread.parentId,
+        join: thread.join,
+      },
+      client
+    );
   };
 
   const handleReaction: ReactionHandler = async (data, client, added) => {
@@ -853,6 +1013,10 @@ export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot |
       isMainSession: !data.guild_id || discordConfig.channelId === data.channel_id,
       logPrefix,
     }),
+    resolveForumThreadTargets: (thread) =>
+      thread.parentId && agent.discord?.forumChannels?.includes(thread.parentId)
+        ? [{ agent, config: discordConfig, logPrefix }]
+        : [],
     resolveReactionTarget: () => ({
       agent,
       config: discordConfig,
@@ -990,6 +1154,25 @@ function resolveReactionTarget(
   };
 }
 
+function resolveForumThreadTargets(
+  componentConfig: DiscordComponentConfig,
+  agents: AgentConfig[],
+  thread: { guildId?: string; parentId?: string | null }
+): ResolvedDiscordForumTarget[] {
+  if (!thread.guildId || !thread.parentId) return [];
+
+  return getForumSubscribers(thread.parentId, agents).map((agent) => ({
+    agent,
+    config: buildDiscordRouteConfig(
+      componentConfig,
+      thread.parentId!,
+      thread.guildId,
+      false
+    ),
+    logPrefix: `[discord:${agent.id}]`,
+  }));
+}
+
 function resolveCommandTarget(
   componentConfig: DiscordComponentConfig,
   agentsById: Map<string, AgentConfig>,
@@ -1040,6 +1223,11 @@ export async function createDiscordComponentBot(
   if (componentConfig.dm?.agent) {
     routedAgentIds.add(componentConfig.dm.agent);
   }
+  for (const agent of agents) {
+    if ((agent.discord?.forumChannels ?? []).length > 0) {
+      routedAgentIds.add(agent.id);
+    }
+  }
 
   if (!agents.some((agent) => routedAgentIds.has(agent.id))) {
     return null;
@@ -1052,6 +1240,8 @@ export async function createDiscordComponentBot(
     logPrefix: "[discord]",
     resolveMessageTarget: (data) =>
       resolveMessageTarget(componentConfig, agentsById, data),
+    resolveForumThreadTargets: (thread) =>
+      resolveForumThreadTargets(componentConfig, agents, thread),
     resolveReactionTarget: (data) =>
       resolveReactionTarget(componentConfig, agentsById, data),
     createCommands: () =>

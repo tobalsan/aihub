@@ -7,6 +7,9 @@
 
 import { describe, it, expect, vi, beforeEach, afterEach } from "vitest";
 import { EventEmitter } from "node:events";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 
 // Drain the microtask queue so async subscription callbacks complete before assertions.
 const flushPromises = () => new Promise<void>((resolve) => setImmediate(resolve));
@@ -19,6 +22,7 @@ import type {
 
 const extensionEventEmitter = new EventEmitter();
 const mockRunAgent = vi.fn();
+const mockGetDataDir = vi.fn(() => "/tmp/aihub-discord-test");
 const mockGetSessionEntry = vi.fn(() =>
   Promise.resolve({ sessionId: "test-session", updatedAt: Date.now() })
 );
@@ -31,6 +35,7 @@ const mockExtensionContext = {
   runAgent: mockRunAgent,
   getSessionEntry: mockGetSessionEntry,
   subscribe: mockSubscribe,
+  getDataDir: mockGetDataDir,
 } as unknown as ExtensionContext;
 
 vi.mock("./context.js", () => ({
@@ -86,6 +91,7 @@ import { createCarbonClient } from "./client.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
 import { getThreadStarter } from "./utils/threads.js";
 import { recordMessage, clearHistory } from "./utils/history.js";
+import { createThreadSessionBindingStore } from "./thread-session-bindings.js";
 
 // Type helpers
 const mockCreateCarbonClient = createCarbonClient as ReturnType<typeof vi.fn>;
@@ -93,6 +99,7 @@ const mockCreateCarbonClient = createCarbonClient as ReturnType<typeof vi.fn>;
 // Helper to capture handlers passed to createCarbonClient
 type CapturedHandlers = {
   onMessage?: (data: unknown, client: unknown) => Promise<void>;
+  onThreadCreate?: (data: unknown, client: unknown) => Promise<void>;
   onReaction?: (data: unknown, client: unknown, added: boolean) => Promise<void>;
   onReady?: (data: unknown, client: unknown) => void;
 };
@@ -102,6 +109,7 @@ function createMockClient() {
     rest: {
       post: vi.fn(() => Promise.resolve()),
       get: vi.fn(() => Promise.resolve({})),
+      put: vi.fn(() => Promise.resolve()),
     },
     handleDeployRequest: vi.fn(() => Promise.resolve()),
   };
@@ -158,10 +166,12 @@ describe("Discord bot integration", () => {
     // Capture handlers when createCarbonClient is called
     mockCreateCarbonClient.mockImplementation((config: {
       onMessage?: CapturedHandlers["onMessage"];
+      onThreadCreate?: CapturedHandlers["onThreadCreate"];
       onReaction?: CapturedHandlers["onReaction"];
       onReady?: CapturedHandlers["onReady"];
     }) => {
       capturedHandlers.onMessage = config.onMessage;
+      capturedHandlers.onThreadCreate = config.onThreadCreate;
       capturedHandlers.onReaction = config.onReaction;
       capturedHandlers.onReady = config.onReady;
       return mockClient;
@@ -1223,10 +1233,12 @@ describe("Discord heartbeat delivery", () => {
     // Capture handlers when createCarbonClient is called
     mockCreateCarbonClient.mockImplementation((config: {
       onMessage?: CapturedHandlers["onMessage"];
+      onThreadCreate?: CapturedHandlers["onThreadCreate"];
       onReaction?: CapturedHandlers["onReaction"];
       onReady?: CapturedHandlers["onReady"];
     }) => {
       capturedHandlers.onMessage = config.onMessage;
+      capturedHandlers.onThreadCreate = config.onThreadCreate;
       capturedHandlers.onReaction = config.onReaction;
       capturedHandlers.onReady = config.onReady;
       return mockClient;
@@ -1492,10 +1504,12 @@ describe("Discord component bot", () => {
 
     mockCreateCarbonClient.mockImplementation((config: {
       onMessage?: CapturedHandlers["onMessage"];
+      onThreadCreate?: CapturedHandlers["onThreadCreate"];
       onReaction?: CapturedHandlers["onReaction"];
       onReady?: CapturedHandlers["onReady"];
     }) => {
       capturedHandlers.onMessage = config.onMessage;
+      capturedHandlers.onThreadCreate = config.onThreadCreate;
       capturedHandlers.onReaction = config.onReaction;
       capturedHandlers.onReady = config.onReady;
       return mockClient;
@@ -1574,5 +1588,146 @@ describe("Discord component bot", () => {
         source: "discord",
       })
     );
+  });
+
+  it("spawns one bound session per subscribed agent when a forum thread is created", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    const beta = createTestAgent({ forumChannels: ["forum-1"] });
+    beta.id = "beta";
+    const gamma = createTestAgent({ forumChannels: ["forum-2"] });
+    gamma.id = "gamma";
+
+    mockClient.rest.get.mockResolvedValueOnce([
+      {
+        id: "thread-1",
+        content: "Forum starter",
+        channel_id: "thread-1",
+        guild_id: "guild-1",
+        author: { id: "user-1", username: "testuser", bot: false },
+        mentions: [],
+      },
+    ]);
+    mockRunAgent.mockImplementation((params: { agentId: string; onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({ type: "text", data: `Reply from ${params.agentId}` });
+      params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+      return Promise.resolve({
+        payloads: [{ text: `Reply from ${params.agentId}` }],
+        meta: { durationMs: 100, sessionId: `session-${params.agentId}` },
+      });
+    });
+
+    try {
+      await createDiscordComponentBot([alpha, beta, gamma], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onThreadCreate?.(
+        {
+          id: "thread-1",
+          guild_id: "guild-1",
+          parent_id: "forum-1",
+          newly_created: true,
+          join: vi.fn(() => Promise.resolve()),
+        },
+        mockClient
+      );
+      await flushPromises();
+      await flushPromises();
+
+      expect(mockRunAgent).toHaveBeenCalledTimes(2);
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "alpha",
+          message: "Forum starter",
+          sessionKey: "discord:forum:thread-1:alpha",
+          source: "discord",
+        })
+      );
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "beta",
+          message: "Forum starter",
+          sessionKey: "discord:forum:thread-1:beta",
+          source: "discord",
+        })
+      );
+      expect(mockClient.rest.post).toHaveBeenCalledWith(
+        "/channels/thread-1/messages",
+        expect.objectContaining({ body: { content: "Reply from alpha" } })
+      );
+      expect(mockClient.rest.post).toHaveBeenCalledWith(
+        "/channels/thread-1/messages",
+        expect.objectContaining({ body: { content: "Reply from beta" } })
+      );
+
+      const store = createThreadSessionBindingStore(dataDir);
+      try {
+        expect(store.getBindings("thread-1")).toMatchObject([
+          {
+            threadId: "thread-1",
+            sessionId: "session-alpha",
+            agentId: "alpha",
+            channelId: "forum-1",
+          },
+          {
+            threadId: "thread-1",
+            sessionId: "session-beta",
+            agentId: "beta",
+            channelId: "forum-1",
+          },
+        ]);
+      } finally {
+        store.close();
+      }
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
+  it("does not spawn sessions when Discord reports an existing forum thread", async () => {
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+
+    await createDiscordComponentBot([alpha], {
+      token: "test-token",
+    });
+
+    await capturedHandlers.onThreadCreate?.(
+      {
+        id: "thread-1",
+        guild_id: "guild-1",
+        parent_id: "forum-1",
+        newly_created: false,
+      },
+      mockClient
+    );
+
+    expect(mockClient.rest.get).not.toHaveBeenCalled();
+    expect(mockRunAgent).not.toHaveBeenCalled();
+  });
+
+  it("does not spawn sessions when Discord omits newly_created on a forum thread", async () => {
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+
+    await createDiscordComponentBot([alpha], {
+      token: "test-token",
+    });
+
+    await capturedHandlers.onThreadCreate?.(
+      {
+        id: "thread-1",
+        guild_id: "guild-1",
+        parent_id: "forum-1",
+      },
+      mockClient
+    );
+
+    expect(mockClient.rest.get).not.toHaveBeenCalled();
+    expect(mockRunAgent).not.toHaveBeenCalled();
   });
 });
