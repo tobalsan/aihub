@@ -837,13 +837,14 @@ async function createConfiguredDiscordBot(
 }
 
 export async function createDiscordBot(agent: AgentConfig): Promise<DiscordBot | null> {
-  if (!agent.discord?.token) return null;
   const discordConfig = agent.discord;
+  if (!discordConfig?.token) return null;
+  const token = discordConfig.token;
   const logPrefix = `[discord:${agent.id}]`;
 
   return createConfiguredDiscordBot({
     agentId: agent.id,
-    token: discordConfig.token,
+    token,
     applicationId: discordConfig.applicationId,
     logPrefix,
     resolveMessageTarget: (data) => ({

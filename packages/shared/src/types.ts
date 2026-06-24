@@ -35,7 +35,7 @@ export type RequiredModelConfig = z.infer<typeof RequiredModelConfigSchema>;
 
 // Discord config
 export const DiscordConfigSchema = z.object({
-  token: z.string(),
+  token: z.string().optional(),
   applicationId: z.string().optional(),
 
   // Legacy fields (backward compat - treated as single-guild/channel mode)
@@ -91,6 +91,9 @@ export const DiscordConfigSchema = z.object({
 
   // AIHub-only: broadcast main-session responses to a Discord channel
   broadcastToChannel: z.string().optional(),
+
+  // AIHub-only: Discord forum channels this agent subscribes to.
+  forumChannels: z.array(z.string().min(1)).optional(),
 });
 export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
 
