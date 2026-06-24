@@ -25,7 +25,10 @@ export async function startDiscordBots(
   setDiscordContext(ctx);
 
   if (componentConfig) {
-    const bot = await createDiscordComponentBot(ctx.getAgents(), componentConfig);
+    const bot = await createDiscordComponentBot(
+      ctx.getAgents(),
+      componentConfig
+    );
     if (!bot) return;
 
     try {
@@ -52,7 +55,10 @@ export async function startDiscordBots(
       registerActiveBot(agent.id, bot);
       console.log(`[discord] Started bot for agent: ${agent.id}`);
     } catch (err) {
-      console.error(`[discord] Failed to start bot for agent ${agent.id}:`, err);
+      console.error(
+        `[discord] Failed to start bot for agent ${agent.id}:`,
+        err
+      );
     }
   }
 }
@@ -123,3 +129,9 @@ const discordExtension: Extension = {
 
 export { discordExtension, createDiscordBot, type DiscordBot };
 export { getActiveBot };
+export {
+  createThreadSessionBindingStore,
+  ThreadSessionBindingStore,
+  type SetThreadSessionBindingInput,
+  type ThreadSessionBinding,
+} from "./thread-session-bindings.js";
