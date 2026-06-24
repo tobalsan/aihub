@@ -4,7 +4,6 @@ import type {
   ExtensionAgentTool,
   GatewayConfig,
 } from "@aihub/shared";
-import path from "node:path";
 import { z } from "zod";
 import { getActiveBot } from "./bot-registry.js";
 import { getDiscordContext } from "./context.js";
@@ -106,10 +105,14 @@ function getComponentDiscord(
   return config.extensions?.discord as DiscordComponentConfig | undefined;
 }
 
-function configuredChannelIds(agent: AgentConfig, config: GatewayConfig): string[] {
+function configuredChannelIds(
+  agent: AgentConfig,
+  config: GatewayConfig
+): string[] {
   const ids = new Set<string>();
   if (agent.discord?.channelId) ids.add(agent.discord.channelId);
-  if (agent.discord?.broadcastToChannel) ids.add(agent.discord.broadcastToChannel);
+  if (agent.discord?.broadcastToChannel)
+    ids.add(agent.discord.broadcastToChannel);
   for (const guild of Object.values(agent.discord?.guilds ?? {})) {
     for (const channelId of Object.keys(guild.channels ?? {})) {
       ids.add(channelId);
@@ -133,7 +136,10 @@ function configuredChannelIds(agent: AgentConfig, config: GatewayConfig): string
   return [...ids];
 }
 
-function configuredGuildIds(agent: AgentConfig, config: GatewayConfig): string[] {
+function configuredGuildIds(
+  agent: AgentConfig,
+  config: GatewayConfig
+): string[] {
   const ids = new Set<string>();
   if (agent.discord?.guildId) ids.add(agent.discord.guildId);
   for (const guildId of Object.keys(agent.discord?.guilds ?? {})) {
@@ -254,7 +260,10 @@ async function listGuilds(
   return guilds.filter((guild) => guild.id);
 }
 
-function withQuery(path: string, params: Record<string, string | number>): string {
+function withQuery(
+  path: string,
+  params: Record<string, string | number>
+): string {
   const query = new URLSearchParams(
     Object.entries(params).map(([key, value]) => [key, String(value)])
   );
@@ -366,7 +375,8 @@ export function discordAgentTools(): ExtensionAgentTool[] {
         properties: {
           channel_id: {
             type: "string",
-            description: "Discord forum channel ID where the thread is created.",
+            description:
+              "Discord forum channel ID where the thread is created.",
           },
           title: {
             type: "string",
@@ -405,12 +415,9 @@ export function discordAgentTools(): ExtensionAgentTool[] {
           input.title,
           input.body
         );
-        const dataDir = path.join(
-          getDiscordContext().getDataDir(),
-          "extensions",
-          "discord"
+        const store = createThreadSessionBindingStore(
+          getDiscordContext().getDataDir()
         );
-        const store = createThreadSessionBindingStore(dataDir);
         try {
           store.setBinding({
             threadId: result.threadId,
@@ -502,7 +509,8 @@ export function discordAgentTools(): ExtensionAgentTool[] {
         properties: {
           guildId: {
             type: "string",
-            description: "Optional Discord guild/server ID to list channels for.",
+            description:
+              "Optional Discord guild/server ID to list channels for.",
           },
           query: {
             type: "string",
@@ -552,7 +560,8 @@ export function discordAgentTools(): ExtensionAgentTool[] {
               ) {
                 continue;
               }
-              if (query && !channel.name.toLowerCase().includes(query)) continue;
+              if (query && !channel.name.toLowerCase().includes(query))
+                continue;
               seen.add(channel.id);
               channels.push({
                 id: channel.id,
@@ -566,7 +575,9 @@ export function discordAgentTools(): ExtensionAgentTool[] {
 
           const configuredGuilds = configuredGuildIds(agent, config);
           const guilds =
-            input.guildId || configuredGuilds.length > 0 || configuredIds.length === 0
+            input.guildId ||
+            configuredGuilds.length > 0 ||
+            configuredIds.length === 0
               ? await listGuilds(client, agent, config, input.guildId)
               : [];
 
@@ -584,7 +595,8 @@ export function discordAgentTools(): ExtensionAgentTool[] {
               ) {
                 continue;
               }
-              if (query && !channel.name.toLowerCase().includes(query)) continue;
+              if (query && !channel.name.toLowerCase().includes(query))
+                continue;
               seen.add(channel.id);
               channels.push({
                 id: channel.id,
@@ -639,7 +651,8 @@ export function discordAgentTools(): ExtensionAgentTool[] {
           const client = resolved.rest;
           const limit = input.limit ?? 100;
           const query = input.query?.toLowerCase();
-          const users: Array<{ id: string; name: string; guildId?: string }> = [];
+          const users: Array<{ id: string; name: string; guildId?: string }> =
+            [];
           const seen = new Set<string>();
 
           const guilds =

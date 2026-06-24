@@ -32,7 +32,7 @@ Core TypeScript/Node.js application. Exports:
 - **Agent Runtime** (`src/agents/`): Pi SDK integration (Pi packages pinned at `^0.75.4` under the `@earendil-works` scope; built-in coding tools are enabled by name via `createAgentSession({ tools: ["read", "bash", "edit", "write"] })`), session management, sandbox container mount/argument helpers in `src/agents/container.ts`, and the Docker-backed container adapter in `src/sdk/container/adapter.ts`
   - `src/agents/run-lifecycle.ts` owns gateway session run state transitions behind `SessionRunLifecycle`: active streaming/abort state, adapter handles, queue vs interrupt joins, pending follow-up messages, turn buffering, history event emission, and final turn flushing. `runAgent()` still resolves agents/sessions, handles `/abort` and `/think`, selects adapters, invokes SDKs, and drains non-native queued runs.
 - **Scheduler** (`packages/extensions/scheduler/`): Interval/daily job execution. Scheduled fires default to unique sessions (`scheduler:<jobId>:<runId>`) unless `payload.sessionId` explicitly overrides the target. Scheduler job files may include optional top-level `model: { provider, model }`; when present, scheduled runs use that provider/model instead of the agent default. When enabled, scheduler injects self-only agent tools (`scheduler.list_jobs`, `scheduler.create_job`, `scheduler.update_job`, `scheduler.delete_job`, `scheduler.get_latest_output`). Gateway hot reload polls config, agent YAML, and agent cron files every 5 seconds. See `packages/extensions/scheduler/README.md`.
-- **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input
+- **Discord** (`src/discord/`): Component-owned Discord bot runtime with channel/DM routing in v2 modular config; legacy per-agent config remains migration/back-compat input. Agent-level `discord.forumChannels` subscribes agents to forum parent channels: new forum threads spawn fresh sessions and write thread-session bindings, while user replies in bound threads resume the stored session. The `discord.create_forum_thread(channel_id, title, body)` agent tool creates a forum thread, posts the starter body, binds the returned thread to the current session, and enables scheduler/proactive handoffs that resume from user replies.
 - **Slack** (`src/slack/`): Component-owned Slack Bolt Socket Mode runtime with channel/DM routing, thread replies, reactions, `/new`/`/stop` slash commands, `!new`/`!stop` bang commands (detected at start of regular messages — no slash command setup needed, works with multiple bots), optional live thinking thread replies, Slack mrkdwn conversion, inbound file attachment downloads to AIHub media, outbound `file_output` uploads via Slack `files.uploadV2`, and cross-source broadcasts in v2 modular config
 - Inbound Slack/Discord message runs now normalize `channel`, `place`, `conversation_type`, and `sender`, render a fallback-filled `[CHANNEL CONTEXT]` block, and append it to the true system prompt. This applies to both in-process and sandbox/container runs. First-party gateway/CLI runs do not get channel context. Web UI runs in multi-user mode pass a name-only `[USER CONTEXT]` block from the authenticated OAuth profile.
 - **Amsg** (`src/amsg/`): Inbox watcher for agent-to-agent messaging
@@ -438,11 +438,11 @@ curl -H "Authorization: Bearer $T" http://127.0.0.1:4000/api/me
 
 Templates in `docs/templates/` are copied to `{workspace}/` when missing (using `flag: 'wx'` to avoid overwriting):
 
-| File        | Purpose                                                  |
-| ----------- | -------------------------------------------------------- |
-| `AGENTS.md` | Prime workspace instructions, memory, safety guidelines  |
-| `SOUL.md`   | Agent identity/persona, core behaviors, boundaries       |
-| `USER.md`   | User profile - name, timezone, context                   |
+| File        | Purpose                                                 |
+| ----------- | ------------------------------------------------------- |
+| `AGENTS.md` | Prime workspace instructions, memory, safety guidelines |
+| `SOUL.md`   | Agent identity/persona, core behaviors, boundaries      |
+| `USER.md`   | User profile - name, timezone, context                  |
 
 Bootstrap/config flow:
 
@@ -574,6 +574,7 @@ discord: {
   clearHistoryAfterReply?: boolean, // Default: true
   replyToMode?: "off"|"all"|"first", // Default: off
   mentionPatterns?: string[],       // Regex patterns to trigger bot
+  forumChannels?: string[],         // Discord forum channel IDs subscribed by this agent
   broadcastToChannel?: string       // Broadcast main session to channel
 }
 ```
@@ -584,7 +585,8 @@ discord: {
 - **Context enrichment**: Channel topic, thread starter, message history (ring buffer)
 - **Reactions**: `reactionNotifications` modes: off, all, own (bot's messages), allowlist
 - **Slash commands**: `/new`, `/abort`, `/help`, `/ping` (when `applicationId` set)
-- **Agent tools**: `discord.send_message`, `discord.list_channels`, and `discord.list_users` let scheduled/proactive agents discover reachable Discord targets and send channel or DM messages without waiting for inbound Discord events. The tools prefer a running bot client and fall back to the configured bot token.
+- **Forum channels**: `agent.discord.forumChannels` lists Discord forum parent channel IDs for inbound thread workflows. Newly created subscribed threads spawn one fresh `discord:forum:<threadId>:<agentId>` session per subscribed agent, post the reply in the thread, and persist `(threadId, sessionId, agentId, channelId)`. Later user replies in bound threads resume the stored session; missing bindings fall back to the new-thread path with duplicate-spawn suppression.
+- **Agent tools**: `discord.create_forum_thread(channel_id, title, body)`, `discord.send_message`, `discord.list_channels`, and `discord.list_users` let scheduled/proactive agents create bound forum handoff threads, discover reachable Discord targets, and send channel or DM messages without waiting for inbound Discord events. The tools prefer a running bot client and fall back to the configured bot token.
 - **Typing indicator**: Starts on inbound, 5s keep-alive, stops on done/error, 30s TTL for queued
 - **Chunking**: 2000 char limit with code fence preservation
 
@@ -592,6 +594,7 @@ discord: {
 
 - DMs use `sessionKey: "main"` (shares with web UI)
 - Guild messages use `sessionId: discord:${channelId}` (per-channel isolation)
+- Forum-thread replies use the persisted thread binding; outbound `discord.create_forum_thread` binds the new thread to the current session, and inbound user replies resume that same session.
 
 **Live broadcast:** Main-session responses from other sources (web, amsg, scheduler) are broadcast to `broadcastToChannel`. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
 
