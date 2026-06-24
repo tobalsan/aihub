@@ -32,19 +32,58 @@ export class ThreadSessionBindingStore {
     fs.mkdirSync(dataDir, { recursive: true });
     this.db = new Database(path.join(dataDir, "thread-sessions.db"));
     this.db.exec(`CREATE TABLE IF NOT EXISTS thread_sessions (
-  thread_id    TEXT PRIMARY KEY,
+  thread_id    TEXT NOT NULL,
   session_id   TEXT NOT NULL,
   agent_id     TEXT NOT NULL,
   channel_id   TEXT NOT NULL,
-  created_at   INTEGER NOT NULL
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (thread_id, agent_id)
 );`);
+    this.migrateSingleThreadPrimaryKey();
   }
 
-  getBinding(threadId: string): ThreadSessionBinding | undefined {
+  private migrateSingleThreadPrimaryKey(): void {
+    const columns = this.db
+      .prepare("PRAGMA table_info(thread_sessions)")
+      .all() as Array<{ name: string; pk: number }>;
+    const threadPk = columns.find((column) => column.name === "thread_id")?.pk ?? 0;
+    const agentPk = columns.find((column) => column.name === "agent_id")?.pk ?? 0;
+    if (threadPk !== 1 || agentPk !== 2) {
+      this.db.exec(`ALTER TABLE thread_sessions RENAME TO thread_sessions_old;
+CREATE TABLE thread_sessions (
+  thread_id    TEXT NOT NULL,
+  session_id   TEXT NOT NULL,
+  agent_id     TEXT NOT NULL,
+  channel_id   TEXT NOT NULL,
+  created_at   INTEGER NOT NULL,
+  PRIMARY KEY (thread_id, agent_id)
+);
+INSERT OR IGNORE INTO thread_sessions (thread_id, session_id, agent_id, channel_id, created_at)
+SELECT thread_id, session_id, agent_id, channel_id, created_at FROM thread_sessions_old;
+DROP TABLE thread_sessions_old;`);
+    }
+  }
+
+  getBinding(
+    threadId: string,
+    agentId?: string
+  ): ThreadSessionBinding | undefined {
+    if (!agentId) return this.getBindings(threadId)[0];
     const row = this.db
-      .prepare("SELECT * FROM thread_sessions WHERE thread_id = ?")
-      .get(threadId) as ThreadSessionBindingRow | undefined;
+      .prepare("SELECT * FROM thread_sessions WHERE thread_id = ? AND agent_id = ?")
+      .get(threadId, agentId) as ThreadSessionBindingRow | undefined;
     if (!row) return undefined;
+    return this.rowToBinding(row);
+  }
+
+  getBindings(threadId: string): ThreadSessionBinding[] {
+    const rows = this.db
+      .prepare("SELECT * FROM thread_sessions WHERE thread_id = ? ORDER BY created_at ASC")
+      .all(threadId) as ThreadSessionBindingRow[];
+    return rows.map((row) => this.rowToBinding(row));
+  }
+
+  private rowToBinding(row: ThreadSessionBindingRow): ThreadSessionBinding {
     return {
       threadId: row.thread_id,
       sessionId: row.session_id,
