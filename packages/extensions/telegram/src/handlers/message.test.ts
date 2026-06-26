@@ -35,11 +35,21 @@ describe("processMessage", () => {
     });
   });
 
-  it("ignores non-DM (group) chats", () => {
-    expect(processMessage(makeData({ chatType: "group" }))).toMatchObject({
+  it("ignores group messages that do not address the bot", () => {
+    expect(
+      processMessage(makeData({ chatType: "group", isAddressed: false }))
+    ).toMatchObject({
       shouldReply: false,
-      reason: "not_a_dm",
+      reason: "not_addressed",
     });
+  });
+
+  it("replies to a group message that addresses the bot", () => {
+    expect(
+      processMessage(
+        makeData({ chatType: "supergroup", isAddressed: true })
+      )
+    ).toEqual({ shouldReply: true });
   });
 
   it("ignores empty messages", () => {
@@ -223,19 +233,65 @@ describe("handleTelegramMessage", () => {
     );
   });
 
-  it("ignores group messages without running the agent", async () => {
+  it("ignores unaddressed group messages without running the agent", async () => {
     const runAgent = vi.fn();
     setTelegramContext({ runAgent } as never);
     const send = vi.fn();
 
     await handleTelegramMessage(
-      makeData({ chatType: "supergroup" }),
+      makeData({ chatType: "supergroup", isAddressed: false }),
       { agent, logPrefix: "[t]" },
       send
     );
 
     expect(runAgent).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
+  });
+
+  it("dispatches an addressed group message to the shared per-chat session", async () => {
+    const runAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: "group reply" }],
+      meta: { durationMs: 1, sessionId: "s1" },
+    });
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+
+    await handleTelegramMessage(
+      makeData({ chatId: -100200, chatType: "supergroup", isAddressed: true }),
+      { agent, logPrefix: "[t]" },
+      send
+    );
+
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        agentId: "main",
+        sessionKey: "telegram:-100200",
+        source: "telegram",
+      })
+    );
+    expect(send).toHaveBeenCalledWith(
+      "group reply",
+      expect.objectContaining({ parseMode: "HTML" })
+    );
+  });
+
+  it("keeps DMs isolated on the main session", async () => {
+    const runAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: "dm reply" }],
+      meta: { durationMs: 1, sessionId: "s1" },
+    });
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+
+    await handleTelegramMessage(
+      makeData({ chatId: 777 }),
+      { agent, logPrefix: "[t]" },
+      send
+    );
+
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ sessionKey: DEFAULT_MAIN_KEY })
+    );
   });
 
   it("starts typing when the turn begins and re-triggers after each send", async () => {

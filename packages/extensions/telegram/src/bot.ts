@@ -11,6 +11,7 @@ import {
   type TelegramMessageData,
 } from "./handlers/message.js";
 import { getTelegramContext } from "./context.js";
+import { isBotAddressed, toAddressableMessage } from "./utils/addressing.js";
 import {
   MAX_UPLOAD_SIZE_BYTES,
   downloadTelegramFile,
@@ -73,6 +74,17 @@ function toMessageData(ctx: Context): TelegramMessageData | null {
   const text = ctx.message?.text ?? ctx.message?.caption ?? "";
   if (typeof text !== "string") return null;
   if (!text && media.length === 0) return null;
+  const isPrivate = chat.type === "private";
+  // Private chats are always addressed; in groups, only when the bot is spoken
+  // to (mention, reply to the bot, or a command), so it never hijacks the chat.
+  const isAddressed =
+    isPrivate ||
+    (ctx.message
+      ? isBotAddressed(toAddressableMessage(ctx.message), {
+          id: ctx.me?.id,
+          username: ctx.me?.username,
+        })
+      : false);
   return {
     chatId: chat.id,
     chatType: chat.type,
@@ -81,6 +93,7 @@ function toMessageData(ctx: Context): TelegramMessageData | null {
     senderName: resolveSenderName(ctx),
     isBot: ctx.from?.is_bot ?? false,
     media: media.length > 0 ? media : undefined,
+    isAddressed,
   };
 }
 
