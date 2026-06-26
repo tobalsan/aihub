@@ -1754,6 +1754,87 @@ describe("Discord component bot", () => {
     }
   });
 
+  it("does not auto-deliver final text after a discord tool posts to the bound forum thread", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
+    mockGetDataDir.mockReturnValue(dataDir);
+
+    const alpha = createTestAgent({ forumChannels: ["forum-1"] });
+    alpha.id = "alpha";
+    const store = createThreadSessionBindingStore(dataDir);
+    store.setBinding({
+      threadId: "thread-1",
+      sessionId: "session-alpha",
+      agentId: "alpha",
+      channelId: "forum-1",
+    });
+    store.close();
+
+    mockClient.rest.get.mockResolvedValueOnce({
+      id: "thread-1",
+      type: 11,
+      parent_id: "forum-1",
+      guild_id: "guild-1",
+    });
+    mockRunAgent.mockImplementation((params: { onEvent?: (event: unknown) => void }) => {
+      params.onEvent?.({
+        type: "tool_call",
+        id: "tool-1",
+        name: "discord.send_message",
+        arguments: { channel: "thread-1", text: "Explicit tool reply" },
+        timestamp: Date.now(),
+      });
+      params.onEvent?.({
+        type: "text",
+        data: "Replied in the Discord thread. Summary of what I posted.",
+      });
+      params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+      return Promise.resolve({
+        payloads: [{ text: "Replied in the Discord thread. Summary of what I posted." }],
+        meta: { durationMs: 100, sessionId: "session-alpha" },
+      });
+    });
+
+    try {
+      await createDiscordComponentBot([alpha], {
+        token: "test-token",
+      });
+
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "Follow-up",
+          channel_id: "thread-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+      await flushPromises();
+
+      expect(mockRunAgent).toHaveBeenCalledWith(
+        expect.objectContaining({
+          agentId: "alpha",
+          message: "Follow-up",
+          sessionId: "session-alpha",
+          sessionKey: "discord:forum:thread-1:alpha",
+          source: "discord",
+        })
+      );
+      expect(mockClient.rest.post).not.toHaveBeenCalledWith(
+        "/channels/thread-1/messages",
+        expect.objectContaining({
+          body: {
+            content: "Replied in the Discord thread. Summary of what I posted.",
+          },
+        })
+      );
+      expect(mockClient.rest.post).not.toHaveBeenCalled();
+    } finally {
+      await fs.rm(dataDir, { recursive: true, force: true });
+    }
+  });
+
   it("resumes a bound forum thread even when channel enrichment fails", async () => {
     const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-discord-forum-"));
     mockGetDataDir.mockReturnValue(dataDir);

@@ -110,6 +110,28 @@ function isDiscordThreadType(type: number | undefined): boolean {
   return type === 10 || type === 11 || type === 12;
 }
 
+function isRecord(value: unknown): value is Record<string, unknown> {
+  return typeof value === "object" && value !== null;
+}
+
+function discordToolTargetsChannel(event: unknown, channelId: string): boolean {
+  if (!isRecord(event)) return false;
+  if (event.type !== "tool_call") return false;
+  if (
+    event.name !== "discord.send_message" &&
+    event.name !== "discord_send_message"
+  ) {
+    return false;
+  }
+  const input = isRecord(event.arguments)
+    ? event.arguments
+    : isRecord(event.args)
+      ? event.args
+      : undefined;
+  if (!input) return false;
+  return input.channel === channelId || input.channel_id === channelId;
+}
+
 async function sendDiscordReply(
   client: CarbonClient,
   channelId: string,
@@ -542,6 +564,7 @@ async function handleForumThreadReply(
 
   let accumulatedText = "";
   let replyHandled = false;
+  let discordToolPostedToThread = false;
 
   getDiscordContext()
     .runAgent({
@@ -552,6 +575,9 @@ async function handleForumThreadReply(
       source: "discord",
       context,
       onEvent: (event) => {
+        if (discordToolTargetsChannel(event, threadId)) {
+          discordToolPostedToThread = true;
+        }
         if (event.type === "text") {
           accumulatedText += event.data;
           return;
@@ -563,7 +589,7 @@ async function handleForumThreadReply(
             return;
           }
           replyHandled = true;
-          if (accumulatedText) {
+          if (accumulatedText && !discordToolPostedToThread) {
             sendDiscordReply(
               client,
               threadId,
