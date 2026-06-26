@@ -48,6 +48,14 @@ describe("processMessage", () => {
       reason: "empty_message",
     });
   });
+
+  it("replies to a media-only message with no caption", () => {
+    expect(
+      processMessage(
+        makeData({ text: "", media: [{ fileId: "f1", kind: "photo" }] })
+      )
+    ).toEqual({ shouldReply: true });
+  });
 });
 
 describe("handleTelegramMessage", () => {
@@ -74,6 +82,94 @@ describe("handleTelegramMessage", () => {
     expect(send).toHaveBeenCalledWith(
       "hi back",
       expect.objectContaining({ parseMode: "HTML" })
+    );
+  });
+
+  it("downloads media and passes attachments plus the caption to the agent", async () => {
+    const runAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: "got it" }],
+      meta: { durationMs: 1, sessionId: "s1" },
+    });
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+    const attachment = { path: "/tmp/x.png", mimeType: "image/png" };
+    const collectAttachments = vi.fn().mockResolvedValue([attachment]);
+
+    await handleTelegramMessage(
+      makeData({
+        text: "look at this",
+        media: [{ fileId: "f1", kind: "photo" }],
+      }),
+      { agent, logPrefix: "[t]" },
+      send,
+      { collectAttachments }
+    );
+
+    expect(collectAttachments).toHaveBeenCalledWith([
+      { fileId: "f1", kind: "photo" },
+    ]);
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({
+        message: "look at this",
+        attachments: [attachment],
+      })
+    );
+  });
+
+  it("runs a media-only message with the attachment and empty text", async () => {
+    const runAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: "seen" }],
+      meta: { durationMs: 1, sessionId: "s1" },
+    });
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+    const attachment = { path: "/tmp/x.pdf", mimeType: "application/pdf" };
+    const collectAttachments = vi.fn().mockResolvedValue([attachment]);
+
+    await handleTelegramMessage(
+      makeData({ text: "", media: [{ fileId: "f1", kind: "document" }] }),
+      { agent, logPrefix: "[t]" },
+      send,
+      { collectAttachments }
+    );
+
+    expect(runAgent).toHaveBeenCalledWith(
+      expect.objectContaining({ message: "", attachments: [attachment] })
+    );
+  });
+
+  it("does not run the agent when media-only download yields nothing", async () => {
+    const runAgent = vi.fn();
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+    const collectAttachments = vi.fn().mockResolvedValue([]);
+
+    await handleTelegramMessage(
+      makeData({ text: "", media: [{ fileId: "f1", kind: "photo" }] }),
+      { agent, logPrefix: "[t]" },
+      send,
+      { collectAttachments }
+    );
+
+    expect(runAgent).not.toHaveBeenCalled();
+  });
+
+  it("surfaces a friendly error when media download throws", async () => {
+    const runAgent = vi.fn();
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+    const collectAttachments = vi.fn().mockRejectedValue(new Error("boom"));
+
+    await handleTelegramMessage(
+      makeData({ text: "hi", media: [{ fileId: "f1", kind: "photo" }] }),
+      { agent, logPrefix: "[t]" },
+      send,
+      { collectAttachments }
+    );
+
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(send).toHaveBeenCalledWith(
+      "Sorry, I couldn't download the attached media. Please try again."
     );
   });
 

@@ -1,18 +1,22 @@
-import type { AgentConfig } from "@aihub/shared";
+import type { AgentConfig, FileAttachment } from "@aihub/shared";
 import { DEFAULT_MAIN_KEY, buildTelegramContext } from "@aihub/shared";
 import { getTelegramContext } from "../context.js";
 import { isSenderAllowed } from "../utils/allowlist.js";
 import { splitMessage } from "../utils/chunk.js";
 import { renderMarkdown } from "../utils/render.js";
 import { TypingKeepAlive, type SendTyping } from "../utils/typing.js";
+import type { TelegramMediaItem } from "../utils/attachments.js";
 
 export type TelegramMessageData = {
   chatId: number;
   chatType: string;
+  /** Message text, or the caption when the message carries media. */
   text: string;
   userId?: number;
   senderName: string;
   isBot: boolean;
+  /** Inbound media (photos/documents) attached to the message. */
+  media?: TelegramMediaItem[];
 };
 
 export type TelegramReplyTarget = {
@@ -39,6 +43,14 @@ export type TelegramSend = (
 export type TelegramHandlerHooks = {
   /** Best-effort sender for Telegram's "typing" chat action. */
   sendTyping?: SendTyping;
+  /**
+   * Download and persist inbound media, returning the resulting attachments to
+   * hand to the agent. Invoked only when the message carries media. Implemented
+   * by the bot layer, which owns the grammY context needed to fetch files.
+   */
+  collectAttachments?: (
+    media: TelegramMediaItem[]
+  ) => Promise<FileAttachment[]>;
 };
 
 export type TelegramPipelineResult = {
@@ -63,7 +75,9 @@ export function processMessage(
   if (!isSenderAllowed(data.userId)) {
     return { shouldReply: false, reason: "sender_not_allowed" };
   }
-  if (!data.text.trim()) {
+  // Media-only messages are valid: the caption (if any) is the text part and
+  // the attachments carry the content.
+  if (!data.text.trim() && !(data.media && data.media.length > 0)) {
     return { shouldReply: false, reason: "empty_message" };
   }
   return { shouldReply: true };
@@ -94,6 +108,24 @@ export async function handleTelegramMessage(
     },
   });
 
+  // Resolve any inbound media into agent attachments before starting the turn.
+  let attachments: FileAttachment[] = [];
+  if (data.media && data.media.length > 0 && hooks.collectAttachments) {
+    try {
+      attachments = await hooks.collectAttachments(data.media);
+    } catch (err) {
+      console.error(`${target.logPrefix} Attachment download failed:`, err);
+      await send(
+        "Sorry, I couldn't download the attached media. Please try again."
+      );
+      return;
+    }
+  }
+
+  // A media-only message with no caption and no usable attachments has nothing
+  // for the agent to act on.
+  if (!data.text.trim() && attachments.length === 0) return;
+
   // Keep the typing indicator alive for the full turn. It starts as the turn
   // begins, refreshes on a ~2s cadence, and is re-triggered after each
   // intermediate send (delivering a message clears Telegram's typing bubble).
@@ -106,6 +138,7 @@ export async function handleTelegramMessage(
     const agentResult = await getTelegramContext().runAgent({
       agentId: target.agent.id,
       message: data.text,
+      attachments: attachments.length > 0 ? attachments : undefined,
       sessionKey,
       source: "telegram",
       context,
