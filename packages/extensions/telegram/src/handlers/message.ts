@@ -1,7 +1,11 @@
 import type { AgentConfig, ChannelConversationType, FileAttachment } from "@aihub/shared";
 import { DEFAULT_MAIN_KEY, buildTelegramContext } from "@aihub/shared";
 import { getTelegramContext } from "../context.js";
-import { isSenderAllowed } from "../utils/allowlist.js";
+import {
+  matchesChatAllowlist,
+  matchesUserAllowlist,
+  type AllowlistEntry,
+} from "../utils/allowlist.js";
 import { splitMessage } from "../utils/chunk.js";
 import { renderMarkdown } from "../utils/render.js";
 import { TypingKeepAlive, type SendTyping } from "../utils/typing.js";
@@ -10,9 +14,13 @@ import type { TelegramMediaItem } from "../utils/attachments.js";
 export type TelegramMessageData = {
   chatId: number;
   chatType: string;
+  /** Public group/channel username, when the chat exposes one. */
+  chatUsername?: string;
   /** Message text, or the caption when the message carries media. */
   text: string;
   userId?: number;
+  /** Sender's Telegram @username, when set. */
+  username?: string;
   senderName: string;
   isBot: boolean;
   /** Inbound media (photos/documents) attached to the message. */
@@ -25,6 +33,16 @@ export type TelegramMessageData = {
    * message.
    */
   isAddressed?: boolean;
+};
+
+/**
+ * Allowlist configuration for the bot, mirroring the discord/slack allow-list
+ * shape. Both lists gate access independently: the sender must match
+ * `allowedUsers` and the chat must match `allowedChats`.
+ */
+export type TelegramAllowlistConfig = {
+  allowedUsers?: AllowlistEntry[];
+  allowedChats?: AllowlistEntry[];
 };
 
 export type TelegramReplyTarget = {
@@ -78,16 +96,35 @@ function isDirectMessage(chatType: string): boolean {
  * (`group`/`supergroup`) act as a shared group brain: the bot joins the
  * conversation only when addressed (an @mention, a reply to the bot, or a
  * command) so it contributes to the channel without hijacking every message.
- * The bot's own messages and disallowed senders are ignored everywhere.
+ * The bot's own messages are ignored everywhere.
+ *
+ * Before any dispatch the user and chat allowlists are enforced: the sender
+ * must be in `allowedUsers` and the chat in `allowedChats`. Both lists fail
+ * closed — an empty/omitted list allows no one — matching the discord/slack
+ * allowlist convention.
  */
 export function processMessage(
-  data: TelegramMessageData
+  data: TelegramMessageData,
+  allowlist: TelegramAllowlistConfig = {}
 ): TelegramPipelineResult {
   if (data.isBot) {
     return { shouldReply: false, reason: "author_is_bot" };
   }
-  if (!isSenderAllowed(data.userId)) {
-    return { shouldReply: false, reason: "sender_not_allowed" };
+  if (
+    !matchesUserAllowlist(
+      { id: data.userId, username: data.username },
+      allowlist.allowedUsers
+    )
+  ) {
+    return { shouldReply: false, reason: "user_not_allowed" };
+  }
+  if (
+    !matchesChatAllowlist(
+      { id: data.chatId, username: data.chatUsername },
+      allowlist.allowedChats
+    )
+  ) {
+    return { shouldReply: false, reason: "chat_not_allowed" };
   }
   // In a group, only respond when the bot is directly addressed.
   if (!isDirectMessage(data.chatType) && !data.isAddressed) {
@@ -105,9 +142,10 @@ export async function handleTelegramMessage(
   data: TelegramMessageData,
   target: TelegramReplyTarget,
   send: TelegramSend,
-  hooks: TelegramHandlerHooks = {}
+  hooks: TelegramHandlerHooks = {},
+  allowlist: TelegramAllowlistConfig = {}
 ): Promise<void> {
-  const result = processMessage(data);
+  const result = processMessage(data, allowlist);
   if (!result.shouldReply) {
     if (result.reason && result.reason !== "author_is_bot") {
       console.debug(`${target.logPrefix} Ignored: ${result.reason}`);
