@@ -21,6 +21,7 @@
     { "path": "packages/extensions/multi-user" },
     { "path": "packages/extensions/scheduler" },
     { "path": "packages/extensions/slack" },
+    { "path": "packages/extensions/telegram" },
     { "path": "packages/extensions/webhooks" },
     { "path": "packages/extensions/projects" },
     { "path": "packages/extensions/board" },

@@ -197,6 +197,7 @@ const AgentConfigBaseSchema = z.object({
   auth: AgentAuthConfigSchema.optional(), // OAuth/API key auth config
   discord: DiscordConfigSchema.optional(),
   slack: z.lazy(() => SlackAgentConfigSchema).optional(),
+  telegram: z.lazy(() => TelegramAgentConfigSchema).optional(),
   reasoning: ThinkLevelSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
@@ -488,6 +489,22 @@ export const SlackAgentConfigSchema = z.object({
 });
 export type SlackAgentConfig = z.infer<typeof SlackAgentConfigSchema>;
 
+// Telegram extension config. Walking-skeleton slice: token only (DMs → main
+// session). Allowlist and richer routing layer on in later slices.
+export const TelegramExtensionConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  token: SecretRefSchema,
+});
+export type TelegramExtensionConfig = z.infer<
+  typeof TelegramExtensionConfigSchema
+>;
+export type TelegramComponentConfig = TelegramExtensionConfig;
+
+export const TelegramAgentConfigSchema = z.object({
+  token: SecretRefSchema,
+});
+export type TelegramAgentConfig = z.infer<typeof TelegramAgentConfigSchema>;
+
 export const NotificationChannelConfigSchema = z.object({
   discord: z.string().min(1).optional(),
   slack: z.string().min(1).optional(),
@@ -672,6 +689,7 @@ export const ExtensionsConfigSchema = z
   .object({
     discord: DiscordExtensionConfigSchema.optional(),
     slack: SlackExtensionConfigSchema.optional(),
+    telegram: TelegramExtensionConfigSchema.optional(),
     scheduler: z
       .object({
         enabled: z.boolean().optional(),
@@ -1528,7 +1546,7 @@ export type ChannelConversationType =
   | "thread_reply";
 
 export type ChannelContextMetadata = {
-  channel: "discord" | "slack";
+  channel: "discord" | "slack" | "telegram";
   place: string;
   conversationType: ChannelConversationType;
   sender: string;
@@ -1602,12 +1620,34 @@ export type SlackContext = {
   blocks: SlackContextBlock[];
 };
 
+export type TelegramContextBlock =
+  | {
+      type: "metadata";
+      channel: "telegram";
+      place: string;
+      conversationType: ChannelConversationType;
+      sender: string;
+    }
+  | {
+      type: "history";
+      messages: Array<{ author: string; content: string; timestamp: number }>;
+    };
+
+export type TelegramContext = {
+  kind: "telegram";
+  blocks: TelegramContextBlock[];
+};
+
 export type UserContext = {
   kind: "web";
   name?: string;
 };
 
-export type AgentContext = DiscordContext | SlackContext | UserContext;
+export type AgentContext =
+  | DiscordContext
+  | SlackContext
+  | TelegramContext
+  | UserContext;
 
 export const AgentContextSchema: z.ZodType<AgentContext> = z
   .object({

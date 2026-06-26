@@ -101,6 +101,7 @@ const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
   subagents: -5,
   discord: 10,
   slack: 10,
+  telegram: 10,
 };
 
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
@@ -125,6 +126,23 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
       const hasPerAgent = config.agents?.some((a) => a.slack?.token);
       if (config.extensions?.slack) {
         return { ...config.extensions.slack, _perAgentFallback: hasPerAgent };
+      }
+      return hasPerAgent ? { _perAgent: true } : undefined;
+    },
+    routePrefixes: [],
+  },
+  telegram: {
+    load: () =>
+      import("@aihub/extension-telegram").then(
+        (module) => module.telegramExtension
+      ),
+    getConfig: (config) => {
+      const hasPerAgent = config.agents?.some((a) => a.telegram?.token);
+      if (config.extensions?.telegram) {
+        return {
+          ...config.extensions.telegram,
+          _perAgentFallback: hasPerAgent,
+        };
       }
       return hasPerAgent ? { _perAgent: true } : undefined;
     },
