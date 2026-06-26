@@ -1,4 +1,4 @@
-import type { AgentConfig, FileAttachment } from "@aihub/shared";
+import type { AgentConfig, ChannelConversationType, FileAttachment } from "@aihub/shared";
 import { DEFAULT_MAIN_KEY, buildTelegramContext } from "@aihub/shared";
 import { getTelegramContext } from "../context.js";
 import { isSenderAllowed } from "../utils/allowlist.js";
@@ -17,6 +17,14 @@ export type TelegramMessageData = {
   isBot: boolean;
   /** Inbound media (photos/documents) attached to the message. */
   media?: TelegramMediaItem[];
+  /**
+   * Whether the bot was addressed in a group chat: an @mention of the bot, a
+   * reply to one of the bot's own messages, or a command. Always treated as
+   * true for private chats by the bot layer. Drives the group-chat gate so the
+   * bot joins the conversation only when spoken to, never hijacking every
+   * message.
+   */
+  isAddressed?: boolean;
 };
 
 export type TelegramReplyTarget = {
@@ -58,10 +66,19 @@ export type TelegramPipelineResult = {
   reason?: string;
 };
 
+/** A private (1:1) chat is the only Telegram chat type treated as a DM. */
+function isDirectMessage(chatType: string): boolean {
+  return chatType === "private";
+}
+
 /**
- * Decide whether an inbound message should be handled. Walking-skeleton slice:
- * DMs only (private chats), allowlist stubbed open, the bot's own messages
- * ignored. Groups are explicitly out of this slice.
+ * Decide whether an inbound message should be handled.
+ *
+ * DMs (private chats) always run, matching the walking skeleton. Group chats
+ * (`group`/`supergroup`) act as a shared group brain: the bot joins the
+ * conversation only when addressed (an @mention, a reply to the bot, or a
+ * command) so it contributes to the channel without hijacking every message.
+ * The bot's own messages and disallowed senders are ignored everywhere.
  */
 export function processMessage(
   data: TelegramMessageData
@@ -69,11 +86,12 @@ export function processMessage(
   if (data.isBot) {
     return { shouldReply: false, reason: "author_is_bot" };
   }
-  if (data.chatType !== "private") {
-    return { shouldReply: false, reason: "not_a_dm" };
-  }
   if (!isSenderAllowed(data.userId)) {
     return { shouldReply: false, reason: "sender_not_allowed" };
+  }
+  // In a group, only respond when the bot is directly addressed.
+  if (!isDirectMessage(data.chatType) && !data.isAddressed) {
+    return { shouldReply: false, reason: "not_addressed" };
   }
   // Media-only messages are valid: the caption (if any) is the text part and
   // the attachments carry the content.
@@ -97,13 +115,23 @@ export async function handleTelegramMessage(
     return;
   }
 
-  // DMs resolve to the agent's main session, matching discord/slack DM handling.
-  const sessionKey = DEFAULT_MAIN_KEY;
+  // DMs resolve to the agent's main session (matching discord/slack DM
+  // handling), keeping each person's DM isolated. Group chats resolve to a
+  // shared per-chat session key so the whole channel contributes to one
+  // collective conversation — the shared group brain.
+  const isDm = isDirectMessage(data.chatType);
+  const sessionKey = isDm ? DEFAULT_MAIN_KEY : `telegram:${data.chatId}`;
+  const conversationType: ChannelConversationType = isDm
+    ? "direct_message"
+    : "channel_message";
+  const place = isDm
+    ? `direct message / ${data.senderName}`
+    : `group chat / ${data.chatId}`;
   const context = buildTelegramContext({
     metadata: {
       channel: "telegram",
-      place: `direct message / ${data.senderName}`,
-      conversationType: "direct_message",
+      place,
+      conversationType,
       sender: data.senderName,
     },
   });
