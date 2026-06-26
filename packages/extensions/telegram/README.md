@@ -5,9 +5,8 @@ long-polling bot. This is the walking-skeleton slice: a direct message reaches
 an agent's main session and a single plain-text reply is delivered back to the
 same chat.
 
-Streaming, typing keep-alive, rich/markdown rendering, multimodal, groups, and
-allowlist enforcement are out of this slice — they layer on top later. The
-allowlist is currently stubbed open (every sender is permitted).
+Access is gated by user and chat allowlists (see [Allowlist](#allowlist)),
+mirroring the discord/slack allow-list convention.
 
 ## Enable / disable
 
@@ -23,7 +22,9 @@ One bot shared across agents, configured under `extensions.telegram`:
   "extensions": {
     "telegram": {
       "enabled": true,
-      "token": "$env:TELEGRAM_TOKEN"
+      "token": "$env:TELEGRAM_TOKEN",
+      "allowedUsers": [123456789, "alice"],
+      "allowedChats": [123456789]
     }
   }
 }
@@ -41,10 +42,27 @@ the agent's `agent.yaml`:
 # <agent-workspace>/agent.yaml
 telegram:
   token: "$env:TELEGRAM_TOKEN"
+  allowedUsers: [123456789, "alice"]
+  allowedChats: [123456789]
 ```
 
 The token is a `SecretRef`; use the `$env:` syntax to resolve it from the
 environment, matching the discord/slack extensions.
+
+## Allowlist
+
+Only explicitly allowed senders and chats may talk to the bot, mirroring the
+discord/slack allow-list shape:
+
+- `allowedUsers` — the sender must match. Entries are numeric Telegram user IDs
+  or `@username`s (the leading `@` is optional), matched case-insensitively.
+- `allowedChats` — the chat must match. Entries are numeric chat IDs or, for
+  public groups/channels, their `@username`.
+
+Enforcement fails closed: an empty or omitted list allows no one, so a bot with
+no allowlist configured serves nobody. A `telegram:/user:` / `telegram:/chat:`
+prefix may be used on entries for parity with the discord/slack prefixed forms.
+Unauthorized messages are ignored — no agent dispatch and no reply.
 
 ## Behavior
 

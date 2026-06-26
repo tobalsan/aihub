@@ -23,13 +23,16 @@ function makeData(
 
 const agent = { id: "main" } as AgentConfig;
 
+// Allowlist that admits the default `makeData` sender (user 42) in chat 123.
+const allowAll = { allowedUsers: [42], allowedChats: [123] };
+
 describe("processMessage", () => {
-  it("replies to a DM", () => {
-    expect(processMessage(makeData())).toEqual({ shouldReply: true });
+  it("replies to a DM from an allowed user in an allowed chat", () => {
+    expect(processMessage(makeData(), allowAll)).toEqual({ shouldReply: true });
   });
 
   it("ignores the bot's own messages", () => {
-    expect(processMessage(makeData({ isBot: true }))).toMatchObject({
+    expect(processMessage(makeData({ isBot: true }), allowAll)).toMatchObject({
       shouldReply: false,
       reason: "author_is_bot",
     });
@@ -37,7 +40,10 @@ describe("processMessage", () => {
 
   it("ignores group messages that do not address the bot", () => {
     expect(
-      processMessage(makeData({ chatType: "group", isAddressed: false }))
+      processMessage(
+        makeData({ chatType: "group", isAddressed: false }),
+        allowAll
+      )
     ).toMatchObject({
       shouldReply: false,
       reason: "not_addressed",
@@ -47,13 +53,14 @@ describe("processMessage", () => {
   it("replies to a group message that addresses the bot", () => {
     expect(
       processMessage(
-        makeData({ chatType: "supergroup", isAddressed: true })
+        makeData({ chatType: "supergroup", isAddressed: true }),
+        allowAll
       )
     ).toEqual({ shouldReply: true });
   });
 
   it("ignores empty messages", () => {
-    expect(processMessage(makeData({ text: "   " }))).toMatchObject({
+    expect(processMessage(makeData({ text: "   " }), allowAll)).toMatchObject({
       shouldReply: false,
       reason: "empty_message",
     });
@@ -62,9 +69,46 @@ describe("processMessage", () => {
   it("replies to a media-only message with no caption", () => {
     expect(
       processMessage(
-        makeData({ text: "", media: [{ fileId: "f1", kind: "photo" }] })
+        makeData({ text: "", media: [{ fileId: "f1", kind: "photo" }] }),
+        allowAll
       )
     ).toEqual({ shouldReply: true });
+  });
+
+  describe("allowlist enforcement", () => {
+    it("denies a user who is not on the user allowlist", () => {
+      expect(
+        processMessage(makeData({ userId: 7 }), allowAll)
+      ).toMatchObject({ shouldReply: false, reason: "user_not_allowed" });
+    });
+
+    it("denies an allowed user in a chat that is not allowed", () => {
+      expect(
+        processMessage(makeData({ chatId: 999 }), allowAll)
+      ).toMatchObject({ shouldReply: false, reason: "chat_not_allowed" });
+    });
+
+    it("matches the user by @username", () => {
+      expect(
+        processMessage(makeData({ userId: undefined, username: "alice" }), {
+          allowedUsers: ["alice"],
+          allowedChats: [123],
+        })
+      ).toEqual({ shouldReply: true });
+    });
+
+    it("fails closed when no allowlist is configured", () => {
+      expect(processMessage(makeData())).toMatchObject({
+        shouldReply: false,
+        reason: "user_not_allowed",
+      });
+    });
+
+    it("fails closed when only the user allowlist is configured", () => {
+      expect(
+        processMessage(makeData(), { allowedUsers: [42] })
+      ).toMatchObject({ shouldReply: false, reason: "chat_not_allowed" });
+    });
   });
 });
 
@@ -79,7 +123,13 @@ describe("handleTelegramMessage", () => {
     setTelegramContext({ runAgent } as never);
     const send = vi.fn().mockResolvedValue(undefined);
 
-    await handleTelegramMessage(makeData(), { agent, logPrefix: "[t]" }, send);
+    await handleTelegramMessage(
+      makeData(),
+      { agent, logPrefix: "[t]" },
+      send,
+      {},
+      allowAll
+    );
 
     expect(runAgent).toHaveBeenCalledWith(
       expect.objectContaining({
@@ -112,7 +162,8 @@ describe("handleTelegramMessage", () => {
       }),
       { agent, logPrefix: "[t]" },
       send,
-      { collectAttachments }
+      { collectAttachments },
+      allowAll
     );
 
     expect(collectAttachments).toHaveBeenCalledWith([
@@ -140,7 +191,8 @@ describe("handleTelegramMessage", () => {
       makeData({ text: "", media: [{ fileId: "f1", kind: "document" }] }),
       { agent, logPrefix: "[t]" },
       send,
-      { collectAttachments }
+      { collectAttachments },
+      allowAll
     );
 
     expect(runAgent).toHaveBeenCalledWith(
@@ -158,7 +210,8 @@ describe("handleTelegramMessage", () => {
       makeData({ text: "", media: [{ fileId: "f1", kind: "photo" }] }),
       { agent, logPrefix: "[t]" },
       send,
-      { collectAttachments }
+      { collectAttachments },
+      allowAll
     );
 
     expect(runAgent).not.toHaveBeenCalled();
@@ -174,7 +227,8 @@ describe("handleTelegramMessage", () => {
       makeData({ text: "hi", media: [{ fileId: "f1", kind: "photo" }] }),
       { agent, logPrefix: "[t]" },
       send,
-      { collectAttachments }
+      { collectAttachments },
+      allowAll
     );
 
     expect(runAgent).not.toHaveBeenCalled();
@@ -194,7 +248,13 @@ describe("handleTelegramMessage", () => {
     let nextId = 100;
     const send = vi.fn().mockImplementation(async () => nextId++);
 
-    await handleTelegramMessage(makeData(), { agent, logPrefix: "[t]" }, send);
+    await handleTelegramMessage(
+      makeData(),
+      { agent, logPrefix: "[t]" },
+      send,
+      {},
+      allowAll
+    );
 
     expect(send.mock.calls.length).toBeGreaterThan(1);
     // First chunk is not a reply.
@@ -216,7 +276,13 @@ describe("handleTelegramMessage", () => {
     setTelegramContext({ runAgent } as never);
     const send = vi.fn().mockResolvedValue(undefined);
 
-    await handleTelegramMessage(makeData(), { agent, logPrefix: "[t]" }, send);
+    await handleTelegramMessage(
+      makeData(),
+      { agent, logPrefix: "[t]" },
+      send,
+      {},
+      allowAll
+    );
 
     expect(send).not.toHaveBeenCalled();
   });
@@ -226,11 +292,34 @@ describe("handleTelegramMessage", () => {
     setTelegramContext({ runAgent } as never);
     const send = vi.fn().mockResolvedValue(undefined);
 
-    await handleTelegramMessage(makeData(), { agent, logPrefix: "[t]" }, send);
+    await handleTelegramMessage(
+      makeData(),
+      { agent, logPrefix: "[t]" },
+      send,
+      {},
+      allowAll
+    );
 
     expect(send).toHaveBeenCalledWith(
       "Sorry, I encountered an error processing your message."
     );
+  });
+
+  it("ignores an unauthorized user without running the agent", async () => {
+    const runAgent = vi.fn();
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn();
+
+    await handleTelegramMessage(
+      makeData({ userId: 7 }),
+      { agent, logPrefix: "[t]" },
+      send,
+      {},
+      allowAll
+    );
+
+    expect(runAgent).not.toHaveBeenCalled();
+    expect(send).not.toHaveBeenCalled();
   });
 
   it("ignores unaddressed group messages without running the agent", async () => {
@@ -241,7 +330,9 @@ describe("handleTelegramMessage", () => {
     await handleTelegramMessage(
       makeData({ chatType: "supergroup", isAddressed: false }),
       { agent, logPrefix: "[t]" },
-      send
+      send,
+      {},
+      allowAll
     );
 
     expect(runAgent).not.toHaveBeenCalled();
@@ -259,7 +350,9 @@ describe("handleTelegramMessage", () => {
     await handleTelegramMessage(
       makeData({ chatId: -100200, chatType: "supergroup", isAddressed: true }),
       { agent, logPrefix: "[t]" },
-      send
+      send,
+      {},
+      { allowedUsers: [42], allowedChats: [-100200] }
     );
 
     expect(runAgent).toHaveBeenCalledWith(
@@ -286,7 +379,9 @@ describe("handleTelegramMessage", () => {
     await handleTelegramMessage(
       makeData({ chatId: 777 }),
       { agent, logPrefix: "[t]" },
-      send
+      send,
+      {},
+      { allowedUsers: [42], allowedChats: [777] }
     );
 
     expect(runAgent).toHaveBeenCalledWith(
@@ -307,7 +402,8 @@ describe("handleTelegramMessage", () => {
       makeData(),
       { agent, logPrefix: "[t]" },
       send,
-      { sendTyping }
+      { sendTyping },
+      allowAll
     );
 
     // 1 initial start + 1 poke per delivered message.
@@ -330,7 +426,8 @@ describe("handleTelegramMessage", () => {
         makeData(),
         { agent, logPrefix: "[t]" },
         send,
-        { sendTyping }
+        { sendTyping },
+        allowAll
       );
 
       const callsAfterTurn = sendTyping.mock.calls.length;
@@ -353,7 +450,8 @@ describe("handleTelegramMessage", () => {
         makeData(),
         { agent, logPrefix: "[t]" },
         send,
-        { sendTyping }
+        { sendTyping },
+        allowAll
       );
 
       const callsAfterError = sendTyping.mock.calls.length;
