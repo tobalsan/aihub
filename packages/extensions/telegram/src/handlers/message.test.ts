@@ -71,7 +71,35 @@ describe("handleTelegramMessage", () => {
         source: "telegram",
       })
     );
-    expect(send).toHaveBeenCalledWith("hi back");
+    expect(send).toHaveBeenCalledWith(
+      "hi back",
+      expect.objectContaining({ parseMode: "HTML" })
+    );
+  });
+
+  it("threads overflow chunks as replies to the previous chunk", async () => {
+    const long = "word ".repeat(2000).trim(); // > 4096 chars -> multiple chunks
+    const runAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: long }],
+      meta: { durationMs: 1, sessionId: "s1" },
+    });
+    setTelegramContext({ runAgent } as never);
+    // Each send returns an incrementing message id.
+    let nextId = 100;
+    const send = vi.fn().mockImplementation(async () => nextId++);
+
+    await handleTelegramMessage(makeData(), { agent, logPrefix: "[t]" }, send);
+
+    expect(send.mock.calls.length).toBeGreaterThan(1);
+    // First chunk is not a reply.
+    expect(send.mock.calls[0][1]).toMatchObject({
+      parseMode: "HTML",
+      replyToMessageId: undefined,
+    });
+    // Subsequent chunks reply to the id returned by the previous send.
+    for (let i = 1; i < send.mock.calls.length; i++) {
+      expect(send.mock.calls[i][1].replyToMessageId).toBe(99 + i);
+    }
   });
 
   it("does not reply when the run is queued", async () => {

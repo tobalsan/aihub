@@ -8,6 +8,7 @@ import type {
 import { z } from "zod";
 import { getActiveBot } from "./bot-registry.js";
 import { splitMessage } from "./utils/chunk.js";
+import { renderMarkdown } from "./utils/render.js";
 
 const sendMessageSchema = z.object({
   chatId: z.union([z.string(), z.number()]),
@@ -43,7 +44,7 @@ export function telegramAgentTools(): ExtensionAgentTool[] {
     {
       name: "telegram.send_message",
       description:
-        "Proactively send a plain-text Telegram message to a chat. Provide `chatId` as the numeric chat ID of a user or group the bot can reach.",
+        "Proactively send a Telegram message to a chat. Markdown in `text` is rendered to Telegram-native formatting (bold, code, lists, tables). Provide `chatId` as the numeric chat ID of a user or group the bot can reach.",
       parameters: {
         type: "object",
         properties: {
@@ -53,7 +54,7 @@ export function telegramAgentTools(): ExtensionAgentTool[] {
           },
           text: {
             type: "string",
-            description: "Plain-text message body.",
+            description: "Message body. Markdown is rendered to Telegram formatting.",
           },
         },
         required: ["chatId", "text"],
@@ -77,8 +78,20 @@ export function telegramAgentTools(): ExtensionAgentTool[] {
               error: "No active Telegram bot is running for this agent.",
             };
           }
-          for (const chunk of splitMessage(input.text)) {
-            await activeBot.bot.api.sendMessage(input.chatId, chunk);
+          const html = renderMarkdown(input.text);
+          let replyToMessageId: number | undefined;
+          for (const chunk of splitMessage(html)) {
+            const sent = await activeBot.bot.api.sendMessage(
+              input.chatId,
+              chunk,
+              {
+                parse_mode: "HTML",
+                reply_parameters: replyToMessageId
+                  ? { message_id: replyToMessageId }
+                  : undefined,
+              }
+            );
+            replyToMessageId = sent.message_id;
           }
           return { ok: true, chatId: input.chatId };
         } catch (error) {
