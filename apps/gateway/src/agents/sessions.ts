@@ -104,22 +104,25 @@ export function setSessionStreaming(
   streaming: boolean,
   abortController?: AbortController
 ) {
-  // Check agent's overall status before change
-  const wasStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
-
   const session = getOrCreateSession(agentId, sessionId);
+  const wasSessionStreaming = session.isStreaming;
   session.isStreaming = streaming;
   session.lastActivity = Date.now();
   session.abortController = streaming ? abortController : undefined;
 
-  // Check agent's overall status after change
-  const isNowStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
-
-  // Emit status change event if overall agent status changed
-  if (wasStreaming !== isNowStreaming) {
+  // Emit a status change event whenever this specific session's streaming
+  // state changed. The event carries both the session-scoped status (so the
+  // chat view can scope its Stop button to its own session) and the
+  // agent-wide aggregate (so the sidebar activity indicator stays agent-wide).
+  if (wasSessionStreaming !== streaming) {
+    const isAgentStreaming = getAllSessionsForAgent(agentId).some(
+      (s) => s.isStreaming
+    );
     agentEventBus.emitStatusChange({
       agentId,
-      status: isNowStreaming ? "streaming" : "idle",
+      status: isAgentStreaming ? "streaming" : "idle",
+      sessionId,
+      sessionStatus: streaming ? "streaming" : "idle",
     });
   }
 }
@@ -164,14 +167,18 @@ export function deleteSession(agentId: string, sessionId: string): boolean {
   const key = `${agentId}:${sessionId}`;
   const session = sessions.get(key);
   if (!session) return false;
-  const wasStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
+  const wasSessionStreaming = session.isStreaming;
   session.abortController?.abort();
   sessions.delete(key);
-  const isNowStreaming = getAllSessionsForAgent(agentId).some((s) => s.isStreaming);
-  if (wasStreaming !== isNowStreaming) {
+  if (wasSessionStreaming) {
+    const isAgentStreaming = getAllSessionsForAgent(agentId).some(
+      (s) => s.isStreaming
+    );
     agentEventBus.emitStatusChange({
       agentId,
-      status: isNowStreaming ? "streaming" : "idle",
+      status: isAgentStreaming ? "streaming" : "idle",
+      sessionId,
+      sessionStatus: "idle",
     });
   }
   return true;

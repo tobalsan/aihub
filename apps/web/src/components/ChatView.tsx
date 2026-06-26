@@ -18,7 +18,6 @@ import {
   getSessionKey,
   fetchFullHistory,
   fetchAgent,
-  fetchAgentStatuses,
   subscribeToSession,
   subscribeToRealtime,
   postAbort,
@@ -502,6 +501,13 @@ export function ChatView() {
   const [stopping, setStopping] = createSignal(false);
   const [showInterrupted, setShowInterrupted] = createSignal(false);
   const [isStreaming, setIsStreaming] = createSignal(false);
+  // The concrete sessionId this view currently owns. The web UI subscribes by
+  // sessionKey (default "main"); the gateway resolves it to a sessionId which we
+  // capture from the history response so we can scope status events to this
+  // session and ignore background sessions (forum threads, scheduler, amsg).
+  const [resolvedSessionId, setResolvedSessionId] = createSignal<
+    string | undefined
+  >(undefined);
   const [streamingThinking, setStreamingThinking] = createSignal("");
   const [streamingThinkingAt, setStreamingThinkingAt] = createSignal<
     number | null
@@ -767,6 +773,7 @@ export function ChatView() {
       setFullMessages(merged);
       setContextFullMessages(res.messages);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
+      if (res.sessionId) setResolvedSessionId(res.sessionId);
       applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     } else {
       const res = await fetchFullHistory(
@@ -800,6 +807,7 @@ export function ChatView() {
         : base;
       setSimpleMessages(merged);
       if (res.thinkingLevel) setThinkingLevel(res.thinkingLevel);
+      if (res.sessionId) setResolvedSessionId(res.sessionId);
       applyActiveTurn(res.isStreaming ?? false, res.activeTurn ?? null);
     }
     setLoading(false);
@@ -1170,17 +1178,10 @@ export function ChatView() {
 
     statusCleanup?.();
 
-    // Check current status immediately
-    fetchAgentStatuses()
-      .then((res) => {
-        if (res.statuses[agentId] === "streaming" && !isStreaming()) {
-          setIsStreaming(true);
-          setStreamingStartedAt(Date.now());
-        }
-      })
-      .catch(() => {
-        /* ignore */
-      });
+    // Initial streaming state is derived from the session-scoped history load
+    // (res.isStreaming -> applyActiveTurn), so we must NOT use the agent-wide
+    // /agents/status endpoint here: a background session streaming would
+    // wrongly flip this view's Stop button on.
 
     // Subscribe to real-time status changes
     statusCleanup = subscribeToRealtime({
@@ -1188,8 +1189,15 @@ export function ChatView() {
       onEvent: (event) => {
         if (event.type !== "status") return;
         const id = event.agentId;
-        const status = event.status;
         if (id !== agentId) return;
+        // Scope the Stop button to the session this view owns. Status events
+        // from background sessions (forum threads, scheduler, amsg) must not
+        // flip this view to "running". If we haven't resolved our sessionId
+        // yet, ignore the event; the session-scoped history load reconciles
+        // the initial streaming state via applyActiveTurn().
+        const owned = resolvedSessionId();
+        if (!owned || event.sessionId !== owned) return;
+        const status = event.sessionStatus;
         if (status === "streaming" && !isStreaming() && !streamingFinished()) {
           setIsStreaming(true);
           setStreamingStartedAt(Date.now());
@@ -1205,32 +1213,10 @@ export function ChatView() {
         }
       },
       onReconnect: () => {
-        // Re-check status after reconnect
-        fetchAgentStatuses()
-          .then((res) => {
-            if (
-              res.statuses[agentId] === "streaming" &&
-              !isStreaming() &&
-              !streamingFinished()
-            ) {
-              setIsStreaming(true);
-              setStreamingStartedAt(Date.now());
-            } else if (
-              res.statuses[agentId] !== "streaming" &&
-              isStreaming() &&
-              !cleanup
-            ) {
-              if (streamingFinished()) {
-                setIsStreaming(false);
-                return;
-              }
-              resetStreamingState();
-              loadHistory(viewMode());
-            }
-          })
-          .catch(() => {
-            /* ignore */
-          });
+        // Re-derive streaming state from the session-scoped history after a
+        // reconnect. applyActiveTurn() reconciles isStreaming for this session
+        // only, ignoring background sessions.
+        void loadHistory(viewMode());
       },
     });
   });

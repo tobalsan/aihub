@@ -60,9 +60,14 @@ describe("sessions", () => {
     expect(result).toBe(false);
   });
 
-  it("emits status changes only when overall agent status changes", () => {
+  it("emits a per-session status change with the agent-wide aggregate", () => {
     const statusAgentId = "status-agent";
-    const events: Array<{ agentId: string; status: "streaming" | "idle" }> = [];
+    const events: Array<{
+      agentId: string;
+      status: "streaming" | "idle";
+      sessionId: string;
+      sessionStatus: "streaming" | "idle";
+    }> = [];
     const unsubscribe = agentEventBus.onStatusChange((event) => events.push(event));
 
     const sessionA = `status-${Date.now()}-a`;
@@ -75,9 +80,34 @@ describe("sessions", () => {
 
     unsubscribe();
 
+    // Each session transition emits its own event. sessionStatus is scoped to
+    // the session that changed; status is the agent-wide aggregate (streaming
+    // while any session is still streaming).
     expect(events).toEqual([
-      { agentId: statusAgentId, status: "streaming" },
-      { agentId: statusAgentId, status: "idle" },
+      {
+        agentId: statusAgentId,
+        status: "streaming",
+        sessionId: sessionA,
+        sessionStatus: "streaming",
+      },
+      {
+        agentId: statusAgentId,
+        status: "streaming",
+        sessionId: sessionB,
+        sessionStatus: "streaming",
+      },
+      {
+        agentId: statusAgentId,
+        status: "streaming",
+        sessionId: sessionA,
+        sessionStatus: "idle",
+      },
+      {
+        agentId: statusAgentId,
+        status: "idle",
+        sessionId: sessionB,
+        sessionStatus: "idle",
+      },
     ]);
   });
 });

@@ -9,7 +9,13 @@ export type RealtimeInterest =
   | { type: "orchestrator" };
 
 export type RealtimeEvent =
-  | { type: "status"; agentId: string; status: "streaming" | "idle" }
+  | {
+      type: "status";
+      agentId: string;
+      status: "streaming" | "idle";
+      sessionId: string;
+      sessionStatus: "streaming" | "idle";
+    }
   | { type: "file_changed"; projectId: string; file: string }
   | { type: "agent_changed"; projectId: string }
   | {
