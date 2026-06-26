@@ -58,8 +58,14 @@ function createBot(
     await handleTelegramMessage(
       data,
       { agent, logPrefix },
-      async (text) => {
-        await ctx.reply(text);
+      async (text, options) => {
+        const sent = await ctx.reply(text, {
+          parse_mode: options?.parseMode,
+          reply_parameters: options?.replyToMessageId
+            ? { message_id: options.replyToMessageId }
+            : undefined,
+        });
+        return sent.message_id;
       },
       {
         sendTyping: async () => {

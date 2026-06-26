@@ -3,6 +3,7 @@ import { DEFAULT_MAIN_KEY, buildTelegramContext } from "@aihub/shared";
 import { getTelegramContext } from "../context.js";
 import { isSenderAllowed } from "../utils/allowlist.js";
 import { splitMessage } from "../utils/chunk.js";
+import { renderMarkdown } from "../utils/render.js";
 import { TypingKeepAlive, type SendTyping } from "../utils/typing.js";
 
 export type TelegramMessageData = {
@@ -19,7 +20,21 @@ export type TelegramReplyTarget = {
   logPrefix: string;
 };
 
-export type TelegramSend = (text: string) => Promise<void>;
+export type TelegramSendOptions = {
+  /** Render with this Telegram parse mode. */
+  parseMode?: "HTML";
+  /** Thread this message as a reply to the given message id. */
+  replyToMessageId?: number;
+};
+
+/**
+ * Send one rendered chunk. Returns the id of the message Telegram created so the
+ * next chunk can thread as a reply to it (visual grouping for overflow).
+ */
+export type TelegramSend = (
+  text: string,
+  options?: TelegramSendOptions
+) => Promise<number | undefined>;
 
 export type TelegramHandlerHooks = {
   /** Best-effort sender for Telegram's "typing" chat action. */
@@ -98,10 +113,20 @@ export async function handleTelegramMessage(
 
     if (agentResult.meta.queued) return;
 
+    // Thread overflow chunks as replies to the previous chunk so a long answer
+    // reads as one grouped thread. The reply target resets per payload.
     for (const payload of agentResult.payloads) {
       if (!payload.text) continue;
-      for (const chunk of splitMessage(payload.text)) {
-        await send(chunk);
+      const html = renderMarkdown(payload.text);
+      let replyToMessageId: number | undefined;
+      let first = true;
+      for (const chunk of splitMessage(html)) {
+        const sentId = await send(chunk, {
+          parseMode: "HTML",
+          replyToMessageId: first ? undefined : replyToMessageId,
+        });
+        if (sentId !== undefined) replyToMessageId = sentId;
+        first = false;
         // Re-trigger typing: a delivered message clears Telegram's bubble.
         typing?.poke();
       }
