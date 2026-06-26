@@ -489,11 +489,19 @@ export const SlackAgentConfigSchema = z.object({
 });
 export type SlackAgentConfig = z.infer<typeof SlackAgentConfigSchema>;
 
-// Telegram extension config. Walking-skeleton slice: token only (DMs → main
-// session). Allowlist and richer routing layer on in later slices.
+// Telegram allowlist entries mirror the discord/slack convention: each entry is
+// a user/chat id (numeric or string) or a username, matched case-insensitively.
+const TelegramAllowlistSchema = z.array(z.union([z.string(), z.number()]));
+
+// Telegram extension config. `allowedUsers`/`allowedChats` gate who may talk to
+// the bot, mirroring the discord/slack allow-list shape (an array of ids or
+// usernames). An empty/omitted list means "no one is allowed" so enforcement
+// fails closed, matching discord's allowlist policy.
 export const TelegramExtensionConfigSchema = z.object({
   enabled: z.boolean().optional(),
   token: SecretRefSchema,
+  allowedUsers: TelegramAllowlistSchema.optional(),
+  allowedChats: TelegramAllowlistSchema.optional(),
 });
 export type TelegramExtensionConfig = z.infer<
   typeof TelegramExtensionConfigSchema
@@ -502,6 +510,8 @@ export type TelegramComponentConfig = TelegramExtensionConfig;
 
 export const TelegramAgentConfigSchema = z.object({
   token: SecretRefSchema,
+  allowedUsers: TelegramAllowlistSchema.optional(),
+  allowedChats: TelegramAllowlistSchema.optional(),
 });
 export type TelegramAgentConfig = z.infer<typeof TelegramAgentConfigSchema>;
 

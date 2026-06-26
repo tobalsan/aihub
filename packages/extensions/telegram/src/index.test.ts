@@ -65,6 +65,22 @@ describe("telegram extension", () => {
     expect(telegramExtension.capabilities()).toEqual(["telegram"]);
   });
 
+  it("exposes the send_message agent tool", async () => {
+    const { telegramExtension } = await import("./index.js");
+    const agent = { id: "main" } as never;
+    const tools = await telegramExtension.getAgentTools?.(agent);
+    expect(tools?.map((t) => t.name)).toContain("telegram.send_message");
+  });
+
+  it("omits agent tools when the extension is disabled", async () => {
+    const { telegramExtension } = await import("./index.js");
+    const agent = { id: "main" } as never;
+    const tools = await telegramExtension.getAgentTools?.(agent, {
+      config: { extensions: { telegram: { enabled: false } } },
+    } as never);
+    expect(tools).toEqual([]);
+  });
+
   it("starts the component bot from root extensions.telegram", async () => {
     const { telegramExtension } = await import("./index.js");
     const config = GatewayConfigSchema.parse({

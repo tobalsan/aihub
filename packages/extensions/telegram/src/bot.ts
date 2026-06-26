@@ -8,10 +8,12 @@ import type {
 } from "@aihub/shared";
 import {
   handleTelegramMessage,
+  type TelegramAllowlistConfig,
   type TelegramMessageData,
 } from "./handlers/message.js";
 import { getTelegramContext } from "./context.js";
 import { isTransientError, withRetry } from "./utils/retry.js";
+import { isBotAddressed, toAddressableMessage } from "./utils/addressing.js";
 import {
   MAX_UPLOAD_SIZE_BYTES,
   downloadTelegramFile,
@@ -74,14 +76,31 @@ function toMessageData(ctx: Context): TelegramMessageData | null {
   const text = ctx.message?.text ?? ctx.message?.caption ?? "";
   if (typeof text !== "string") return null;
   if (!text && media.length === 0) return null;
+  const isPrivate = chat.type === "private";
+  // Private chats are always addressed; in groups, only when the bot is spoken
+  // to (mention, reply to the bot, or a command), so it never hijacks the chat.
+  const isAddressed =
+    isPrivate ||
+    (ctx.message
+      ? isBotAddressed(toAddressableMessage(ctx.message), {
+          id: ctx.me?.id,
+          username: ctx.me?.username,
+        })
+      : false);
+  // Public groups/channels expose an `@username`; private chats do not.
+  const chatUsername =
+    "username" in chat ? (chat.username as string | undefined) : undefined;
   return {
     chatId: chat.id,
     chatType: chat.type,
+    chatUsername,
     text,
     userId: ctx.from?.id,
+    username: ctx.from?.username,
     senderName: resolveSenderName(ctx),
     isBot: ctx.from?.is_bot ?? false,
     media: media.length > 0 ? media : undefined,
+    isAddressed,
   };
 }
 
@@ -143,7 +162,8 @@ async function collectAttachments(
 function createBot(
   token: string,
   agent: AgentConfig,
-  agentId: string = agent.id
+  agentId: string = agent.id,
+  allowlist: TelegramAllowlistConfig = {}
 ): TelegramBot {
   const bot = new Bot(token);
   const logPrefix = `[telegram:${agentId}]`;
@@ -173,7 +193,8 @@ function createBot(
         },
         collectAttachments: (media) =>
           collectAttachments(ctx, media, token, logPrefix),
-      }
+      },
+      allowlist
     );
   };
 
@@ -251,11 +272,17 @@ export function createTelegramBot(
   // Register the shared component bot under the literal "telegram" id (mirrors
   // the discord/slack house style), so proactive tools can resolve it via
   // getActiveBot("telegram").
-  return createBot(componentConfig.token, agent, "telegram");
+  return createBot(componentConfig.token, agent, "telegram", {
+    allowedUsers: componentConfig.allowedUsers,
+    allowedChats: componentConfig.allowedChats,
+  });
 }
 
 export function createTelegramAgentBot(agent: AgentConfig): TelegramBot | null {
   const config = agent.telegram as TelegramAgentConfig | undefined;
   if (!config?.token) return null;
-  return createBot(config.token, agent);
+  return createBot(config.token, agent, agent.id, {
+    allowedUsers: config.allowedUsers,
+    allowedChats: config.allowedChats,
+  });
 }
