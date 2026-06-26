@@ -55,9 +55,18 @@ function createBot(
   bot.on("message:text", async (ctx) => {
     const data = toMessageData(ctx);
     if (!data) return;
-    await handleTelegramMessage(data, { agent, logPrefix }, async (text) => {
-      await ctx.reply(text);
-    });
+    await handleTelegramMessage(
+      data,
+      { agent, logPrefix },
+      async (text) => {
+        await ctx.reply(text);
+      },
+      {
+        sendTyping: async () => {
+          await ctx.replyWithChatAction("typing");
+        },
+      }
+    );
   });
 
   let running = false;

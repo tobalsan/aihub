@@ -3,6 +3,7 @@ import { DEFAULT_MAIN_KEY, buildTelegramContext } from "@aihub/shared";
 import { getTelegramContext } from "../context.js";
 import { isSenderAllowed } from "../utils/allowlist.js";
 import { splitMessage } from "../utils/chunk.js";
+import { TypingKeepAlive, type SendTyping } from "../utils/typing.js";
 
 export type TelegramMessageData = {
   chatId: number;
@@ -19,6 +20,11 @@ export type TelegramReplyTarget = {
 };
 
 export type TelegramSend = (text: string) => Promise<void>;
+
+export type TelegramHandlerHooks = {
+  /** Best-effort sender for Telegram's "typing" chat action. */
+  sendTyping?: SendTyping;
+};
 
 export type TelegramPipelineResult = {
   shouldReply: boolean;
@@ -51,7 +57,8 @@ export function processMessage(
 export async function handleTelegramMessage(
   data: TelegramMessageData,
   target: TelegramReplyTarget,
-  send: TelegramSend
+  send: TelegramSend,
+  hooks: TelegramHandlerHooks = {}
 ): Promise<void> {
   const result = processMessage(data);
   if (!result.shouldReply) {
@@ -72,6 +79,14 @@ export async function handleTelegramMessage(
     },
   });
 
+  // Keep the typing indicator alive for the full turn. It starts as the turn
+  // begins, refreshes on a ~2s cadence, and is re-triggered after each
+  // intermediate send (delivering a message clears Telegram's typing bubble).
+  const typing = hooks.sendTyping
+    ? new TypingKeepAlive(hooks.sendTyping)
+    : null;
+  typing?.start();
+
   try {
     const agentResult = await getTelegramContext().runAgent({
       agentId: target.agent.id,
@@ -87,10 +102,14 @@ export async function handleTelegramMessage(
       if (!payload.text) continue;
       for (const chunk of splitMessage(payload.text)) {
         await send(chunk);
+        // Re-trigger typing: a delivered message clears Telegram's bubble.
+        typing?.poke();
       }
     }
   } catch (err) {
     console.error(`${target.logPrefix} Error:`, err);
     await send("Sorry, I encountered an error processing your message.");
+  } finally {
+    typing?.stop();
   }
 }

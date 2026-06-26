@@ -113,4 +113,75 @@ describe("handleTelegramMessage", () => {
     expect(runAgent).not.toHaveBeenCalled();
     expect(send).not.toHaveBeenCalled();
   });
+
+  it("starts typing when the turn begins and re-triggers after each send", async () => {
+    const runAgent = vi.fn().mockResolvedValue({
+      payloads: [{ text: "part one" }, { text: "part two" }],
+      meta: { durationMs: 1, sessionId: "s1" },
+    });
+    setTelegramContext({ runAgent } as never);
+    const send = vi.fn().mockResolvedValue(undefined);
+    const sendTyping = vi.fn().mockResolvedValue(undefined);
+
+    await handleTelegramMessage(
+      makeData(),
+      { agent, logPrefix: "[t]" },
+      send,
+      { sendTyping }
+    );
+
+    // 1 initial start + 1 poke per delivered message.
+    expect(sendTyping).toHaveBeenCalledTimes(3);
+    expect(send).toHaveBeenCalledTimes(2);
+  });
+
+  it("stops typing on a queued run without leaking the keep-alive loop", async () => {
+    vi.useFakeTimers();
+    try {
+      const runAgent = vi.fn().mockResolvedValue({
+        payloads: [{ text: "ignored" }],
+        meta: { durationMs: 1, sessionId: "s1", queued: true },
+      });
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(undefined);
+      const sendTyping = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        { sendTyping }
+      );
+
+      const callsAfterTurn = sendTyping.mock.calls.length;
+      vi.advanceTimersByTime(10000);
+      expect(sendTyping).toHaveBeenCalledTimes(callsAfterTurn);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
+
+  it("stops typing when the run throws", async () => {
+    vi.useFakeTimers();
+    try {
+      const runAgent = vi.fn().mockRejectedValue(new Error("boom"));
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(undefined);
+      const sendTyping = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        { sendTyping }
+      );
+
+      const callsAfterError = sendTyping.mock.calls.length;
+      vi.advanceTimersByTime(10000);
+      // Loop stopped in finally: no further refreshes after the error.
+      expect(sendTyping).toHaveBeenCalledTimes(callsAfterError);
+    } finally {
+      vi.useRealTimers();
+    }
+  });
 });
