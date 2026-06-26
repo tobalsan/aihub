@@ -6,8 +6,9 @@ import {
   matchesUserAllowlist,
   type AllowlistEntry,
 } from "../utils/allowlist.js";
-import { splitMessage } from "../utils/chunk.js";
+import { splitMessage, TELEGRAM_MAX } from "../utils/chunk.js";
 import { renderMarkdown } from "../utils/render.js";
+import { StreamCoalescer } from "../utils/stream.js";
 import { TypingKeepAlive, type SendTyping } from "../utils/typing.js";
 import type { TelegramMediaItem } from "../utils/attachments.js";
 
@@ -66,9 +67,27 @@ export type TelegramSend = (
   options?: TelegramSendOptions
 ) => Promise<number | undefined>;
 
+/**
+ * Edit a previously sent message in place. Live streaming previews are plain
+ * text (no parse mode), so callers omit `parseMode`. Best-effort: a failed edit
+ * (e.g. "message is not modified" or a transient API error) must not abort the
+ * turn, since the final clean render is sent regardless.
+ */
+export type TelegramEdit = (
+  messageId: number,
+  text: string,
+  options?: TelegramSendOptions
+) => Promise<void>;
+
 export type TelegramHandlerHooks = {
   /** Best-effort sender for Telegram's "typing" chat action. */
   sendTyping?: SendTyping;
+  /**
+   * Edit a previously sent message in place, used to progressively grow the
+   * live streaming preview. When omitted, streaming previews are disabled and
+   * the handler falls back to sending only the final rendered reply.
+   */
+  editMessage?: TelegramEdit;
   /**
    * Download and persist inbound media, returning the resulting attachments to
    * hand to the agent. Invoked only when the message carries media. Implemented
@@ -200,6 +219,48 @@ export async function handleTelegramMessage(
     : null;
   typing?.start();
 
+  // Live streaming preview: coalesce text deltas and progressively edit a
+  // single message at natural breakpoints. Disabled when no edit hook is wired
+  // (the final clean render is still sent either way).
+  const coalescer = new StreamCoalescer();
+  // Message id of the live preview message, once the first snapshot is sent.
+  let liveMessageId: number | undefined;
+  let streamingEnabled = hooks.editMessage !== undefined;
+  // Serialize preview sends/edits. onEvent fires synchronously and we surface
+  // without blocking it, so chaining keeps the first send (which mints the
+  // message id) ahead of every subsequent edit and avoids out-of-order writes.
+  let surfaceChain: Promise<void> = Promise.resolve();
+
+  // Surface a coalesced snapshot: send the first one as a new message, edit it
+  // thereafter. Previews are plain text (no parse mode) so a mid-render
+  // truncation can never produce invalid HTML; the final pass renders cleanly.
+  const surface = (snapshot: string): Promise<void> => {
+    surfaceChain = surfaceChain.then(async () => {
+      if (!streamingEnabled) return;
+      const preview = livePreview(snapshot);
+      try {
+        if (liveMessageId === undefined) {
+          liveMessageId = await send(preview);
+          // No id back means we can't edit later; stop streaming previews.
+          if (liveMessageId === undefined) streamingEnabled = false;
+        } else {
+          await hooks.editMessage!(liveMessageId, preview);
+        }
+        // A delivered/edited message clears Telegram's typing bubble.
+        typing?.poke();
+      } catch (err) {
+        // Streaming is best-effort liveness; a failed edit must not abort the
+        // turn. Disable further previews; the final render carries the reply.
+        console.debug(
+          `${target.logPrefix} Streaming preview edit failed:`,
+          err
+        );
+        streamingEnabled = false;
+      }
+    });
+    return surfaceChain;
+  };
+
   try {
     const agentResult = await getTelegramContext().runAgent({
       agentId: target.agent.id,
@@ -208,27 +269,64 @@ export async function handleTelegramMessage(
       sessionKey,
       source: "telegram",
       context,
+      onEvent: streamingEnabled
+        ? (event) => {
+            if (event.type !== "text") return;
+            coalescer.push(event.data);
+            const edit = coalescer.takeEdit();
+            if (edit) void surface(edit.text);
+          }
+        : undefined,
     });
 
-    if (agentResult.meta.queued) return;
+    if (agentResult.meta.queued) {
+      // Drain any in-flight preview writes before returning so the chain can't
+      // outlive the turn.
+      await surfaceChain;
+      return;
+    }
 
-    // Thread overflow chunks as replies to the previous chunk so a long answer
-    // reads as one grouped thread. The reply target resets per payload.
+    // Let any preview writes queued during streaming settle before the final
+    // render. We deliberately skip a plain-text final flush here: the clean
+    // render pass below promotes the same live message straight to the fully
+    // rendered HTML, so an intermediate plain-text edit would only add a
+    // redundant edit and a brief flash.
+    await surfaceChain;
+
+    // Clean render pass: render the agent's final text to Telegram HTML and
+    // deliver it. When a live preview message exists, edit it in place to the
+    // first rendered chunk so the streamed message becomes the final clean one
+    // (no duplicate). Overflow chunks thread as replies to the previous chunk.
     for (const payload of agentResult.payloads) {
       if (!payload.text) continue;
       const html = renderMarkdown(payload.text);
+      const chunks = splitMessage(html);
       let replyToMessageId: number | undefined;
-      let first = true;
-      for (const chunk of splitMessage(html)) {
+      for (let i = 0; i < chunks.length; i++) {
+        const chunk = chunks[i];
+        // Promote the live preview to the final render on the first chunk.
+        if (i === 0 && liveMessageId !== undefined && hooks.editMessage) {
+          try {
+            await hooks.editMessage(liveMessageId, chunk, { parseMode: "HTML" });
+            replyToMessageId = liveMessageId;
+            typing?.poke();
+            continue;
+          } catch (err) {
+            // Couldn't reuse the preview message (e.g. it was deleted); fall
+            // through to sending a fresh message so the reply is never lost.
+            console.debug(`${target.logPrefix} Final edit failed:`, err);
+          }
+        }
         const sentId = await send(chunk, {
           parseMode: "HTML",
-          replyToMessageId: first ? undefined : replyToMessageId,
+          replyToMessageId,
         });
         if (sentId !== undefined) replyToMessageId = sentId;
-        first = false;
         // Re-trigger typing: a delivered message clears Telegram's bubble.
         typing?.poke();
       }
+      // Each payload renders as its own grouped thread.
+      liveMessageId = undefined;
     }
   } catch (err) {
     console.error(`${target.logPrefix} Error:`, err);
@@ -236,4 +334,14 @@ export async function handleTelegramMessage(
   } finally {
     typing?.stop();
   }
+}
+
+/**
+ * Clamp a live streaming preview to a single Telegram message. Previews are
+ * plain text, so we can safely truncate the tail and append an ellipsis; the
+ * final pass delivers the full, chunked, rendered reply.
+ */
+function livePreview(text: string): string {
+  if (text.length <= TELEGRAM_MAX) return text;
+  return text.slice(0, TELEGRAM_MAX - 1) + "…";
 }

@@ -191,6 +191,14 @@ function createBot(
         sendTyping: async () => {
           await ctx.replyWithChatAction("typing");
         },
+        // Progressive live-preview edits. Best-effort by contract: the handler
+        // already swallows failures, so a transient edit error here just ends
+        // the live preview without disrupting the turn or the final render.
+        editMessage: async (messageId, text, options) => {
+          await ctx.api.editMessageText(ctx.chat!.id, messageId, text, {
+            parse_mode: options?.parseMode,
+          });
+        },
         collectAttachments: (media) =>
           collectAttachments(ctx, media, token, logPrefix),
       },
