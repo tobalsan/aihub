@@ -6,6 +6,7 @@ import {
   type TelegramMessageData,
 } from "./message.js";
 import { setTelegramContext, clearTelegramContext } from "../context.js";
+import { renderMarkdown } from "../utils/render.js";
 
 function makeData(
   overrides: Partial<TelegramMessageData> = {}
@@ -285,6 +286,164 @@ describe("handleTelegramMessage", () => {
     );
 
     expect(send).not.toHaveBeenCalled();
+  });
+
+  describe("streaming previews", () => {
+    // A runAgent mock that replays `deltas` through onEvent (with a small async
+    // gap so the coalescer's serialized surface chain settles between edits),
+    // then resolves with the final payload text.
+    function streamingRunAgent(deltas: string[], finalText: string) {
+      return vi.fn().mockImplementation(async (params) => {
+        for (const d of deltas) {
+          params.onEvent?.({ type: "text", data: d });
+          // Yield so queued preview sends/edits run between deltas.
+          await Promise.resolve();
+        }
+        return {
+          payloads: [{ text: finalText }],
+          meta: { durationMs: 1, sessionId: "s1" },
+        };
+      });
+    }
+
+    it("sends one live message then edits it as breakpoints arrive", async () => {
+      // Three sentences -> at least the first new send + later edits, far fewer
+      // than the number of deltas.
+      const deltas = [
+        "The quick brown fox jumps. ",
+        "Over the lazy dog every day. ",
+        "And then it finally rests here.\n",
+      ];
+      const runAgent = streamingRunAgent(deltas, "final clean text");
+      setTelegramContext({ runAgent } as never);
+
+      let nextId = 500;
+      const send = vi.fn().mockImplementation(async () => nextId++);
+      const editMessage = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        { editMessage },
+        allowAll
+      );
+
+      // First live snapshot is a brand-new plain-text message (no parse mode).
+      expect(send).toHaveBeenCalled();
+      expect(send.mock.calls[0][1]).toBeUndefined();
+      // Subsequent previews edit that same message id.
+      expect(editMessage).toHaveBeenCalled();
+      expect(editMessage.mock.calls[0][0]).toBe(500);
+
+      // The very last edit promotes the preview to the final HTML render.
+      const lastEdit = editMessage.mock.calls[editMessage.mock.calls.length - 1];
+      expect(lastEdit[0]).toBe(500);
+      expect(lastEdit[1]).toBe(renderMarkdown("final clean text"));
+      expect(lastEdit[2]).toMatchObject({ parseMode: "HTML" });
+    });
+
+    it("edits far fewer times than there are deltas (coalescing)", async () => {
+      // Twenty tiny word deltas across a few sentences.
+      const deltas = [
+        "Alpha ", "beta ", "gamma ", "delta epsilon zeta. ",
+        "Eta ", "theta ", "iota ", "kappa lambda mu nu. ",
+        "Xi ", "omicron ", "pi rho sigma tau upsilon.\n",
+      ];
+      const runAgent = streamingRunAgent(deltas, "rendered final");
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(700);
+      const editMessage = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        { editMessage },
+        allowAll
+      );
+
+      const writes = send.mock.calls.length + editMessage.mock.calls.length;
+      expect(writes).toBeLessThan(deltas.length);
+    });
+
+    it("the final message is the clean rendered version via the renderer", async () => {
+      const runAgent = streamingRunAgent(
+        ["Streaming **partial** preview text here. "],
+        "Final **bold** answer"
+      );
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(800);
+      const editMessage = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        { editMessage },
+        allowAll
+      );
+
+      const lastEdit =
+        editMessage.mock.calls[editMessage.mock.calls.length - 1];
+      // Final render goes through renderMarkdown and carries HTML parse mode.
+      expect(lastEdit[1]).toBe(renderMarkdown("Final **bold** answer"));
+      expect(lastEdit[1]).toContain("<b>bold</b>");
+      expect(lastEdit[2]).toMatchObject({ parseMode: "HTML" });
+    });
+
+    it("falls back to a fresh rendered send when no edit hook is wired", async () => {
+      const runAgent = streamingRunAgent(
+        ["some streamed text that never surfaces live. "],
+        "plain final"
+      );
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        {}, // no editMessage hook
+        allowAll
+      );
+
+      // Without streaming, the only write is the final rendered reply.
+      expect(send).toHaveBeenCalledTimes(1);
+      expect(send).toHaveBeenCalledWith(
+        renderMarkdown("plain final"),
+        expect.objectContaining({ parseMode: "HTML" })
+      );
+    });
+
+    it("continues the turn when a preview edit fails", async () => {
+      const runAgent = streamingRunAgent(
+        [
+          "First full sentence is here. ",
+          "Second full sentence follows after.\n",
+        ],
+        "final answer"
+      );
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(900);
+      // Every edit rejects (e.g. transient 429) — streaming must degrade, not throw.
+      const editMessage = vi.fn().mockRejectedValue(new Error("rate limited"));
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        { editMessage },
+        allowAll
+      );
+
+      // The first preview was sent; after the edit failure streaming is
+      // disabled, so the final clean render is delivered as a fresh send.
+      expect(send.mock.calls.length).toBeGreaterThanOrEqual(2);
+      const finalSend = send.mock.calls[send.mock.calls.length - 1];
+      expect(finalSend[0]).toBe(renderMarkdown("final answer"));
+      expect(finalSend[1]).toMatchObject({ parseMode: "HTML" });
+    });
   });
 
   it("sends an error message when the run throws", async () => {

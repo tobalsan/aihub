@@ -5,7 +5,7 @@
 // line/whitespace boundaries and, when a multi-line <pre>/<code> block straddles
 // a boundary, close the open tags at the end of one chunk and reopen them at the
 // start of the next.
-const TELEGRAM_MAX = 4096;
+export const TELEGRAM_MAX = 4096;
 
 // Tags the renderer can leave open across a chunk boundary. <pre>/<code> wrap
 // multi-line blocks; <b>/<i>/<s>/<a>/<blockquote> can wrap a single markdown line
