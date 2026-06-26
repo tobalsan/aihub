@@ -1,5 +1,9 @@
 import { describe, expect, it } from "vitest";
-import { buildUserContext, renderAgentContext } from "./context-rendering.js";
+import {
+  buildTelegramContext,
+  buildUserContext,
+  renderAgentContext,
+} from "./context-rendering.js";
 
 describe("renderAgentContext web user context", () => {
   it("renders the web user context block", () => {
@@ -17,5 +21,43 @@ describe("renderAgentContext web user context", () => {
     expect(renderAgentContext(buildUserContext({ name: undefined }))).toContain(
       "name: unknown"
     );
+  });
+});
+
+describe("renderAgentContext telegram context", () => {
+  it("renders a telegram DM context block", () => {
+    const rendered = renderAgentContext(
+      buildTelegramContext({
+        metadata: {
+          channel: "telegram",
+          place: "direct message / alice",
+          conversationType: "direct_message",
+          sender: "alice",
+        },
+      })
+    );
+    expect(rendered).toContain("channel: telegram");
+    expect(rendered).toContain("conversation_type: direct_message");
+    expect(rendered).toContain("sender: alice");
+    expect(rendered).toContain("recent_history:");
+  });
+
+  it("renders history entries when provided", () => {
+    const rendered = renderAgentContext(
+      buildTelegramContext({
+        metadata: {
+          channel: "telegram",
+          place: "direct message / alice",
+          conversationType: "direct_message",
+          sender: "alice",
+        },
+        history: [{ author: "alice", content: "hi", timestamp: 0 }],
+      })
+    );
+    expect(rendered).toContain("alice: hi");
+  });
+
+  it("returns empty string without metadata", () => {
+    expect(renderAgentContext(buildTelegramContext({}))).toBe("");
   });
 });

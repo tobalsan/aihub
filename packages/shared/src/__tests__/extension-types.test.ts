@@ -4,6 +4,7 @@ import {
   ExtensionsConfigSchema,
   DiscordExtensionConfigSchema,
   LangfuseExtensionConfigSchema,
+  TelegramExtensionConfigSchema,
   GatewayConfigSchema,
   type Extension,
   type ExtensionContext,
@@ -33,6 +34,22 @@ describe("extension config schemas", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("parses telegram extension config with an $env token", () => {
+    const result = TelegramExtensionConfigSchema.parse({
+      enabled: true,
+      token: "$env:TELEGRAM_TOKEN",
+    });
+    expect(result.token).toBe("$env:TELEGRAM_TOKEN");
+    expect(result.enabled).toBe(true);
+  });
+
+  it("wires telegram into the extension map", () => {
+    const result = ExtensionsConfigSchema.parse({
+      telegram: { token: "$env:TELEGRAM_TOKEN" },
+    });
+    expect(result?.telegram?.token).toBe("$env:TELEGRAM_TOKEN");
   });
 
   it("parses and rejects langfuse extension config", () => {

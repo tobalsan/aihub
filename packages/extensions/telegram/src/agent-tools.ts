@@ -1,0 +1,90 @@
+import type {
+  AgentConfig,
+  ExtensionAgentTool,
+  GatewayConfig,
+  TelegramAgentConfig,
+  TelegramComponentConfig,
+} from "@aihub/shared";
+import { z } from "zod";
+import { getActiveBot } from "./bot-registry.js";
+import { splitMessage } from "./utils/chunk.js";
+
+const sendMessageSchema = z.object({
+  chatId: z.union([z.string(), z.number()]),
+  text: z.string().min(1),
+});
+
+function toolError(error: unknown) {
+  return {
+    ok: false as const,
+    error: error instanceof Error ? error.message : String(error),
+  };
+}
+
+/**
+ * Resolve the Telegram bot token for an agent. Per-agent config wins; otherwise
+ * fall back to the component-level extension config.
+ */
+function resolveTelegramToken(
+  agent: AgentConfig,
+  config: GatewayConfig,
+  env?: Record<string, string>
+): string | undefined {
+  const agentTelegram = agent.telegram as TelegramAgentConfig | undefined;
+  if (agentTelegram?.token) return agentTelegram.token;
+  const component = config.extensions?.telegram as
+    | TelegramComponentConfig
+    | undefined;
+  return component?.token ?? env?.TELEGRAM_TOKEN;
+}
+
+export function telegramAgentTools(): ExtensionAgentTool[] {
+  return [
+    {
+      name: "telegram.send_message",
+      description:
+        "Proactively send a plain-text Telegram message to a chat. Provide `chatId` as the numeric chat ID of a user or group the bot can reach.",
+      parameters: {
+        type: "object",
+        properties: {
+          chatId: {
+            type: "string",
+            description: "Numeric Telegram chat ID to send the message to.",
+          },
+          text: {
+            type: "string",
+            description: "Plain-text message body.",
+          },
+        },
+        required: ["chatId", "text"],
+        additionalProperties: false,
+      },
+      async execute(args, { agent, config, env }) {
+        try {
+          const input = sendMessageSchema.parse(args);
+          const activeBot =
+            getActiveBot(agent.id) ?? getActiveBot("telegram");
+          if (!activeBot) {
+            const token = resolveTelegramToken(agent, config, env);
+            if (!token) {
+              return {
+                ok: false,
+                error: "No Telegram token is configured for this agent.",
+              };
+            }
+            return {
+              ok: false,
+              error: "No active Telegram bot is running for this agent.",
+            };
+          }
+          for (const chunk of splitMessage(input.text)) {
+            await activeBot.bot.api.sendMessage(input.chatId, chunk);
+          }
+          return { ok: true, chatId: input.chatId };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
+  ];
+}

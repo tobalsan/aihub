@@ -5,6 +5,8 @@ import type {
   DiscordContextBlock,
   SlackContext,
   SlackContextBlock,
+  TelegramContext,
+  TelegramContextBlock,
   UserContext,
 } from "./types.js";
 
@@ -151,6 +153,26 @@ export function renderSlackContext(ctx: SlackContext): string {
   });
 }
 
+export function renderTelegramContext(ctx: TelegramContext): string {
+  const metadataBlock = ctx.blocks.find((block) => block.type === "metadata");
+  if (!metadataBlock || metadataBlock.type !== "metadata") return "";
+  const historyBlock = ctx.blocks.find((block) => block.type === "history");
+  const history =
+    historyBlock && historyBlock.type === "history"
+      ? historyBlock.messages
+      : undefined;
+  return [
+    "[CHANNEL CONTEXT]",
+    `channel: ${metadataBlock.channel}`,
+    `place: ${metadataBlock.place}`,
+    `conversation_type: ${metadataBlock.conversationType}`,
+    `sender: ${metadataBlock.sender}`,
+    "recent_history:",
+    renderHistory(history),
+    "[END CHANNEL CONTEXT]",
+  ].join("\n");
+}
+
 function renderUserContext(ctx: UserContext): string {
   const name = ctx.name?.trim().replace(/\s+/g, " ") || "unknown";
   return [
@@ -164,6 +186,7 @@ function renderUserContext(ctx: UserContext): string {
 export function renderAgentContext(ctx: AgentContext): string {
   if (ctx.kind === "discord") return renderDiscordContext(ctx);
   if (ctx.kind === "slack") return renderSlackContext(ctx);
+  if (ctx.kind === "telegram") return renderTelegramContext(ctx);
   if (ctx.kind === "web") return renderUserContext(ctx);
   return "";
 }
@@ -254,4 +277,26 @@ export function buildSlackContext(opts: {
   }
 
   return { kind: "slack", blocks };
+}
+
+export function buildTelegramContext(opts: {
+  metadata?: ChannelContextMetadata;
+  history?: Array<{ author: string; content: string; timestamp: number }>;
+}): TelegramContext {
+  const blocks: TelegramContextBlock[] = [];
+
+  if (opts.metadata) {
+    blocks.push({
+      type: "metadata",
+      channel: "telegram",
+      place: opts.metadata.place,
+      conversationType: opts.metadata.conversationType,
+      sender: opts.metadata.sender,
+    });
+  }
+  if (opts.history && opts.history.length > 0) {
+    blocks.push({ type: "history", messages: opts.history });
+  }
+
+  return { kind: "telegram", blocks };
 }
