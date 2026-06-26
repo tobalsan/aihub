@@ -9,6 +9,7 @@ import { z } from "zod";
 import { getActiveBot } from "./bot-registry.js";
 import { splitMessage } from "./utils/chunk.js";
 import { renderMarkdown } from "./utils/render.js";
+import { withRetry } from "./utils/retry.js";
 
 const sendMessageSchema = z.object({
   chatId: z.union([z.string(), z.number()]),
@@ -79,17 +80,18 @@ export function telegramAgentTools(): ExtensionAgentTool[] {
             };
           }
           const html = renderMarkdown(input.text);
+          const logPrefix = `[telegram:${agent.id}]`;
           let replyToMessageId: number | undefined;
           for (const chunk of splitMessage(html)) {
-            const sent = await activeBot.bot.api.sendMessage(
-              input.chatId,
-              chunk,
-              {
-                parse_mode: "HTML",
-                reply_parameters: replyToMessageId
-                  ? { message_id: replyToMessageId }
-                  : undefined,
-              }
+            const sent = await withRetry(
+              () =>
+                activeBot.bot.api.sendMessage(input.chatId, chunk, {
+                  parse_mode: "HTML",
+                  reply_parameters: replyToMessageId
+                    ? { message_id: replyToMessageId }
+                    : undefined,
+                }),
+              { logPrefix, label: "send_message" }
             );
             replyToMessageId = sent.message_id;
           }

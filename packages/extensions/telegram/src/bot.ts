@@ -1,4 +1,4 @@
-import { Bot } from "grammy";
+import { Bot, GrammyError, HttpError } from "grammy";
 import type { Context } from "grammy";
 import type {
   AgentConfig,
@@ -11,6 +11,7 @@ import {
   type TelegramMessageData,
 } from "./handlers/message.js";
 import { getTelegramContext } from "./context.js";
+import { isTransientError, withRetry } from "./utils/retry.js";
 import {
   MAX_UPLOAD_SIZE_BYTES,
   downloadTelegramFile,
@@ -154,12 +155,16 @@ function createBot(
       data,
       { agent, logPrefix },
       async (text, options) => {
-        const sent = await ctx.reply(text, {
-          parse_mode: options?.parseMode,
-          reply_parameters: options?.replyToMessageId
-            ? { message_id: options.replyToMessageId }
-            : undefined,
-        });
+        const sent = await withRetry(
+          () =>
+            ctx.reply(text, {
+              parse_mode: options?.parseMode,
+              reply_parameters: options?.replyToMessageId
+                ? { message_id: options.replyToMessageId }
+                : undefined,
+            }),
+          { logPrefix, label: "reply" }
+        );
         return sent.message_id;
       },
       {
@@ -177,18 +182,56 @@ function createBot(
   bot.on("message:photo", onMessage);
   bot.on("message:document", onMessage);
 
+  // grammY routes errors thrown while processing an update (including network
+  // errors during the reply) here instead of crashing the polling loop. Without
+  // a handler an uncaught error would tear the bot down. We log with the
+  // standard prefix and let polling continue; transient errors are expected and
+  // self-heal, persistent ones are surfaced for operators.
+  bot.catch((err) => {
+    const cause = err.error;
+    if (cause instanceof HttpError) {
+      console.warn(
+        `${logPrefix} Network error while handling update (recovering):`,
+        cause.message
+      );
+      return;
+    }
+    if (cause instanceof GrammyError && isTransientError(cause)) {
+      console.warn(
+        `${logPrefix} Transient Telegram API error while handling update (recovering):`,
+        cause.description
+      );
+      return;
+    }
+    console.error(`${logPrefix} Error while handling update:`, cause);
+  });
+
   let running = false;
 
   return {
     bot,
     agentId,
     start: async () => {
-      await bot.init();
-      running = true;
-      // bot.start() resolves only on stop; run it in the background.
-      void bot.start({
-        onStart: () => console.log(`${logPrefix} Started long-polling bot`),
+      // bot.init() surfaces a fatal startup failure (e.g. bad token) to the
+      // caller. Transient network blips here are retried so a hiccup during
+      // startup doesn't abort the whole bot.
+      await withRetry(() => bot.init(), {
+        logPrefix,
+        label: "init",
       });
+      running = true;
+      // bot.start() resolves only on stop; run it in the background. grammY's
+      // long-polling loop retries failed getUpdates calls internally, so a brief
+      // network outage pauses polling and resumes automatically without a manual
+      // restart. A polling error that escapes that loop is reported here.
+      void bot
+        .start({
+          onStart: () => console.log(`${logPrefix} Started long-polling bot`),
+        })
+        .catch((err) => {
+          if (!running) return;
+          console.error(`${logPrefix} Long-polling stopped unexpectedly:`, err);
+        });
     },
     stop: async () => {
       if (!running) return;
