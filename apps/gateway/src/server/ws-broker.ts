@@ -346,6 +346,8 @@ export class WsBroker {
       type: "status" as const,
       agentId: event.agentId,
       status: event.status,
+      sessionId: event.sessionId,
+      sessionStatus: event.sessionStatus,
     };
     const access = await Promise.all(
       [...this.statusSubscribers].map(async (ws) => ({

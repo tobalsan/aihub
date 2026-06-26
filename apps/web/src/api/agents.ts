@@ -60,6 +60,7 @@ export type ActiveTurn = {
 
 export type HistoryResponse<T> = {
   messages: T[];
+  sessionId?: string;
   thinkingLevel?: ThinkLevel;
   isStreaming?: boolean;
   activeTurn?: ActiveTurn | null;
@@ -88,6 +89,7 @@ export async function fetchSimpleHistory(
   const data = await res.json();
   return {
     messages: data.messages ?? [],
+    sessionId: data.sessionId,
     thinkingLevel: data.thinkingLevel,
     isStreaming: data.isStreaming,
     activeTurn: data.activeTurn ?? null,
@@ -106,6 +108,7 @@ export async function fetchFullHistory(
   const data = await res.json();
   return {
     messages: data.messages ?? [],
+    sessionId: data.sessionId,
     thinkingLevel: data.thinkingLevel,
     isStreaming: data.isStreaming,
     activeTurn: data.activeTurn ?? null,

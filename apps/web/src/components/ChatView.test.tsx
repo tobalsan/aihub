@@ -112,12 +112,14 @@ describe("ChatView abort handling", () => {
     });
     fetchSimpleHistoryMock.mockResolvedValue({
       messages: [],
+      sessionId: "session-main",
       thinkingLevel: undefined,
       isStreaming: false,
       activeTurn: null,
     });
     fetchFullHistoryMock.mockResolvedValue({
       messages: [],
+      sessionId: "session-main",
       thinkingLevel: undefined,
       isStreaming: false,
       activeTurn: null,
@@ -964,11 +966,18 @@ describe("ChatView stale-thinking reconciliation", () => {
     });
     fetchFullHistoryMock.mockResolvedValue({
       messages: [],
+      sessionId: "session-main",
       isStreaming: false,
       activeTurn: null,
     });
 
-    let capturedOnEvent: ((event: { type: string; agentId?: string; status?: string }) => void) | undefined;
+    let capturedOnEvent: ((event: {
+      type: string;
+      agentId?: string;
+      status?: string;
+      sessionId?: string;
+      sessionStatus?: string;
+    }) => void) | undefined;
     subscribeToRealtimeMock.mockImplementation(({ onEvent }: { onEvent: (event: unknown) => void }) => {
       capturedOnEvent = onEvent as typeof capturedOnEvent;
       return () => {};
@@ -980,7 +989,13 @@ describe("ChatView stale-thinking reconciliation", () => {
     await tick();
 
     // Simulate backend starting to stream (e.g. page was loaded mid-run)
-    capturedOnEvent?.({ type: "status", agentId: "agent-1", status: "streaming" });
+    capturedOnEvent?.({
+      type: "status",
+      agentId: "agent-1",
+      status: "streaming",
+      sessionId: "session-main",
+      sessionStatus: "streaming",
+    });
     await tick();
 
     expect(container.querySelector(".stop-btn")).toBeTruthy();
@@ -994,15 +1009,72 @@ describe("ChatView stale-thinking reconciliation", () => {
           timestamp: 100,
         },
       ],
+      sessionId: "session-main",
       isStreaming: false,
       activeTurn: null,
     });
-    capturedOnEvent?.({ type: "status", agentId: "agent-1", status: "idle" });
+    capturedOnEvent?.({
+      type: "status",
+      agentId: "agent-1",
+      status: "idle",
+      sessionId: "session-main",
+      sessionStatus: "idle",
+    });
     await tick();
     await tick();
 
     expect(container.querySelector(".stop-btn")).toBeFalsy();
     expect(container.textContent).toContain("Done!");
+
+    dispose();
+  });
+
+  it("ignores status events from background sessions (ALG-278)", async () => {
+    fetchAgentStatusesMock.mockResolvedValue({
+      statuses: { "agent-1": "idle" },
+    });
+    fetchFullHistoryMock.mockResolvedValue({
+      messages: [],
+      sessionId: "session-main",
+      isStreaming: false,
+      activeTurn: null,
+    });
+
+    let capturedOnEvent:
+      | ((event: {
+          type: string;
+          agentId?: string;
+          status?: string;
+          sessionId?: string;
+          sessionStatus?: string;
+        }) => void)
+      | undefined;
+    subscribeToRealtimeMock.mockImplementation(
+      ({ onEvent }: { onEvent: (event: unknown) => void }) => {
+        capturedOnEvent = onEvent as typeof capturedOnEvent;
+        return () => {};
+      }
+    );
+    subscribeToSessionMock.mockImplementation(() => () => {});
+
+    const { container, dispose } = renderView();
+    await tick();
+    await tick();
+
+    // The web UI owns "session-main" (idle). A background session (e.g. a
+    // Discord forum thread) starts streaming: the agent-wide aggregate flips
+    // to "streaming" but the per-session status is for a different session.
+    capturedOnEvent?.({
+      type: "status",
+      agentId: "agent-1",
+      status: "streaming",
+      sessionId: "forum-thread-123",
+      sessionStatus: "streaming",
+    });
+    await tick();
+
+    // The main chat must stay idle (send button), NOT flip to the Stop button.
+    expect(container.querySelector(".stop-btn")).toBeFalsy();
 
     dispose();
   });

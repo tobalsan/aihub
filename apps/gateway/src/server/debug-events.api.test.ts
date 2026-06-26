@@ -69,8 +69,15 @@ describe("/api/debug/events", () => {
     agentEventBus.emitStatusChange({
       agentId: "test-agent",
       status: "streaming",
+      sessionId: "main",
+      sessionStatus: "streaming",
     });
-    agentEventBus.emitStatusChange({ agentId: "test-agent", status: "idle" });
+    agentEventBus.emitStatusChange({
+      agentId: "test-agent",
+      status: "idle",
+      sessionId: "main",
+      sessionStatus: "idle",
+    });
 
     const res = await fetch(`http://127.0.0.1:${port}/api/debug/events`);
     expect(res.ok).toBe(true);

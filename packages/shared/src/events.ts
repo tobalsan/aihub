@@ -31,7 +31,12 @@ export type AgentHistoryEvent = HistoryEvent & {
 
 export type AgentStatusChangeEvent = {
   agentId: string;
+  /** Agent-wide aggregate status (streaming if any session is streaming). */
   status: "streaming" | "idle";
+  /** The specific session whose streaming state changed. */
+  sessionId: string;
+  /** Streaming status of that specific session. */
+  sessionStatus: "streaming" | "idle";
 };
 
 export type ProjectFileChangedEvent = {
