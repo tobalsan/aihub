@@ -502,6 +502,11 @@ export const TelegramExtensionConfigSchema = z.object({
   token: SecretRefSchema,
   allowedUsers: TelegramAllowlistSchema.optional(),
   allowedChats: TelegramAllowlistSchema.optional(),
+  // Opt-in tool-call visibility: when true, concise one-line notes about the
+  // agent's tool calls/actions are surfaced in the chat as the turn progresses
+  // (for auditability). OFF by default so chats stay clean — only the agent's
+  // reply is shown. Operators flip this per deployment without code changes.
+  showToolCalls: z.boolean().optional(),
 });
 export type TelegramExtensionConfig = z.infer<
   typeof TelegramExtensionConfigSchema
@@ -512,6 +517,9 @@ export const TelegramAgentConfigSchema = z.object({
   token: SecretRefSchema,
   allowedUsers: TelegramAllowlistSchema.optional(),
   allowedChats: TelegramAllowlistSchema.optional(),
+  // Per-agent opt-in tool-call visibility; see TelegramExtensionConfigSchema.
+  // OFF by default.
+  showToolCalls: z.boolean().optional(),
 });
 export type TelegramAgentConfig = z.infer<typeof TelegramAgentConfigSchema>;
 

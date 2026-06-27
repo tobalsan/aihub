@@ -10,6 +10,7 @@ import {
   handleTelegramMessage,
   type TelegramAllowlistConfig,
   type TelegramMessageData,
+  type TelegramTurnOptions,
 } from "./handlers/message.js";
 import { getTelegramContext } from "./context.js";
 import { isTransientError, withRetry } from "./utils/retry.js";
@@ -163,7 +164,8 @@ function createBot(
   token: string,
   agent: AgentConfig,
   agentId: string = agent.id,
-  allowlist: TelegramAllowlistConfig = {}
+  allowlist: TelegramAllowlistConfig = {},
+  turnOptions: TelegramTurnOptions = {}
 ): TelegramBot {
   const bot = new Bot(token);
   const logPrefix = `[telegram:${agentId}]`;
@@ -202,7 +204,8 @@ function createBot(
         collectAttachments: (media) =>
           collectAttachments(ctx, media, token, logPrefix),
       },
-      allowlist
+      allowlist,
+      turnOptions
     );
   };
 
@@ -280,17 +283,29 @@ export function createTelegramBot(
   // Register the shared component bot under the literal "telegram" id (mirrors
   // the discord/slack house style), so proactive tools can resolve it via
   // getActiveBot("telegram").
-  return createBot(componentConfig.token, agent, "telegram", {
-    allowedUsers: componentConfig.allowedUsers,
-    allowedChats: componentConfig.allowedChats,
-  });
+  return createBot(
+    componentConfig.token,
+    agent,
+    "telegram",
+    {
+      allowedUsers: componentConfig.allowedUsers,
+      allowedChats: componentConfig.allowedChats,
+    },
+    { showToolCalls: componentConfig.showToolCalls }
+  );
 }
 
 export function createTelegramAgentBot(agent: AgentConfig): TelegramBot | null {
   const config = agent.telegram as TelegramAgentConfig | undefined;
   if (!config?.token) return null;
-  return createBot(config.token, agent, agent.id, {
-    allowedUsers: config.allowedUsers,
-    allowedChats: config.allowedChats,
-  });
+  return createBot(
+    config.token,
+    agent,
+    agent.id,
+    {
+      allowedUsers: config.allowedUsers,
+      allowedChats: config.allowedChats,
+    },
+    { showToolCalls: config.showToolCalls }
+  );
 }

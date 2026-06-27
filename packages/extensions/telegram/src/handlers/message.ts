@@ -9,6 +9,7 @@ import {
 import { splitMessage, TELEGRAM_MAX } from "../utils/chunk.js";
 import { renderMarkdown } from "../utils/render.js";
 import { StreamCoalescer } from "../utils/stream.js";
+import { ToolNotes } from "../utils/tool-notes.js";
 import { TypingKeepAlive, type SendTyping } from "../utils/typing.js";
 import type { TelegramMediaItem } from "../utils/attachments.js";
 
@@ -44,6 +45,16 @@ export type TelegramMessageData = {
 export type TelegramAllowlistConfig = {
   allowedUsers?: AllowlistEntry[];
   allowedChats?: AllowlistEntry[];
+};
+
+/**
+ * Per-turn behavior options resolved from config. `showToolCalls` opts the chat
+ * into seeing concise one-line notes about the agent's tool calls/actions as the
+ * turn progresses (auditability). OFF by default so the chat only sees the
+ * agent's reply; operators enable it per chat/config without code changes.
+ */
+export type TelegramTurnOptions = {
+  showToolCalls?: boolean;
 };
 
 export type TelegramReplyTarget = {
@@ -162,7 +173,8 @@ export async function handleTelegramMessage(
   target: TelegramReplyTarget,
   send: TelegramSend,
   hooks: TelegramHandlerHooks = {},
-  allowlist: TelegramAllowlistConfig = {}
+  allowlist: TelegramAllowlistConfig = {},
+  options: TelegramTurnOptions = {}
 ): Promise<void> {
   const result = processMessage(data, allowlist);
   if (!result.shouldReply) {
@@ -219,6 +231,31 @@ export async function handleTelegramMessage(
     : null;
   typing?.start();
 
+  // Opt-in tool-call visibility (ALG-288): when enabled, surface concise
+  // one-line notes about the agent's tool calls/actions during the turn,
+  // coalesced/throttled so they don't flood the chat. OFF by default — the chat
+  // then only sees the agent's reply. Notes are posted as their own plain-text
+  // messages, separate from the streaming reply preview, so an operator can
+  // audit what the agent did without the notes contaminating the rendered
+  // answer.
+  const toolNotesEnabled = options.showToolCalls === true;
+  const toolNotes = toolNotesEnabled ? new ToolNotes() : null;
+  // Serialize note sends so batches arrive in order and never race the reply.
+  let noteChain: Promise<void> = Promise.resolve();
+  const flushToolNotes = (text: string): Promise<void> => {
+    noteChain = noteChain.then(async () => {
+      try {
+        await send(text);
+        // A delivered message clears Telegram's typing bubble.
+        typing?.poke();
+      } catch (err) {
+        // Audit notes are best-effort; a failed send must not abort the turn.
+        console.debug(`${target.logPrefix} Tool-call note send failed:`, err);
+      }
+    });
+    return noteChain;
+  };
+
   // Live streaming preview: coalesce text deltas and progressively edit a
   // single message at natural breakpoints. Disabled when no edit hook is wired
   // (the final clean render is still sent either way).
@@ -269,15 +306,32 @@ export async function handleTelegramMessage(
       sessionKey,
       source: "telegram",
       context,
-      onEvent: streamingEnabled
-        ? (event) => {
-            if (event.type !== "text") return;
-            coalescer.push(event.data);
-            const edit = coalescer.takeEdit();
-            if (edit) void surface(edit.text);
-          }
-        : undefined,
+      onEvent:
+        streamingEnabled || toolNotes
+          ? (event) => {
+              if (event.type === "text") {
+                if (!streamingEnabled) return;
+                coalescer.push(event.data);
+                const edit = coalescer.takeEdit();
+                if (edit) void surface(edit.text);
+                return;
+              }
+              if (toolNotes) {
+                toolNotes.push(event);
+                const flush = toolNotes.takeFlush();
+                if (flush) void flushToolNotes(flush.text);
+              }
+            }
+          : undefined,
     });
+
+    // Drain any remaining tool-call notes so the audit trail is complete before
+    // the reply is finalized, and so the note chain can't outlive the turn.
+    if (toolNotes) {
+      const finalNotes = toolNotes.takeFinal();
+      if (finalNotes) void flushToolNotes(finalNotes.text);
+      await noteChain;
+    }
 
     if (agentResult.meta.queued) {
       // Drain any in-flight preview writes before returning so the chain can't

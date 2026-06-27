@@ -446,6 +446,147 @@ describe("handleTelegramMessage", () => {
     });
   });
 
+  describe("opt-in tool-call visibility", () => {
+    // A runAgent mock that fires the given tool events through onEvent, then
+    // resolves with a final reply payload.
+    function toolEventRunAgent(
+      events: Array<Record<string, unknown>>,
+      finalText = "done"
+    ) {
+      return vi.fn().mockImplementation(async (params) => {
+        for (const e of events) {
+          params.onEvent?.(e);
+          await Promise.resolve();
+        }
+        return {
+          payloads: [{ text: finalText }],
+          meta: { durationMs: 1, sessionId: "s1" },
+        };
+      });
+    }
+
+    const toolEvents = [
+      {
+        type: "tool_call",
+        id: "1",
+        name: "search_files",
+        arguments: { path: "a.ts" },
+      },
+      {
+        type: "tool_result",
+        id: "1",
+        name: "search_files",
+        content: "ok",
+        isError: false,
+      },
+    ];
+
+    it("surfaces one-line tool-call notes only when enabled", async () => {
+      const runAgent = toolEventRunAgent(toolEvents, "the reply");
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(1);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll,
+        { showToolCalls: true }
+      );
+
+      const noteSends = send.mock.calls.filter(
+        ([text]) => typeof text === "string" && text.includes("search_files")
+      );
+      expect(noteSends.length).toBeGreaterThan(0);
+      // Notes are plain text (no parse mode).
+      for (const call of noteSends) expect(call[1]).toBeUndefined();
+      // Both the call and its result are surfaced as one-line notes.
+      const combined = noteSends.map(([t]) => t).join("\n");
+      expect(combined).toContain("\uD83D\uDD27 search_files (a.ts)");
+      expect(combined).toContain("\u2713 search_files");
+    });
+
+    it("is OFF by default \u2014 no tool-call output, only the reply", async () => {
+      const runAgent = toolEventRunAgent(toolEvents, "just the reply");
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(1);
+
+      // No options arg at all: visibility must default to off.
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll
+      );
+
+      // No note ever mentions a tool name.
+      const anyNote = send.mock.calls.some(
+        ([text]) => typeof text === "string" && text.includes("search_files")
+      );
+      expect(anyNote).toBe(false);
+      // The agent's reply is still delivered.
+      const reply = send.mock.calls.find(
+        ([text]) =>
+          typeof text === "string" && text.includes("just the reply")
+      );
+      expect(reply).toBeDefined();
+    });
+
+    it("explicit showToolCalls: false behaves like the default (off)", async () => {
+      const runAgent = toolEventRunAgent(toolEvents, "reply");
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(1);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll,
+        { showToolCalls: false }
+      );
+
+      const anyNote = send.mock.calls.some(
+        ([text]) => typeof text === "string" && text.includes("search_files")
+      );
+      expect(anyNote).toBe(false);
+    });
+
+    it("coalesces a burst of tool calls into far fewer note messages", async () => {
+      const burst = Array.from({ length: 12 }, (_, i) => ({
+        type: "tool_call" as const,
+        id: String(i),
+        name: `tool_${i}`,
+        arguments: {},
+      }));
+      const runAgent = toolEventRunAgent(burst, "reply");
+      setTelegramContext({ runAgent } as never);
+      const send = vi.fn().mockResolvedValue(1);
+
+      await handleTelegramMessage(
+        makeData(),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll,
+        { showToolCalls: true }
+      );
+
+      const noteSends = send.mock.calls.filter(
+        ([text]) => typeof text === "string" && text.includes("\uD83D\uDD27 tool_")
+      );
+      // Twelve tool calls must not produce twelve messages.
+      expect(noteSends.length).toBeLessThan(burst.length);
+      // Every tool call still appears somewhere across the batched notes.
+      const combined = noteSends.map(([t]) => t).join("\n");
+      for (let i = 0; i < burst.length; i++) {
+        expect(combined).toContain(`\uD83D\uDD27 tool_${i}`);
+      }
+    });
+  });
+
   it("sends an error message when the run throws", async () => {
     const runAgent = vi.fn().mockRejectedValue(new Error("boom"));
     setTelegramContext({ runAgent } as never);
