@@ -762,4 +762,155 @@ describe("handleTelegramMessage", () => {
       vi.useRealTimers();
     }
   });
+
+  describe("reset commands", () => {
+    function resetContext() {
+      const runAgent = vi.fn();
+      const clearSessionEntry = vi.fn().mockResolvedValue({
+        sessionId: "old-session",
+        updatedAt: 1,
+        createdAt: 1,
+      });
+      const deleteSession = vi.fn();
+      const invalidateHistoryCache = vi.fn().mockResolvedValue(undefined);
+      setTelegramContext({
+        runAgent,
+        clearSessionEntry,
+        deleteSession,
+        invalidateHistoryCache,
+      } as never);
+      return {
+        runAgent,
+        clearSessionEntry,
+        deleteSession,
+        invalidateHistoryCache,
+      };
+    }
+
+    it("clears the DM session and confirms without running the agent", async () => {
+      const ctx = resetContext();
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData({ text: "/new" }),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll
+      );
+
+      expect(ctx.clearSessionEntry).toHaveBeenCalledWith(
+        "main",
+        DEFAULT_MAIN_KEY
+      );
+      expect(ctx.deleteSession).toHaveBeenCalledWith("main", "old-session");
+      expect(ctx.invalidateHistoryCache).toHaveBeenCalledWith(
+        "main",
+        "old-session"
+      );
+      expect(ctx.runAgent).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith("Context cleared, new session started.");
+    });
+
+    it("clears the shared group session for a /new in a group chat", async () => {
+      const ctx = resetContext();
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData({
+          chatId: -100200,
+          chatType: "supergroup",
+          isAddressed: true,
+          text: "/new@my_bot",
+        }),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        { allowedUsers: [42], allowedChats: [-100200] }
+      );
+
+      expect(ctx.clearSessionEntry).toHaveBeenCalledWith(
+        "main",
+        "telegram:-100200"
+      );
+      expect(ctx.runAgent).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith("Context cleared, new session started.");
+    });
+
+    it("treats /reset as a reset command", async () => {
+      const ctx = resetContext();
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData({ text: "/reset" }),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll
+      );
+
+      expect(ctx.clearSessionEntry).toHaveBeenCalled();
+      expect(ctx.runAgent).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith("Context cleared, new session started.");
+    });
+
+    it("still confirms when there is no existing session to clear", async () => {
+      const ctx = resetContext();
+      ctx.clearSessionEntry.mockResolvedValue(undefined);
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData({ text: "/new" }),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll
+      );
+
+      expect(ctx.deleteSession).not.toHaveBeenCalled();
+      expect(send).toHaveBeenCalledWith("Context cleared, new session started.");
+    });
+
+    it("surfaces a friendly error when clearing the session fails", async () => {
+      const ctx = resetContext();
+      ctx.clearSessionEntry.mockRejectedValue(new Error("boom"));
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData({ text: "/new" }),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll
+      );
+
+      expect(send).toHaveBeenCalledWith(
+        "Sorry, I couldn't start a new session. Please try again."
+      );
+      expect(ctx.runAgent).not.toHaveBeenCalled();
+    });
+
+    it("does not treat a message that merely starts with new as a reset", async () => {
+      const runAgent = vi.fn().mockResolvedValue({
+        payloads: [{ text: "ok" }],
+        meta: { durationMs: 1, sessionId: "s1" },
+      });
+      const clearSessionEntry = vi.fn();
+      setTelegramContext({ runAgent, clearSessionEntry } as never);
+      const send = vi.fn().mockResolvedValue(undefined);
+
+      await handleTelegramMessage(
+        makeData({ text: "/news please" }),
+        { agent, logPrefix: "[t]" },
+        send,
+        {},
+        allowAll
+      );
+
+      expect(clearSessionEntry).not.toHaveBeenCalled();
+      expect(runAgent).toHaveBeenCalledWith(
+        expect.objectContaining({ message: "/news please" })
+      );
+    });
+  });
 });
