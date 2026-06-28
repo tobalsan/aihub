@@ -15,6 +15,8 @@ export type TypingKeepAliveOptions = {
  *
  * - `start()` sends an immediate typing action and begins a keep-alive loop that
  *   refreshes it on a fixed cadence so the bubble never lapses during a long turn.
+ *   It resolves once that first action has been dispatched, so the caller can
+ *   await it to guarantee the indicator precedes the turn's first reply.
  * - `poke()` re-triggers typing immediately (used after each intermediate send,
  *   since delivering a message clears Telegram's typing bubble).
  * - `stop()` halts the loop promptly; it is safe to call on turn done or error
@@ -34,10 +36,15 @@ export class TypingKeepAlive {
     return this.timer !== null;
   }
 
-  start(): void {
-    if (this.timer) return;
-    this.fire();
+  start(): Promise<void> {
+    if (this.timer) return Promise.resolve();
+    // Await the first action so the bubble is dispatched before the turn's first
+    // reply. On a fast (warm) turn the run completes before the keep-alive
+    // interval ever fires, so this initial send is the only thing that makes the
+    // indicator appear; dispatching it up front keeps it from racing the reply.
+    const first = this.fire();
     this.timer = setInterval(() => this.fire(), this.intervalMs);
+    return first;
   }
 
   /** Re-trigger typing immediately (e.g. after an intermediate send). */
@@ -52,17 +59,18 @@ export class TypingKeepAlive {
     this.timer = null;
   }
 
-  private fire(): void {
+  private fire(): Promise<void> {
     try {
       const result = this.send();
       if (result instanceof Promise) {
-        result.catch(() => {
-          // Typing is best-effort; ignore transient API errors.
-        });
+        // Typing is best-effort; ignore transient API errors but let callers
+        // await dispatch so the first action can precede the reply.
+        return result.catch(() => {});
       }
     } catch {
       // Typing is best-effort; ignore synchronous errors.
     }
+    return Promise.resolve();
   }
 }
 

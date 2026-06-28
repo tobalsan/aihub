@@ -20,6 +20,42 @@ describe("TypingKeepAlive", () => {
     expect(typing.active).toBe(true);
   });
 
+  it("resolves start() only after the first action is dispatched", async () => {
+    let resolveSend: () => void = () => {};
+    const send = vi.fn(
+      () =>
+        new Promise<void>((resolve) => {
+          resolveSend = resolve;
+        })
+    );
+    const typing = new TypingKeepAlive(send);
+
+    let settled = false;
+    const started = typing.start().then(() => {
+      settled = true;
+    });
+
+    expect(send).toHaveBeenCalledTimes(1);
+    // Not yet settled: the initial typing POST is still in flight.
+    await Promise.resolve();
+    expect(settled).toBe(false);
+
+    resolveSend();
+    await started;
+    expect(settled).toBe(true);
+
+    typing.stop();
+  });
+
+  it("start() resolves even when the first action rejects", async () => {
+    const send = vi.fn().mockRejectedValue(new Error("api down"));
+    const typing = new TypingKeepAlive(send);
+
+    await expect(typing.start()).resolves.toBeUndefined();
+
+    typing.stop();
+  });
+
   it("refreshes on the keep-alive cadence while active", () => {
     const send = vi.fn();
     const typing = new TypingKeepAlive(send);
