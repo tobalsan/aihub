@@ -267,7 +267,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     reasoning?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh",  // Primary lead-agent thinking config
     thinkLevel?: "off"|"minimal"|"low"|"medium"|"high"|"xhigh", // Deprecated alias
     queueMode?: "queue"|"interrupt",  // Default: queue
-    discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, broadcastToChannel?, ... },
+    discord?: { token, applicationId?, dm?, groupPolicy?, guilds?, historyLimit?, replyToMode?, broadcastToChannel?, showToolCalls?, ... },
     webhooks?: Record<string, { prompt: string, langfuseTracing?: boolean, signingSecret?: string, verification?: { location: "header"|"payload", fieldName: string }, maxPayloadSize?: number }>,
     heartbeat?: { every?, prompt?, ackMaxChars? },
     amsg?: { id?, enabled? },
@@ -314,7 +314,7 @@ All stored under `AIHUB_HOME` (default `~/.aihub/`):
     ca?: { source: "file", path: string } | { source: "system" },
   },
   components?: {
-    discord?: { enabled?, token, channels?, dm?, historyLimit?, replyToMode? },
+    discord?: { enabled?, token, channels?, dm?, historyLimit?, replyToMode?, showToolCalls? },
     scheduler?: { enabled? },
     heartbeat?: { enabled? },
     amsg?: { enabled? },
@@ -575,7 +575,8 @@ discord: {
   replyToMode?: "off"|"all"|"first", // Default: off
   mentionPatterns?: string[],       // Regex patterns to trigger bot
   forumChannels?: string[],         // Discord forum channel IDs subscribed by this agent
-  broadcastToChannel?: string       // Broadcast main session to channel
+  broadcastToChannel?: string,      // Broadcast main session to channel
+  showToolCalls?: boolean           // Stream batched tool-call notes during a turn (default: off)
 }
 ```
 
@@ -584,6 +585,7 @@ discord: {
 - **Message gating**: Bot filter, DM/guild/channel allowlists, mention requirement, user allowlists
 - **Context enrichment**: Channel topic, thread starter, message history (ring buffer)
 - **Reactions**: `reactionNotifications` modes: off, all, own (bot's messages), allowlist
+- **Tool-call visibility** (ALG-292): `showToolCalls?: boolean` on both component (`extensions.discord`) and per-agent (`agent.discord`) config, off by default. When enabled, the agent's `tool_call`/`tool_result` stream events surface as concise one-line plain-text notes posted live in the channel/thread, coalesced into throttled batches (≥1.5s, or 8-note ceiling) and drained before the final reply (which still posts last, in order). Applies to plain channels and forum threads. Mirrors the Telegram option (ALG-288).
 - **Slash commands**: `/new`, `/abort`, `/help`, `/ping` (when `applicationId` set)
 - **Forum channels**: `agent.discord.forumChannels` lists Discord forum parent channel IDs for inbound thread workflows. Newly created subscribed threads spawn one fresh `discord:forum:<threadId>:<agentId>` session per subscribed agent, post the reply in the thread, and persist `(threadId, sessionId, agentId, channelId)`. Later user replies in bound threads resume the stored session; missing bindings fall back to the new-thread path with duplicate-spawn suppression.
 - **Agent tools**: `discord.create_forum_thread(channel_id, title, body)`, `discord.send_message`, `discord.list_channels`, and `discord.list_users` let scheduled/proactive agents create bound forum handoff threads, discover reachable Discord targets, and send channel or DM messages without waiting for inbound Discord events. The tools prefer a running bot client and fall back to the configured bot token.

@@ -28,6 +28,7 @@ import { splitMessage } from "./utils/chunk.js";
 import { startTyping, stopAllTyping } from "./utils/typing.js";
 import { getDiscordContext } from "./context.js";
 import { getForumSubscribers } from "./forum-subscribers.js";
+import { ToolNotes } from "./utils/tool-notes.js";
 import { createThreadSessionBindingStore } from "./thread-session-bindings.js";
 
 export type DiscordBot = {
@@ -162,6 +163,23 @@ async function sendDiscordReply(
   }
 }
 
+/**
+ * Post a plain tool-call note message (ALG-292). Unlike replies, notes carry no
+ * message_reference — they're standalone audit lines surfaced while a turn runs.
+ * Long batches are split to respect Discord's per-message length limit.
+ */
+async function sendDiscordToolNote(
+  client: CarbonClient,
+  channelId: string,
+  text: string
+): Promise<void> {
+  for (const chunk of splitMessage(text)) {
+    await client.rest.post(`/channels/${channelId}/messages`, {
+      body: { content: chunk },
+    });
+  }
+}
+
 async function sendDiscordError(
   client: CarbonClient,
   channelId: string,
@@ -282,6 +300,26 @@ async function handleDiscordMessage(
   let accumulatedText = "";
   let replyHandled = false;
 
+  // Opt-in tool-call visibility (ALG-292): when enabled, surface concise
+  // one-line notes about the agent's tool calls during the turn, coalesced so
+  // they don't flood the channel. OFF by default. Notes are posted as their own
+  // plain messages, serialized so batches arrive in order and the final reply
+  // posts only after the notes drain.
+  const toolNotes =
+    target.config.showToolCalls === true ? new ToolNotes() : null;
+  let noteChain: Promise<void> = Promise.resolve();
+  const flushToolNotes = (text: string): Promise<void> => {
+    noteChain = noteChain.then(async () => {
+      try {
+        await sendDiscordToolNote(client, data.channel_id, text);
+      } catch (err) {
+        // Audit notes are best-effort; a failed send must not abort the turn.
+        console.debug(`${target.logPrefix} Tool-call note send failed:`, err);
+      }
+    });
+    return noteChain;
+  };
+
   getDiscordContext()
     .runAgent({
       agentId: target.agent.id,
@@ -302,16 +340,26 @@ async function handleDiscordMessage(
             return;
           }
           replyHandled = true;
+          // Drain any remaining tool-call notes before the reply so the audit
+          // trail is complete and ordered ahead of the final answer.
+          if (toolNotes) {
+            const finalNotes = toolNotes.takeFinal();
+            if (finalNotes) void flushToolNotes(finalNotes.text);
+          }
           if (accumulatedText) {
-            sendDiscordReply(
-              client,
-              data.channel_id,
-              [{ text: accumulatedText }],
-              replyToMode,
-              data.id
-            ).catch((err) => {
-              console.error(`${target.logPrefix} Reply error:`, err);
-            });
+            noteChain
+              .then(() =>
+                sendDiscordReply(
+                  client,
+                  data.channel_id,
+                  [{ text: accumulatedText }],
+                  replyToMode,
+                  data.id
+                )
+              )
+              .catch((err) => {
+                console.error(`${target.logPrefix} Reply error:`, err);
+              });
           }
           if (clearHistoryAfterReply) {
             clearHistory(data.channel_id);
@@ -324,6 +372,12 @@ async function handleDiscordMessage(
           sendDiscordError(client, data.channel_id, replyToMode, data.id).catch((err) => {
             console.error(`${target.logPrefix} Error reply failed:`, err);
           });
+          return;
+        }
+        if (toolNotes) {
+          toolNotes.push(event);
+          const flush = toolNotes.takeFlush();
+          if (flush) void flushToolNotes(flush.text);
         }
       },
     })
@@ -448,6 +502,23 @@ async function handleForumThreadOpening(
   let accumulatedText = "";
   let replyHandled = false;
 
+  // Opt-in tool-call visibility (ALG-292): batched one-line tool-call notes,
+  // OFF by default. Posted as plain thread messages, serialized so the final
+  // reply posts only after the notes drain.
+  const toolNotes =
+    target.config.showToolCalls === true ? new ToolNotes() : null;
+  let noteChain: Promise<void> = Promise.resolve();
+  const flushToolNotes = (text: string): Promise<void> => {
+    noteChain = noteChain.then(async () => {
+      try {
+        await sendDiscordToolNote(client, threadId, text);
+      } catch (err) {
+        console.debug(`${target.logPrefix} Tool-call note send failed:`, err);
+      }
+    });
+    return noteChain;
+  };
+
   getDiscordContext()
     .runAgent({
       agentId: target.agent.id,
@@ -467,16 +538,24 @@ async function handleForumThreadOpening(
             return;
           }
           replyHandled = true;
+          if (toolNotes) {
+            const finalNotes = toolNotes.takeFinal();
+            if (finalNotes) void flushToolNotes(finalNotes.text);
+          }
           if (accumulatedText) {
-            sendDiscordReply(
-              client,
-              threadId,
-              [{ text: accumulatedText }],
-              target.config.replyToMode ?? "off",
-              data.id
-            ).catch((err) => {
-              console.error(`${target.logPrefix} Forum thread reply error:`, err);
-            });
+            noteChain
+              .then(() =>
+                sendDiscordReply(
+                  client,
+                  threadId,
+                  [{ text: accumulatedText }],
+                  target.config.replyToMode ?? "off",
+                  data.id
+                )
+              )
+              .catch((err) => {
+                console.error(`${target.logPrefix} Forum thread reply error:`, err);
+              });
           }
           return;
         }
@@ -491,6 +570,12 @@ async function handleForumThreadOpening(
           ).catch((err) => {
             console.error(`${target.logPrefix} Forum thread error reply failed:`, err);
           });
+          return;
+        }
+        if (toolNotes) {
+          toolNotes.push(event);
+          const flush = toolNotes.takeFlush();
+          if (flush) void flushToolNotes(flush.text);
         }
       },
     })
@@ -566,6 +651,23 @@ async function handleForumThreadReply(
   let replyHandled = false;
   let discordToolPostedToThread = false;
 
+  // Opt-in tool-call visibility (ALG-292): batched one-line tool-call notes,
+  // OFF by default. Posted as plain thread messages, serialized so the final
+  // reply posts only after the notes drain.
+  const toolNotes =
+    target.config.showToolCalls === true ? new ToolNotes() : null;
+  let noteChain: Promise<void> = Promise.resolve();
+  const flushToolNotes = (text: string): Promise<void> => {
+    noteChain = noteChain.then(async () => {
+      try {
+        await sendDiscordToolNote(client, threadId, text);
+      } catch (err) {
+        console.debug(`${target.logPrefix} Tool-call note send failed:`, err);
+      }
+    });
+    return noteChain;
+  };
+
   getDiscordContext()
     .runAgent({
       agentId: target.agent.id,
@@ -589,16 +691,24 @@ async function handleForumThreadReply(
             return;
           }
           replyHandled = true;
+          if (toolNotes) {
+            const finalNotes = toolNotes.takeFinal();
+            if (finalNotes) void flushToolNotes(finalNotes.text);
+          }
           if (accumulatedText && !discordToolPostedToThread) {
-            sendDiscordReply(
-              client,
-              threadId,
-              [{ text: accumulatedText }],
-              target.config.replyToMode ?? "off",
-              data.id
-            ).catch((err) => {
-              console.error(`${target.logPrefix} Forum thread reply error:`, err);
-            });
+            noteChain
+              .then(() =>
+                sendDiscordReply(
+                  client,
+                  threadId,
+                  [{ text: accumulatedText }],
+                  target.config.replyToMode ?? "off",
+                  data.id
+                )
+              )
+              .catch((err) => {
+                console.error(`${target.logPrefix} Forum thread reply error:`, err);
+              });
           }
           return;
         }
@@ -613,6 +723,12 @@ async function handleForumThreadReply(
           ).catch((err) => {
             console.error(`${target.logPrefix} Forum thread error reply failed:`, err);
           });
+          return;
+        }
+        if (toolNotes) {
+          toolNotes.push(event);
+          const flush = toolNotes.takeFlush();
+          if (flush) void flushToolNotes(flush.text);
         }
       },
     })
@@ -1259,6 +1375,7 @@ function buildDiscordRouteConfig(
     replyToMode: componentConfig.replyToMode ?? "off",
     mentionPatterns: componentConfig.mentionPatterns,
     broadcastToChannel: componentConfig.broadcastToChannel,
+    showToolCalls: componentConfig.showToolCalls,
   };
 }
 
@@ -1275,6 +1392,7 @@ function buildDiscordDmRouteConfig(
     replyToMode: componentConfig.replyToMode ?? "off",
     mentionPatterns: componentConfig.mentionPatterns,
     broadcastToChannel: componentConfig.broadcastToChannel,
+    showToolCalls: componentConfig.showToolCalls,
   };
 }
 

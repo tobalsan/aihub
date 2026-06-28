@@ -94,6 +94,11 @@ export const DiscordConfigSchema = z.object({
 
   // AIHub-only: Discord forum channels this agent subscribes to.
   forumChannels: z.array(z.string().min(1)).optional(),
+
+  // Opt-in tool-call visibility (ALG-292): surface the agent's tool calls as
+  // live, batched plain-text notes in the channel/thread during a turn. Off
+  // when absent/false. Mirrors the Telegram option (ALG-288).
+  showToolCalls: z.boolean().optional(),
 });
 export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
 
@@ -429,6 +434,11 @@ export const DiscordExtensionConfigSchema = z.object({
   mentionPatterns: z.array(z.string()).optional(),
   broadcastToChannel: z.string().optional(),
   clearHistoryAfterReply: z.boolean().optional(),
+
+  // Opt-in tool-call visibility (ALG-292): surface the agent's tool calls as
+  // live, batched plain-text notes in the channel/thread during a turn. Off
+  // when absent/false. Mirrors the Telegram option (ALG-288).
+  showToolCalls: z.boolean().optional(),
 });
 export type DiscordExtensionConfig = z.infer<
   typeof DiscordExtensionConfigSchema

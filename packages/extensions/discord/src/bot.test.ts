@@ -1088,6 +1088,108 @@ describe("Discord bot integration", () => {
       );
     });
   });
+
+  describe("opt-in tool-call visibility (ALG-292)", () => {
+    const sendMessage = async () => {
+      capturedHandlers.onReady?.(
+        { user: { id: "bot-123", username: "TestBot" } },
+        mockClient
+      );
+      await capturedHandlers.onMessage?.(
+        {
+          id: "msg-1",
+          content: "Hello",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+        },
+        mockClient
+      );
+      await flushPromises();
+    };
+
+    const postedContents = () =>
+      (mockClient.rest.post.mock.calls as unknown as Array<
+        [string, { body: { content: string } }]
+      >)
+        .filter(([url]) => url === "/channels/channel-1/messages")
+        .map(([, opts]) => opts.body.content);
+
+    it("streams tool-call notes then the reply when showToolCalls=true", async () => {
+      mockRunAgent.mockImplementation(
+        (params: { onEvent?: (event: unknown) => void }) => {
+          params.onEvent?.({ type: "text", data: "Final answer" });
+          params.onEvent?.({
+            type: "tool_call",
+            id: "t1",
+            name: "search_files",
+            arguments: { path: "src/index.ts" },
+          });
+          params.onEvent?.({
+            type: "tool_result",
+            id: "t1",
+            name: "search_files",
+            content: "ok",
+            isError: false,
+          });
+          params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+          return Promise.resolve({
+            payloads: [{ text: "Final answer" }],
+            meta: { durationMs: 100, sessionId: "test-session" },
+          });
+        }
+      );
+
+      const agent = createTestAgent({
+        guilds: {
+          "guild-1": { requireMention: false, reactionNotifications: "off" },
+        },
+        showToolCalls: true,
+      });
+      await createDiscordBot(agent);
+      await sendMessage();
+
+      const contents = postedContents();
+      // A tool-call note surfaces, then the final reply posts last.
+      expect(contents).toContain("🔧 search_files (src/index.ts)");
+      expect(contents).toContain("Final answer");
+      expect(contents.indexOf("🔧 search_files (src/index.ts)")).toBeLessThan(
+        contents.indexOf("Final answer")
+      );
+    });
+
+    it("posts no tool-call notes when showToolCalls is absent", async () => {
+      mockRunAgent.mockImplementation(
+        (params: { onEvent?: (event: unknown) => void }) => {
+          params.onEvent?.({ type: "text", data: "Final answer" });
+          params.onEvent?.({
+            type: "tool_call",
+            id: "t1",
+            name: "search_files",
+            arguments: { path: "src/index.ts" },
+          });
+          params.onEvent?.({ type: "done", meta: { durationMs: 100 } });
+          return Promise.resolve({
+            payloads: [{ text: "Final answer" }],
+            meta: { durationMs: 100, sessionId: "test-session" },
+          });
+        }
+      );
+
+      const agent = createTestAgent({
+        guilds: {
+          "guild-1": { requireMention: false, reactionNotifications: "off" },
+        },
+      });
+      await createDiscordBot(agent);
+      await sendMessage();
+
+      const contents = postedContents();
+      expect(contents).toEqual(["Final answer"]);
+      expect(contents.some((c) => c.startsWith("🔧"))).toBe(false);
+    });
+  });
 });
 
 /**
