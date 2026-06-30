@@ -120,6 +120,63 @@ function isDirectMessage(chatType: string): boolean {
 }
 
 /**
+ * Control commands the bot handles itself instead of forwarding to the agent.
+ * `/new` (and its `/reset` alias) start a fresh session. These mirror the
+ * gateway's reset triggers, but we intercept them here so Telegram gets an
+ * immediate confirmation — matching the Slack/Discord experience — rather than
+ * forwarding an empty post-reset message to the agent (which surfaces as the
+ * confusing "Sorry, I encountered an error processing your message.").
+ */
+const RESET_COMMANDS = ["/new", "/reset"];
+
+/**
+ * Resolve the session key for a chat: DMs use the agent's main session
+ * (isolated per user, matching discord/slack DM handling); group chats use a
+ * shared per-chat key so the whole channel shares one conversation.
+ */
+function resolveSessionKey(data: TelegramMessageData): string {
+  return isDirectMessage(data.chatType)
+    ? DEFAULT_MAIN_KEY
+    : `telegram:${data.chatId}`;
+}
+
+/**
+ * Detect a reset control command. Telegram appends `@botname` to commands sent
+ * in groups (e.g. `/new@my_bot`), so we strip that suffix before matching.
+ */
+function isResetCommand(text: string): boolean {
+  const command = text.trim().split(/\s+/)[0]?.split("@")[0]?.toLowerCase();
+  return command !== undefined && RESET_COMMANDS.includes(command);
+}
+
+/**
+ * Handle a `/new`/`/reset` command: clear the chat's session and confirm
+ * immediately. Clearing mirrors the Slack handler — drop the session entry,
+ * delete the underlying session, and invalidate its cached history — so the
+ * next message starts genuinely fresh.
+ */
+async function handleResetCommand(
+  data: TelegramMessageData,
+  target: TelegramReplyTarget,
+  send: TelegramSend
+): Promise<void> {
+  const ctx = getTelegramContext();
+  const sessionKey = resolveSessionKey(data);
+  try {
+    const cleared = await ctx.clearSessionEntry(target.agent.id, sessionKey);
+    if (cleared) {
+      ctx.deleteSession(target.agent.id, cleared.sessionId);
+      await ctx.invalidateHistoryCache(target.agent.id, cleared.sessionId);
+    }
+  } catch (err) {
+    console.error(`${target.logPrefix} Session reset failed:`, err);
+    await send("Sorry, I couldn't start a new session. Please try again.");
+    return;
+  }
+  await send("Context cleared, new session started.");
+}
+
+/**
  * Decide whether an inbound message should be handled.
  *
  * DMs (private chats) always run, matching the walking skeleton. Group chats
@@ -184,12 +241,20 @@ export async function handleTelegramMessage(
     return;
   }
 
+  // Intercept reset control commands (`/new`, `/reset`) before starting a turn:
+  // clear the session and confirm immediately, mirroring Slack/Discord, instead
+  // of forwarding the empty post-reset message to the agent.
+  if (isResetCommand(data.text)) {
+    await handleResetCommand(data, target, send);
+    return;
+  }
+
   // DMs resolve to the agent's main session (matching discord/slack DM
   // handling), keeping each person's DM isolated. Group chats resolve to a
   // shared per-chat session key so the whole channel contributes to one
   // collective conversation — the shared group brain.
   const isDm = isDirectMessage(data.chatType);
-  const sessionKey = isDm ? DEFAULT_MAIN_KEY : `telegram:${data.chatId}`;
+  const sessionKey = resolveSessionKey(data);
   const conversationType: ChannelConversationType = isDm
     ? "direct_message"
     : "channel_message";
