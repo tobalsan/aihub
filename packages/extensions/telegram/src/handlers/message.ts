@@ -229,7 +229,11 @@ export async function handleTelegramMessage(
   const typing = hooks.sendTyping
     ? new TypingKeepAlive(hooks.sendTyping)
     : null;
-  typing?.start();
+  // Await the first typing action so the indicator is dispatched before the
+  // agent run produces its first reply. On a warm session the run completes
+  // before the keep-alive interval fires, so without this the lone initial
+  // action would race (and lose to) the reply and the bubble would never show.
+  await typing?.start();
 
   // Opt-in tool-call visibility (ALG-288): when enabled, surface concise
   // one-line notes about the agent's tool calls/actions during the turn,
