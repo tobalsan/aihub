@@ -232,7 +232,8 @@ That binding is what lets a user's reply in the created forum thread resume the 
     "clearHistoryAfterReply": true,
     "replyToMode": "off | first | all",
     "mentionPatterns": ["hey bot", "^!agent"],
-    "broadcastToChannel": "CHANNEL_ID"
+    "broadcastToChannel": "CHANNEL_ID",
+    "showToolCalls": false
   }
 }
 ```
@@ -281,6 +282,10 @@ Controls whether bot responses use Discord's reply feature:
 | `off` (default) | Send as normal message                          |
 | `first`         | Reply to triggering message on first chunk only |
 | `all`           | Reply to triggering message on every chunk      |
+
+### showToolCalls
+
+Opt-in tool-call visibility (default: off). When `true`, the agent's tool calls are surfaced as concise one-line plain-text notes posted live in the channel/thread while a turn runs, coalesced into throttled batches (≥1.5s apart, or sooner once 8 notes pile up). Notes drain before the final reply, which still posts last in order. Available on both the component (`extensions.discord`) and per-agent (`agent.discord`) config; absent/false behaves exactly as today (no notes). Mirrors the Telegram option.
 
 ## Behavior Notes
 

@@ -877,7 +877,9 @@ Inbound Discord messages inject normalized channel context into the real agent s
 }
 ```
 
-See [docs/discord.md](docs/discord.md) for the full config reference including guild policies, reaction notifications, broadcast mode, per-channel settings, and slash commands.
+Set `"showToolCalls": true` (on `extensions.discord` or per-agent `agent.discord`) to stream the agent's tool calls as live, batched one-line notes in the channel/thread while a turn runs; off by default.
+
+See [docs/discord.md](docs/discord.md) for the full config reference including guild policies, reaction notifications, broadcast mode, per-channel settings, slash commands, and tool-call visibility.
 
 ### Slack
 
