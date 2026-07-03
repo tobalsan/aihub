@@ -21,6 +21,7 @@ function context(config: GatewayConfig): ExtensionContext {
   return {
     getConfig: () => config,
     getDataDir: () => os.tmpdir(),
+    reloadConfig: () => undefined,
     getAgent: (id) => config.agents.find((candidate) => candidate.id === id),
     getAgents: () => config.agents,
     isAgentActive: () => true,

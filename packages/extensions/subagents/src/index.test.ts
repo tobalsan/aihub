@@ -17,6 +17,7 @@ function context(
   return {
     getConfig: () => normalizedConfig,
     getDataDir: () => dataDir,
+    reloadConfig: () => undefined,
     getAgent: () => undefined,
     getAgents: () => [],
     isAgentActive: () => false,

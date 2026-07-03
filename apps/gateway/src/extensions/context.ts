@@ -11,6 +11,7 @@ import type {
 import {
   CONFIG_DIR,
   loadConfig,
+  reloadConfig,
   getAgent,
   getActiveAgents as getAgents,
   isAgentActive,
@@ -39,6 +40,7 @@ export function createExtensionContext(
   return {
     getConfig: () => loadConfig(),
     getDataDir: () => CONFIG_DIR,
+    reloadConfig: () => reloadConfig(),
     getAgent,
     getAgents,
     isAgentActive,

@@ -31,6 +31,7 @@ function createContext(params: {
         extensions: {},
       }),
     getDataDir: () => params.dataDir ?? "/tmp",
+    reloadConfig: () => undefined,
     getAgent: (id) => (params.agent?.id === id ? params.agent : undefined),
     getAgents: () => (params.agent ? [params.agent] : []),
     isAgentActive: (id) => params.agent?.id === id,

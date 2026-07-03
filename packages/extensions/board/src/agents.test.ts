@@ -24,6 +24,7 @@ function context(dataDir: string): ExtensionContext {
         // eslint-disable-next-line @typescript-eslint/no-explicit-any
       }) as any,
     getDataDir: () => dataDir,
+    reloadConfig: () => undefined,
     getAgent: () => undefined,
     getAgents: () => [],
     isAgentActive: () => false,

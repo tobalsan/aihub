@@ -73,6 +73,7 @@ async function setup() {
   setProjectsContext({
     getConfig: () => config,
     getDataDir: () => path.join(tmpDir!, ".aihub"),
+    reloadConfig: () => undefined,
     getAgents: () => [agent],
     getAgent: (id: string) => (id === agent.id ? agent : undefined),
     isAgentActive: (id: string) => id === agent.id,

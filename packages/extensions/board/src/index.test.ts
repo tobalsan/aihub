@@ -32,6 +32,7 @@ function context(
       },
     }),
     getDataDir: () => dataDir,
+    reloadConfig: () => undefined,
     getAgent: () => undefined,
     getAgents: () => [],
     isAgentActive: () => false,

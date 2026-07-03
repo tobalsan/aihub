@@ -916,6 +916,7 @@ export interface ExtensionContext {
   // Config
   getConfig(): GatewayConfig;
   getDataDir(): string;
+  reloadConfig(): void;
 
   // Agent access
   getAgent(id: string): AgentConfig | undefined;

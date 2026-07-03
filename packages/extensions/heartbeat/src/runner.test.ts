@@ -374,6 +374,7 @@ describe("loadHeartbeatPrompt", () => {
     module.setHeartbeatContext({
       getConfig: () => ({ agents: [] }) as never,
       getDataDir: () => "/tmp",
+      reloadConfig: () => undefined,
       getAgent: () => undefined,
       getAgents: () => [],
       isAgentActive: () => false,
@@ -560,6 +561,7 @@ const mockEmit = vi.fn();
 const mockSubscribe = vi.fn();
 const mockGetAgents = vi.fn();
 const mockGetDataDir = vi.fn();
+const mockReloadConfig = vi.fn();
 const mockIsAgentActive = vi.fn();
 const mockGetSubagentTemplates = vi.fn();
 const mockClearSessionEntry = vi.fn();
@@ -574,6 +576,7 @@ function createMockExtensionContext(): ExtensionContext {
   return {
     getConfig: mockGetConfig,
     getDataDir: mockGetDataDir,
+    reloadConfig: mockReloadConfig,
     getAgent: mockGetAgent,
     getAgents: mockGetAgents,
     isAgentActive: mockIsAgentActive,

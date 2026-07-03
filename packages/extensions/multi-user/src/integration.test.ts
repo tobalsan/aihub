@@ -145,6 +145,7 @@ describe("multi-user integration", () => {
       await multiUserExtension.start({
         getConfig: () => config,
         getDataDir: () => dir,
+        reloadConfig: () => undefined,
         getAgent: (agentId) =>
           config.agents.find((agent) => agent.id === agentId),
         getAgents: () => config.agents,
@@ -263,6 +264,7 @@ describe("multi-user integration", () => {
       await multiUserExtension.start({
         getConfig: () => config,
         getDataDir: () => dir,
+        reloadConfig: () => undefined,
         getAgent: (agentId) =>
           config.agents.find((agent) => agent.id === agentId),
         getAgents: () => config.agents,

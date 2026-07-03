@@ -22,6 +22,7 @@ function context(config: GatewayConfig, runAgent = vi.fn()): ExtensionContext {
   return {
     getConfig: () => config,
     getDataDir: () => os.tmpdir(),
+    reloadConfig: () => undefined,
     getAgent: (id) => config.agents.find((candidate) => candidate.id === id),
     getAgents: () => config.agents,
     isAgentActive: () => true,

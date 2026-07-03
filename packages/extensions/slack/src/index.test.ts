@@ -35,6 +35,7 @@ describe("slack extension", () => {
     return {
       getConfig: () => config,
       getDataDir: () => "/tmp",
+      reloadConfig: () => undefined,
       getAgent: (id: string) => config.agents.find((agent) => agent.id === id),
       getAgents: () => config.agents,
       isAgentActive: () => true,
