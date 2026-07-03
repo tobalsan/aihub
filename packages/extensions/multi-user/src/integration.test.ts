@@ -71,6 +71,13 @@ async function createTempHome(): Promise<{
   process.env.HOME = dir;
   process.env.USERPROFILE = dir;
 
+  const agentDir = path.join(dir, "agents", "main");
+  await fs.mkdir(agentDir, { recursive: true });
+  await fs.writeFile(
+    path.join(agentDir, "agent.yaml"),
+    "id: main\nname: Main\nmodel:\n  provider: anthropic\n  model: claude\n"
+  );
+
   return { dir, previousEnv };
 }
 
@@ -93,15 +100,8 @@ describe("multi-user integration", () => {
       await fs.writeFile(
         path.join(dir, "aihub.json"),
         JSON.stringify({
-          version: 2,
-          agents: [
-            {
-              id: "main",
-              name: "Main",
-              workspace: "~/agents/main",
-              model: { provider: "anthropic", model: "claude" },
-            },
-          ],
+          version: 3,
+          agents: ["agents/main"],
           extensions: {
             multiUser: {
               enabled: true,
@@ -221,15 +221,8 @@ describe("multi-user integration", () => {
       await fs.writeFile(
         path.join(dir, "aihub.json"),
         JSON.stringify({
-          version: 2,
-          agents: [
-            {
-              id: "main",
-              name: "Main",
-              workspace: "~/agents/main",
-              model: { provider: "anthropic", model: "claude" },
-            },
-          ],
+          version: 3,
+          agents: ["agents/main"],
           extensions: {
             multiUser: {
               enabled: true,
@@ -412,15 +405,8 @@ describe("multi-user integration", () => {
       await fs.writeFile(
         path.join(dir, "aihub.json"),
         JSON.stringify({
-          version: 2,
-          agents: [
-            {
-              id: "main",
-              name: "Main",
-              workspace: "~/agents/main",
-              model: { provider: "anthropic", model: "claude" },
-            },
-          ],
+          version: 3,
+          agents: ["agents/main"],
         })
       );
 
@@ -466,6 +452,7 @@ describe("multi-user integration", () => {
           workspace: path.join(dir, "agents/main"),
           authMode: undefined,
           queueMode: "queue",
+          isDefaultProjectManager: true,
         },
       ]);
 
@@ -483,15 +470,8 @@ describe("multi-user integration", () => {
       await fs.writeFile(
         path.join(dir, "aihub.json"),
         JSON.stringify({
-          version: 2,
-          agents: [
-            {
-              id: "main",
-              name: "Main",
-              workspace: "~/agents/main",
-              model: { provider: "anthropic", model: "claude" },
-            },
-          ],
+          version: 3,
+          agents: ["agents/main"],
         })
       );
 
