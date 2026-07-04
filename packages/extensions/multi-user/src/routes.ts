@@ -95,6 +95,15 @@ export function registerMultiUserRoutes(app: Hono): void {
     });
   });
 
+  app.get("/teams", (c) => {
+    const { teams } = getRuntimeOrThrow();
+    const authContext =
+      getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+    // Team visibility is global: any authenticated user can list all teams.
+    return c.json({ teams: teams.listTeams() });
+  });
+
   app.get("/impersonation/status", (c) => {
     const authContext =
       getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);

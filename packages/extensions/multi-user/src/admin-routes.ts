@@ -7,6 +7,7 @@ import {
 } from "./middleware.js";
 import { getMultiUserRuntime } from "./index.js";
 import { logImpersonationEvent, startImpersonation } from "./impersonation.js";
+import { isDuplicateTeamNameError, isTeamNotFoundError } from "./teams.js";
 
 const UpdateAdminUserBodySchema = z
   .object({
@@ -24,6 +25,35 @@ const SetAgentAssignmentsBodySchema = z.object({
 const StartImpersonationBodySchema = z.object({
   targetUserId: z.string().min(1),
 });
+
+const optionalNullableString = z
+  .string()
+  .trim()
+  .nullable()
+  .optional();
+
+const CreateTeamBodySchema = z.object({
+  name: z.string().trim().min(1, "name is required"),
+  description: optionalNullableString,
+  color: optionalNullableString,
+  icon: optionalNullableString,
+});
+
+const UpdateTeamBodySchema = z
+  .object({
+    name: z.string().trim().min(1).optional(),
+    description: optionalNullableString,
+    color: optionalNullableString,
+    icon: optionalNullableString,
+  })
+  .refine(
+    (data) =>
+      data.name !== undefined ||
+      data.description !== undefined ||
+      data.color !== undefined ||
+      data.icon !== undefined,
+    { message: "at least one field is required" }
+  );
 
 function getRuntimeOrThrow() {
   const runtime = getMultiUserRuntime();
@@ -126,6 +156,67 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
   app.get("/admin/agents/assignments", requireAdmin(), (c) => {
     const { assignments } = getRuntimeOrThrow();
     return c.json({ assignments: assignments.getAllAssignments() });
+  });
+
+  app.post("/admin/teams", requireAdmin(), async (c) => {
+    const parsed = CreateTeamBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+
+    const authContext = getRequestAuthContext(c);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+
+    const { teams } = getRuntimeOrThrow();
+    try {
+      const team = teams.createTeam({
+        name: parsed.data.name,
+        description: parsed.data.description ?? null,
+        color: parsed.data.color ?? null,
+        icon: parsed.data.icon ?? null,
+        createdBy: authContext.user.id,
+      });
+      return c.json({ team }, 201);
+    } catch (error) {
+      if (isDuplicateTeamNameError(error)) {
+        return c.json({ error: (error as Error).message }, 409);
+      }
+      throw error;
+    }
+  });
+
+  app.patch("/admin/teams/:id", requireAdmin(), async (c) => {
+    const parsed = UpdateTeamBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+
+    const { teams } = getRuntimeOrThrow();
+    try {
+      const team = teams.updateTeam(c.req.param("id"), parsed.data);
+      return c.json({ team });
+    } catch (error) {
+      if (isTeamNotFoundError(error)) {
+        return c.json({ error: (error as Error).message }, 404);
+      }
+      if (isDuplicateTeamNameError(error)) {
+        return c.json({ error: (error as Error).message }, 409);
+      }
+      throw error;
+    }
+  });
+
+  app.delete("/admin/teams/:id", requireAdmin(), (c) => {
+    const { teams } = getRuntimeOrThrow();
+    try {
+      const result = teams.deleteTeam(c.req.param("id"));
+      return c.json(result);
+    } catch (error) {
+      if (isTeamNotFoundError(error)) {
+        return c.json({ error: (error as Error).message }, 404);
+      }
+      throw error;
+    }
   });
 
   app.put("/admin/agents/:agentId/assignments", requireAdmin(), async (c) => {

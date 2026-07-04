@@ -14,11 +14,13 @@ import {
   createAgentAssignmentStore,
   type AgentAssignmentStore,
 } from "./assignments.js";
+import { createTeamStore, type TeamStore } from "./teams.js";
 
 export type MultiUserRuntime = {
   auth: Awaited<ReturnType<typeof createMultiUserAuth>>;
   db: Database.Database;
   assignments: AgentAssignmentStore;
+  teams: TeamStore;
   getAgent: ExtensionContext["getAgent"];
   logger: ExtensionLogger;
 };
@@ -73,6 +75,20 @@ export {
 export { initializeMultiUserDatabase, getAuthDbPath } from "./db.js";
 export { createMultiUserAuth } from "./auth.js";
 export type { MultiUserAuth } from "./auth.js";
+export {
+  createTeamStore,
+  DEFAULT_TEAM_COLOR,
+  DEFAULT_TEAM_ICON,
+  DuplicateTeamNameError,
+  TeamNotFoundError,
+} from "./teams.js";
+export type {
+  Team,
+  TeamStore,
+  CreateTeamInput,
+  UpdateTeamInput,
+  DeleteTeamResult,
+} from "./teams.js";
 
 export const multiUserExtension: Extension = {
   id: "multiUser",
@@ -80,7 +96,13 @@ export const multiUserExtension: Extension = {
   description: "OAuth authentication, sessions, and per-user agent access control",
   dependencies: [],
   configSchema: MultiUserConfigSchema,
-  routePrefixes: ["/api/auth", "/api/me", "/api/admin", "/api/impersonation"],
+  routePrefixes: [
+    "/api/auth",
+    "/api/me",
+    "/api/admin",
+    "/api/teams",
+    "/api/impersonation",
+  ],
   validateConfig(raw) {
     const result = MultiUserConfigSchema.safeParse(raw);
     return result.success
@@ -102,10 +124,12 @@ export const multiUserExtension: Extension = {
     const db = initializeMultiUserDatabase(ctx.getDataDir());
     const auth = await createMultiUserAuth(ctx.getConfig(), config, db);
     const assignments = createAgentAssignmentStore(db);
+    const teams = createTeamStore(db);
     runtime = {
       auth,
       db,
       assignments,
+      teams,
       getAgent: ctx.getAgent,
       logger: ctx.logger,
     };

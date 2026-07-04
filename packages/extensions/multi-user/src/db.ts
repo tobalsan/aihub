@@ -78,6 +78,23 @@ export function ensureAgentAssignmentsTable(
   }
 }
 
+export function ensureTeamsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS teams (
+      id TEXT PRIMARY KEY,
+      name TEXT NOT NULL,
+      description TEXT,
+      color TEXT,
+      icon TEXT,
+      createdBy TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      FOREIGN KEY (createdBy) REFERENCES user(id) ON DELETE CASCADE
+    );
+    CREATE UNIQUE INDEX IF NOT EXISTS idx_teams_name_unique
+      ON teams (name COLLATE NOCASE);
+  `);
+}
+
 export function initializeMultiUserDatabase(
   dataDirOrPath: string
 ): Database.Database {
@@ -89,5 +106,6 @@ export function initializeMultiUserDatabase(
   db.pragma("journal_mode = WAL");
   db.pragma("foreign_keys = ON");
   ensureAgentAssignmentsTable(db);
+  ensureTeamsTable(db);
   return db;
 }
