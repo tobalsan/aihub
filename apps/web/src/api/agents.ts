@@ -14,6 +14,12 @@ export async function fetchAgents(): Promise<Agent[]> {
   return res.json();
 }
 
+export async function fetchPool(): Promise<Agent[]> {
+  const res = await fetch(`${API_BASE}/pool`);
+  if (!res.ok) throw new Error("Failed to fetch pool");
+  return res.json();
+}
+
 export function selectDefaultProjectManagerAgent(
   agents: Agent[],
   preferredAgentId?: string | null

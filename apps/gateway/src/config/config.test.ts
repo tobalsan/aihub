@@ -29,6 +29,14 @@ describe("config validation", () => {
     expect(result.success).toBe(true);
   });
 
+  it("validates a minimal v3 root config with pool globs", () => {
+    const result = GatewayRootConfigSchema.safeParse({
+      version: 3,
+      pool: "./pool/*",
+    });
+    expect(result.success).toBe(true);
+  });
+
   it("allows omitted agents for empty installs", () => {
     const result = GatewayRootConfigSchema.safeParse({ version: 3 });
     expect(result.success).toBe(true);
@@ -98,5 +106,24 @@ describe("config validation", () => {
       "exact",
       "red",
     ]);
+  });
+
+  it("discovers pool agents from a pool glob", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
+    const home = path.join(tmpDir, "home");
+    await fs.mkdir(home, { recursive: true });
+    await writeAgent(path.join(home, "pool", "foo"), "foo");
+    await writeAgent(path.join(home, "pool", "bar"), "bar");
+    await fs.writeFile(
+      path.join(home, "aihub.json"),
+      JSON.stringify({ version: 3, pool: "pool/*" })
+    );
+    vi.stubEnv("AIHUB_HOME", home);
+    const { loadConfig } = await import("./index.js");
+    expect(loadConfig().pool?.map((agent) => agent.id)).toEqual([
+      "bar",
+      "foo",
+    ]);
+    expect(loadConfig().agents).toEqual([]);
   });
 });

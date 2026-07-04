@@ -193,6 +193,7 @@ const AgentConfigBaseSchema = z.object({
   name: z.string(),
   description: z.string().optional(),
   avatar: z.string().optional(), // emoji or image URL
+  role: z.string().optional(), // short job title, e.g. "Sales Admin"
   workspace: z.string(),
   workspaceDir: z.string().optional(),
   system_files: z.array(SystemFileEntrySchema).optional(),
@@ -784,6 +785,7 @@ export const AgentDiscoveryConfigSchema = z.union([
 export const GatewayRootConfigSchema = z.object({
   version: z.literal(3).optional(),
   agents: AgentDiscoveryConfigSchema.optional(),
+  pool: AgentDiscoveryConfigSchema.optional(),
   defaultProjectManager: z.string().optional(),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
@@ -823,6 +825,7 @@ export type GatewayRootConfig = z.infer<typeof GatewayRootConfigSchema>;
 export const GatewayConfigSchema = z.object({
   version: z.number().optional(),
   agents: z.array(AgentConfigSchema),
+  pool: z.array(AgentConfigSchema).optional(),
   defaultProjectManager: z.string().optional(),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),

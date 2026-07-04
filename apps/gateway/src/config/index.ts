@@ -178,6 +178,10 @@ export function loadConfig(): GatewayConfig {
       parsed.agents as string | string[] | undefined,
       configDir
     ),
+    pool: discoverAgents(
+      parsed.pool as string | string[] | undefined,
+      configDir
+    ),
   };
 
   // Validate OneCLI CA file path at startup if configured
@@ -201,6 +205,9 @@ export function loadConfig(): GatewayConfig {
 
   // Apply defaults
   for (const agent of result.agents) {
+    if (!agent.queueMode) agent.queueMode = "queue";
+  }
+  for (const agent of result.pool ?? []) {
     if (!agent.queueMode) agent.queueMode = "queue";
   }
 

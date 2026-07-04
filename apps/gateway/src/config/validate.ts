@@ -136,12 +136,13 @@ export async function prepareStartupConfig(
 export async function resolveStartupConfig(
   config: GatewayConfig
 ): Promise<GatewayConfig> {
-  const { agents, ...rest } = config;
+  const { agents, pool, ...rest } = config;
   const resolvedRest = await resolveConfigSecrets(rest);
   const resolvedAgents = await Promise.all(
     agents.map((agent) => resolveConfigSecrets(agent, resolveAgentEnv(agent, config)))
   );
-  return { ...resolvedRest, agents: resolvedAgents };
+  // pool = read-only browse defs, never run; skip secret resolution
+  return { ...resolvedRest, agents: resolvedAgents, pool };
 }
 
 export function logComponentSummary(summary: {

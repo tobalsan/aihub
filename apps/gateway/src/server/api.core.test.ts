@@ -240,6 +240,34 @@ describe("api core session resolution", () => {
     ]);
   });
 
+  it("returns pool agents without per-user filtering", async () => {
+    const pool = [
+      {
+        id: "gamma",
+        name: "Gamma",
+        model: { provider: "anthropic", model: "claude" },
+      },
+    ];
+    getActiveAgents.mockReturnValue([]);
+    loadConfigValue = {
+      branding: undefined,
+      agentFab: false,
+      agents: [],
+      pool,
+    };
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(new Request("http://localhost/pool"));
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toEqual([
+      expect.objectContaining({
+        id: "gamma",
+        name: "Gamma",
+      }),
+    ]);
+  });
+
   it("does not sort renamed sessions by file mtime", async () => {
     const sessionsDir = "/tmp/aihub-test/history";
     await fs.rm("/tmp/aihub-test", { recursive: true, force: true });

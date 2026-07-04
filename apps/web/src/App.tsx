@@ -13,11 +13,13 @@ import {
 } from "solid-js";
 import { fetchAgents, getSessionKey, subscribeToSession } from "./api";
 import type { Agent } from "./api/types";
-import { AgentList } from "./components/AgentList";
 import { ChatView } from "./components/ChatView";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { QuickChatOverlay } from "./components/QuickChatOverlay";
 import { LeftNavShell } from "./components/LeftNavShell";
+import { ConsoleShell } from "./components/ConsoleShell";
+import { AgentCatalog } from "./pages/AgentCatalog";
+import { Teams } from "./pages/Teams";
 import {
   ImpersonationBanner,
   impersonationStatus,
@@ -286,9 +288,17 @@ function HomeRoute() {
 
 function AgentsRouteShell() {
   return (
-    <LeftNavShell>
-      <AgentList />
-    </LeftNavShell>
+    <ConsoleShell>
+      <AgentCatalog />
+    </ConsoleShell>
+  );
+}
+
+function TeamsRouteShell() {
+  return (
+    <ConsoleShell>
+      <Teams />
+    </ConsoleShell>
   );
 }
 
@@ -347,6 +357,14 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <AgentsRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/teams"
+        component={() => (
+          <GuardedRoute>
+            <TeamsRouteShell />
           </GuardedRoute>
         )}
       />
