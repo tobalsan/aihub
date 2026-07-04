@@ -112,6 +112,35 @@ export function ensureTeamMembersTable(db: Database.Database): void {
   `);
 }
 
+export function ensureAgentForksTable(db: Database.Database): void {
+  // One row per forked pool agent. The uniqueness constraints encode the
+  // domain invariants directly:
+  //   - sourcePoolId UNIQUE  -> a pool definition is forked at most once.
+  //   - forkAgentId  UNIQUE  -> a fork is a single, distinct agent id.
+  //   - teamId nullable      -> unassign clears the link (teamless/inert)
+  //                             without deleting the fork row or its folder.
+  // The teamId FK uses ON DELETE SET NULL so deleting a team leaves its forks
+  // teamless (inert) rather than cascading them away; deleteTeam surfaces that
+  // soon-to-be-teamless set in its warning. `createdBy`/`createdAt` record who
+  // first forked and when; `assignedBy`/`assignedAt` record the most recent
+  // team (re)assignment provenance and are null while teamless.
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS agent_forks (
+      sourcePoolId TEXT NOT NULL UNIQUE,
+      forkAgentId TEXT NOT NULL UNIQUE,
+      teamId TEXT,
+      createdBy TEXT NOT NULL,
+      createdAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      assignedBy TEXT,
+      assignedAt TEXT,
+      FOREIGN KEY (teamId) REFERENCES teams(id) ON DELETE SET NULL,
+      FOREIGN KEY (createdBy) REFERENCES user(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_agent_forks_team_id
+      ON agent_forks (teamId);
+  `);
+}
+
 export function initializeMultiUserDatabase(
   dataDirOrPath: string
 ): Database.Database {
@@ -125,5 +154,6 @@ export function initializeMultiUserDatabase(
   ensureAgentAssignmentsTable(db);
   ensureTeamsTable(db);
   ensureTeamMembersTable(db);
+  ensureAgentForksTable(db);
   return db;
 }

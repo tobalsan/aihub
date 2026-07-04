@@ -69,6 +69,16 @@ describe("multi-user component", () => {
         usersOnlyInTeam: vi.fn(() => []),
       })),
     }));
+    vi.doMock("./forks.js", () => ({
+      createForkStore: vi.fn(() => ({
+        forkAndAssign: vi.fn(),
+        reassign: vi.fn(),
+        unassign: vi.fn(),
+        getForkByPool: vi.fn(() => null),
+        listForks: vi.fn(() => []),
+        listForksForTeam: vi.fn(() => []),
+      })),
+    }));
 
     const { multiUserExtension } = await import("./index.js");
     const ctx = {
@@ -90,6 +100,7 @@ describe("multi-user component", () => {
           sessions: {},
         }),
       getDataDir: () => "/tmp",
+      reloadConfig: () => undefined,
       getAgent: () => undefined,
       getAgents: () => [],
       isAgentActive: () => true,

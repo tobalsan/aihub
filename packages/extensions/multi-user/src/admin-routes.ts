@@ -8,6 +8,10 @@ import {
 import { getMultiUserRuntime } from "./index.js";
 import { logImpersonationEvent, startImpersonation } from "./impersonation.js";
 import { isDuplicateTeamNameError, isTeamNotFoundError } from "./teams.js";
+import {
+  isForkNotFoundError,
+  isPoolAgentNotFoundError,
+} from "./forks.js";
 
 const UpdateAdminUserBodySchema = z
   .object({
@@ -24,6 +28,15 @@ const SetAgentAssignmentsBodySchema = z.object({
 
 const AddTeamMemberBodySchema = z.object({
   userId: z.string().min(1, "userId is required"),
+});
+
+const AssignPoolBodySchema = z.object({
+  poolId: z.string().min(1, "poolId is required"),
+  teamId: z.string().min(1, "teamId is required"),
+});
+
+const ReassignForkBodySchema = z.object({
+  teamId: z.string().min(1, "teamId is required"),
 });
 
 const StartImpersonationBodySchema = z.object({
@@ -160,6 +173,86 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
   app.get("/admin/agents/assignments", requireAdmin(), (c) => {
     const { assignments } = getRuntimeOrThrow();
     return c.json({ assignments: assignments.getAllAssignments() });
+  });
+
+  // Fork/team provenance — lets the pool catalog decide whether to show
+  // "Assign to team" (no fork yet) vs a reassign flow (fork exists).
+  app.get("/admin/forks", requireAdmin(), (c) => {
+    const { forks } = getRuntimeOrThrow();
+    return c.json({ forks: forks.listForks() });
+  });
+
+  // Assign a pool agent to a team. First assignment forks the pool workspace;
+  // an already-forked pool reuses its single fork (fork-once) and repoints the
+  // team link.
+  app.post("/admin/forks/assign", requireAdmin(), async (c) => {
+    const parsed = AssignPoolBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+    const authContext = getRequestAuthContext(c);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+
+    const { forks, teams } = getRuntimeOrThrow();
+    if (!teams.getTeam(parsed.data.teamId)) {
+      return c.json({ error: "Team not found" }, 404);
+    }
+    try {
+      const fork = forks.forkAndAssign(
+        parsed.data.poolId,
+        parsed.data.teamId,
+        authContext.user.id
+      );
+      return c.json({ fork }, 201);
+    } catch (error) {
+      if (isPoolAgentNotFoundError(error)) {
+        return c.json({ error: (error as Error).message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  // Move an existing fork to a different team (single-team invariant). The
+  // fork folder never moves — only the link row's teamId changes.
+  app.post("/admin/forks/:poolId/reassign", requireAdmin(), async (c) => {
+    const parsed = ReassignForkBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+    const authContext = getRequestAuthContext(c);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+
+    const { forks, teams } = getRuntimeOrThrow();
+    if (!teams.getTeam(parsed.data.teamId)) {
+      return c.json({ error: "Team not found" }, 404);
+    }
+    try {
+      const fork = forks.reassign(
+        c.req.param("poolId"),
+        parsed.data.teamId,
+        authContext.user.id
+      );
+      return c.json({ fork });
+    } catch (error) {
+      if (isForkNotFoundError(error)) {
+        return c.json({ error: (error as Error).message }, 404);
+      }
+      throw error;
+    }
+  });
+
+  // Clear a fork's team link (teamless/inert). The fork folder persists.
+  app.post("/admin/forks/:poolId/unassign", requireAdmin(), (c) => {
+    const { forks } = getRuntimeOrThrow();
+    try {
+      const fork = forks.unassign(c.req.param("poolId"));
+      return c.json({ fork });
+    } catch (error) {
+      if (isForkNotFoundError(error)) {
+        return c.json({ error: (error as Error).message }, 404);
+      }
+      throw error;
+    }
   });
 
   app.post("/admin/teams", requireAdmin(), async (c) => {

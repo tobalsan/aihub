@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
 import type { MembershipStore } from "./membership.js";
+import type { ForkStore } from "./forks.js";
 
 export const DEFAULT_TEAM_COLOR = "#6b7280";
 export const DEFAULT_TEAM_ICON = "fa-solid fa-users";
@@ -33,9 +34,9 @@ export type UpdateTeamInput = {
 /**
  * Returned by {@link TeamStore.deleteTeam}. The `users` and `agents` sets name
  * the members that would be left without any team once this team is removed.
- * `teamlessUsers` now resolves from real membership (this slice); agent↔team
- * assignment does not exist yet (slice 4), so `teamlessAgents` stays empty with
- * a stable shape.
+ * `teamlessUsers` resolves from real membership; `teamlessAgents` lists the
+ * fork agent ids whose team link would be cleared by this delete (the
+ * teamId FK is ON DELETE SET NULL, so those forks become teamless/inert).
  */
 export type DeleteTeamResult = {
   deleted: boolean;
@@ -114,7 +115,8 @@ function isUniqueViolation(error: unknown): boolean {
 
 export function createTeamStore(
   db: Database.Database,
-  membership?: MembershipStore
+  membership?: MembershipStore,
+  forks?: () => ForkStore | undefined
 ): TeamStore {
   const listStatement = db.prepare(
     "SELECT id, name, description, color, icon, createdBy, createdAt FROM teams ORDER BY name COLLATE NOCASE"
@@ -207,14 +209,20 @@ export function createTeamStore(
       // CASCADE on team_members removes those rows once the team is gone, so
       // the set must be captured while the memberships still exist.
       const teamlessUsers = membership?.usersOnlyInTeam(id) ?? [];
+      // Forks currently assigned to this team lose their link when it is
+      // deleted (teamId FK is ON DELETE SET NULL). Capture that set before the
+      // delete so the confirmation warning names the soon-to-be-teamless
+      // agents.
+      const teamlessAgents =
+        forks?.()
+          ?.listForksForTeam(id)
+          .map((fork) => fork.forkAgentId) ?? [];
 
       const result = deleteStatement.run(id);
-      // Agent↔team links do not exist yet (slice 4), so no agent can be
-      // orphaned by this delete; keep the stable shape with an empty set.
       return {
         deleted: result.changes > 0,
         teamlessUsers,
-        teamlessAgents: [],
+        teamlessAgents,
       };
     },
   };

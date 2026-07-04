@@ -1,13 +1,131 @@
-import { createResource, For, Show } from "solid-js";
+import { createMemo, createResource, createSignal, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
 import { fetchPool } from "../api";
+import {
+  assignPoolToTeam,
+  fetchForks,
+  fetchTeams,
+  reassignFork,
+  type AgentFork,
+  type Team,
+} from "../api/teams";
+import { useSession } from "../auth/client";
 
 function isEmoji(str: string): boolean {
   return /^\p{Emoji}/u.test(str) && str.length <= 4;
 }
 
+const STAFF_ROLES = ["admin", "superadmin"];
+
+function hasAdminRole(role: string | string[] | null | undefined): boolean {
+  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
+}
+
+function AssignToTeam(props: {
+  poolId: string;
+  teams: Team[];
+  fork: AgentFork | undefined;
+  onChanged: () => void;
+}) {
+  const [selected, setSelected] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const currentTeam = createMemo(() =>
+    props.fork?.teamId
+      ? props.teams.find((team) => team.id === props.fork?.teamId)
+      : undefined
+  );
+
+  const handleAssign = async () => {
+    const teamId = selected();
+    if (!teamId || busy()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      // An existing fork moves teams (reassign); a never-forked pool agent
+      // forks on first assignment.
+      if (props.fork) {
+        await reassignFork(props.poolId, teamId);
+      } else {
+        await assignPoolToTeam(props.poolId, teamId);
+      }
+      setSelected("");
+      props.onChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to assign.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div class="catalog-assign">
+      <Show when={currentTeam()}>
+        {(team) => (
+          <div class="catalog-assign__current">
+            Assigned to <strong>{team().name}</strong>
+          </div>
+        )}
+      </Show>
+      <select
+        class="catalog-assign__select"
+        value={selected()}
+        disabled={busy() || props.teams.length === 0}
+        onChange={(event) => setSelected(event.currentTarget.value)}
+      >
+        <option value="">
+          {props.fork ? "Move to team…" : "Assign to team…"}
+        </option>
+        <For each={props.teams}>
+          {(team) => (
+            <Show when={team.id !== props.fork?.teamId}>
+              <option value={team.id}>{team.name}</option>
+            </Show>
+          )}
+        </For>
+      </select>
+      {/* Reassigning an already-forked agent moves its single fork away from
+          the previous team — warn before the move. */}
+      <Show when={props.fork && props.fork.teamId && selected()}>
+        <p class="catalog-assign__warning">
+          ⚠ This will move the agent from{" "}
+          <strong>{currentTeam()?.name ?? "its current team"}</strong>.
+        </p>
+      </Show>
+      <button
+        type="button"
+        class="catalog-assign__button"
+        disabled={busy() || !selected()}
+        onClick={() => void handleAssign()}
+      >
+        {props.fork ? "Move" : "Assign"}
+      </button>
+      <Show when={error()}>
+        {(message) => <p class="catalog-assign__error">{message()}</p>}
+      </Show>
+    </div>
+  );
+}
+
 export function AgentCatalog() {
   const [agents] = createResource(fetchPool);
+  const session = useSession();
+  const isAdmin = createMemo(() =>
+    hasAdminRole(
+      (session().data?.user as { role?: string | string[] } | undefined)?.role
+    )
+  );
+  const [teams] = createResource(() => (isAdmin() ? fetchTeams() : Promise.resolve([] as Team[])));
+  const [forks, { refetch: refetchForks }] = createResource(() =>
+    isAdmin() ? fetchForks() : Promise.resolve([] as AgentFork[])
+  );
+  const forkByPool = createMemo(() => {
+    const map = new Map<string, AgentFork>();
+    for (const fork of forks() ?? []) map.set(fork.sourcePoolId, fork);
+    return map;
+  });
 
   return (
     <div class="agent-catalog">
@@ -48,6 +166,14 @@ export function AgentCatalog() {
                 <A href={`/chat/${agent.id}`} class="catalog-chat-link">
                   Chat
                 </A>
+                <Show when={isAdmin()}>
+                  <AssignToTeam
+                    poolId={agent.id}
+                    teams={teams() ?? []}
+                    fork={forkByPool().get(agent.id)}
+                    onChanged={() => void refetchForks()}
+                  />
+                </Show>
               </div>
             )}
           </For>
@@ -157,6 +283,58 @@ export function AgentCatalog() {
 
         .catalog-chat-link:hover {
           background: var(--border-default);
+        }
+
+        .catalog-assign {
+          width: 100%;
+          margin-top: 12px;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .catalog-assign__current {
+          font-size: 12px;
+          color: var(--text-tertiary);
+        }
+
+        .catalog-assign__select {
+          width: 100%;
+          padding: 6px 8px;
+          border-radius: 6px;
+          border: 1px solid var(--border-default);
+          background: var(--bg-raised);
+          color: var(--text-primary);
+          font-size: 13px;
+        }
+
+        .catalog-assign__warning {
+          font-size: 12px;
+          color: #d97706;
+          margin: 0;
+        }
+
+        .catalog-assign__button {
+          width: 100%;
+          padding: 6px 12px;
+          border-radius: 6px;
+          border: none;
+          background: var(--accent, #3b82f6);
+          color: #fff;
+          font-size: 13px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+
+        .catalog-assign__button:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+
+        .catalog-assign__error {
+          font-size: 12px;
+          color: #e55;
+          margin: 0;
         }
 
         @media (max-width: 768px) {
