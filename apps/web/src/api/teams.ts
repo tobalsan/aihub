@@ -21,6 +21,18 @@ export type DeleteTeamResult = {
   teamlessAgents: string[];
 };
 
+// A forked pool agent and its provenance link. `teamId` is null when the fork
+// is teamless/inert (unassigned).
+export type AgentFork = {
+  sourcePoolId: string;
+  forkAgentId: string;
+  teamId: string | null;
+  createdBy: string;
+  createdAt: string;
+  assignedBy: string | null;
+  assignedAt: string | null;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await globalThis.fetch(path, {
     ...init,
@@ -110,4 +122,57 @@ export async function removeTeamMember(
     { method: "DELETE" }
   );
   return data.userIds;
+}
+
+// Admin-only: all fork provenance rows. Lets the pool catalog decide whether a
+// pool agent is already forked (and to which team) or still assignable.
+export async function fetchForks(): Promise<AgentFork[]> {
+  const data = await request<{ forks: AgentFork[] }>("/api/admin/forks");
+  return data.forks;
+}
+
+// Any authenticated user can list a team's agents (global visibility).
+export async function fetchTeamAgents(teamId: string): Promise<AgentFork[]> {
+  const data = await request<{ teamId: string; forks: AgentFork[] }>(
+    `/api/teams/${encodeURIComponent(teamId)}/agents`
+  );
+  return data.forks;
+}
+
+// Admin-only: assign a pool agent to a team (forks on first assignment).
+export async function assignPoolToTeam(
+  poolId: string,
+  teamId: string
+): Promise<AgentFork> {
+  const data = await request<{ fork: AgentFork }>("/api/admin/forks/assign", {
+    method: "POST",
+    headers: { "Content-Type": "application/json" },
+    body: JSON.stringify({ poolId, teamId }),
+  });
+  return data.fork;
+}
+
+// Admin-only: move an existing fork to a different team.
+export async function reassignFork(
+  poolId: string,
+  teamId: string
+): Promise<AgentFork> {
+  const data = await request<{ fork: AgentFork }>(
+    `/api/admin/forks/${encodeURIComponent(poolId)}/reassign`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ teamId }),
+    }
+  );
+  return data.fork;
+}
+
+// Admin-only: clear a fork's team link (teamless/inert; folder persists).
+export async function unassignFork(poolId: string): Promise<AgentFork> {
+  const data = await request<{ fork: AgentFork }>(
+    `/api/admin/forks/${encodeURIComponent(poolId)}/unassign`,
+    { method: "POST" }
+  );
+  return data.fork;
 }

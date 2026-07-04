@@ -11,9 +11,11 @@ import {
   addTeamMember,
   createTeam,
   deleteTeam,
+  fetchTeamAgents,
   fetchTeamMembers,
   fetchTeams,
   removeTeamMember,
+  unassignFork,
   updateTeam,
   type Team,
 } from "../api/teams";
@@ -362,6 +364,27 @@ function TeamDetail(props: {
     () => props.team.id,
     fetchTeamMembers
   );
+  const [agents, { refetch: refetchAgents }] = createResource(
+    () => props.team.id,
+    fetchTeamAgents
+  );
+  const [agentBusy, setAgentBusy] = createSignal(false);
+
+  const handleUnassign = async (poolId: string) => {
+    if (agentBusy()) return;
+    setAgentBusy(true);
+    setError(null);
+    try {
+      await unassignFork(poolId);
+      await refetchAgents();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Failed to unassign agent."
+      );
+    } finally {
+      setAgentBusy(false);
+    }
+  };
   // Only admins can read the user directory (/api/admin/users); non-admins see
   // raw user ids, which is acceptable for a read-only membership view.
   const [users] = createResource(
@@ -517,6 +540,39 @@ function TeamDetail(props: {
                           onClick={() => void handleRemove(userId)}
                         >
                           Remove
+                        </button>
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </Show>
+
+          <h3 class="team-detail__section-title">
+            Agents ({agents()?.length ?? 0})
+          </h3>
+          <Show
+            when={!agents.loading}
+            fallback={<p class="team-detail__empty">Loading agents…</p>}
+          >
+            <Show
+              when={(agents()?.length ?? 0) > 0}
+              fallback={<p class="team-detail__empty">No agents assigned.</p>}
+            >
+              <ul class="team-member-list">
+                <For each={agents()}>
+                  {(fork) => (
+                    <li class="team-member">
+                      <span class="team-member__name">{fork.forkAgentId}</span>
+                      <Show when={props.isAdmin}>
+                        <button
+                          type="button"
+                          class="team-button team-button--danger-text"
+                          disabled={agentBusy()}
+                          onClick={() => void handleUnassign(fork.sourcePoolId)}
+                        >
+                          Unassign
                         </button>
                       </Show>
                     </li>

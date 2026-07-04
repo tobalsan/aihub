@@ -1,6 +1,9 @@
+import fs from "node:fs";
+import os from "node:os";
+import path from "node:path";
 import Database from "better-sqlite3";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
-import { ensureTeamsTable } from "./db.js";
+import { ensureAgentForksTable, ensureTeamsTable } from "./db.js";
 import {
   DEFAULT_TEAM_COLOR,
   DEFAULT_TEAM_ICON,
@@ -9,6 +12,7 @@ import {
   createTeamStore,
   type TeamStore,
 } from "./teams.js";
+import { createForkStore } from "./forks.js";
 
 let db: Database.Database;
 let store: TeamStore;
@@ -139,5 +143,47 @@ describe("team store", () => {
 
   it("throws when deleting a missing team", () => {
     expect(() => store.deleteTeam("nope")).toThrow(TeamNotFoundError);
+  });
+});
+
+describe("team store deleteTeam teamlessAgents", () => {
+  let fdb: Database.Database;
+  let tempDir: string;
+
+  beforeEach(() => {
+    tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-team-forks-"));
+    fdb = new Database(":memory:");
+    fdb.pragma("foreign_keys = ON");
+    fdb.exec("CREATE TABLE user (id TEXT PRIMARY KEY)");
+    fdb.prepare("INSERT INTO user (id) VALUES (?)").run("admin-1");
+    ensureTeamsTable(fdb);
+    ensureAgentForksTable(fdb);
+  });
+
+  afterEach(() => {
+    fdb.close();
+    fs.rmSync(tempDir, { recursive: true, force: true });
+  });
+
+  it("names forks assigned to the team as soon-to-be teamless", () => {
+    const poolDir = path.join(tempDir, "pool", "scribe");
+    fs.mkdirSync(poolDir, { recursive: true });
+    fs.writeFileSync(path.join(poolDir, "agent.yaml"), "id: scribe\nname: scribe\n");
+
+    const forks = createForkStore({
+      db: fdb,
+      getForksDir: () => path.join(tempDir, "forks"),
+      getPoolAgent: (poolId) =>
+        poolId === "scribe" ? { id: "scribe", workspaceDir: poolDir } : null,
+    });
+    const teamStore = createTeamStore(fdb, undefined, () => forks);
+    const team = teamStore.createTeam({ name: "Team A", createdBy: "admin-1" });
+    forks.forkAndAssign("scribe", team.id, "admin-1");
+
+    const result = teamStore.deleteTeam(team.id);
+    expect(result.deleted).toBe(true);
+    expect(result.teamlessAgents).toEqual(["fork__scribe"]);
+    // The fork row persists (teamId set to null by the FK), not deleted.
+    expect(forks.getForkByPool("scribe")?.teamId).toBeNull();
   });
 });

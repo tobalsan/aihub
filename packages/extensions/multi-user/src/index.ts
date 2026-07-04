@@ -19,6 +19,8 @@ import {
   createMembershipStore,
   type MembershipStore,
 } from "./membership.js";
+import { createForkStore, type ForkStore } from "./forks.js";
+import path from "node:path";
 
 export type MultiUserRuntime = {
   auth: Awaited<ReturnType<typeof createMultiUserAuth>>;
@@ -26,6 +28,7 @@ export type MultiUserRuntime = {
   assignments: AgentAssignmentStore;
   teams: TeamStore;
   membership: MembershipStore;
+  forks: ForkStore;
   getAgent: ExtensionContext["getAgent"];
   logger: ExtensionLogger;
 };
@@ -96,6 +99,16 @@ export type {
 } from "./teams.js";
 export { createMembershipStore } from "./membership.js";
 export type { MembershipStore, TeamMember } from "./membership.js";
+export {
+  createForkStore,
+  forkIdForPool,
+  FORK_EXCLUDES,
+  ForkNotFoundError,
+  PoolAgentNotFoundError,
+  isForkNotFoundError,
+  isPoolAgentNotFoundError,
+} from "./forks.js";
+export type { ForkStore, AgentFork } from "./forks.js";
 
 export const multiUserExtension: Extension = {
   id: "multiUser",
@@ -132,13 +145,34 @@ export const multiUserExtension: Extension = {
     const auth = await createMultiUserAuth(ctx.getConfig(), config, db);
     const assignments = createAgentAssignmentStore(db);
     const membership = createMembershipStore(db);
-    const teams = createTeamStore(db, membership);
+    // Forks live under $AIHUB_HOME/forks/<forkId>; the gateway `agents` glob
+    // must include `forks/*` so a freshly copied fork is picked up and made
+    // runnable through the unchanged runtime.
+    const forksDir = path.join(ctx.getDataDir(), "forks");
+    const forks = createForkStore({
+      db,
+      getForksDir: () => forksDir,
+      getPoolAgent: (poolId) => {
+        const pool = ctx.getConfig().pool ?? [];
+        const match = pool.find((agent) => agent.id === poolId);
+        if (!match) return null;
+        return {
+          id: match.id,
+          workspaceDir: match.workspaceDir ?? match.workspace ?? "",
+        };
+      },
+      reloadConfig: () => ctx.reloadConfig(),
+    });
+    // teams needs a fork lookup so deleteTeam can name soon-to-be-teamless
+    // forks; forks has no dependency on teams, so construct it first.
+    const teams = createTeamStore(db, membership, () => forks);
     runtime = {
       auth,
       db,
       assignments,
       teams,
       membership,
+      forks,
       getAgent: ctx.getAgent,
       logger: ctx.logger,
     };

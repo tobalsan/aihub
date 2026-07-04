@@ -38,6 +38,7 @@ describe("multi-user db", () => {
     expect(tables.map((table) => table.name)).toContain("agent_assignments");
     expect(tables.map((table) => table.name)).toContain("teams");
     expect(tables.map((table) => table.name)).toContain("team_members");
+    expect(tables.map((table) => table.name)).toContain("agent_forks");
     expect(foreignKeysEnabled).toBe(1);
     expect(foreignKeys).toEqual(
       expect.arrayContaining([
@@ -104,6 +105,53 @@ describe("multi-user db", () => {
       expect.arrayContaining([
         expect.objectContaining({ table: "teams", from: "teamId" }),
         expect.objectContaining({ table: "user", from: "userId" }),
+      ])
+    );
+  });
+
+  it("creates an agent_forks table with fork-once / one-team constraints", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-forks-db-"));
+    tempDirs.push(tempDir);
+    const dbPath = path.join(tempDir, "auth.db");
+
+    const db = initializeMultiUserDatabase(dbPath);
+    const columns = db
+      .prepare("PRAGMA table_info(agent_forks)")
+      .all() as Array<{ name: string; notnull: number }>;
+    const indexes = db
+      .prepare("PRAGMA index_list(agent_forks)")
+      .all() as Array<{ name: string; unique: number }>;
+    const foreignKeys = db
+      .prepare("PRAGMA foreign_key_list(agent_forks)")
+      .all() as Array<{ table: string; from: string; on_delete: string }>;
+
+    db.close();
+
+    const columnNames = columns.map((column) => column.name);
+    expect(columnNames).toEqual(
+      expect.arrayContaining([
+        "sourcePoolId",
+        "forkAgentId",
+        "teamId",
+        "createdBy",
+        "createdAt",
+        "assignedBy",
+        "assignedAt",
+      ])
+    );
+    // Both sourcePoolId (fork-once) and forkAgentId (one team per fork) are
+    // unique.
+    expect(indexes.filter((index) => index.unique === 1).length).toBeGreaterThanOrEqual(
+      2
+    );
+    // Deleting a team leaves its forks teamless rather than cascading them.
+    expect(foreignKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({
+          table: "teams",
+          from: "teamId",
+          on_delete: "SET NULL",
+        }),
       ])
     );
   });
