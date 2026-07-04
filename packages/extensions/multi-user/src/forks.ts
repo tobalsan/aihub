@@ -91,6 +91,8 @@ export type ForkStore = {
   /** Clear the team link while keeping the fork folder (teamless/inert). */
   unassign(poolId: string): AgentFork;
   getForkByPool(poolId: string): AgentFork | null;
+  /** Resolve a fork by its agent id (the chat/list surface key). */
+  getForkByAgentId(forkAgentId: string): AgentFork | null;
   listForks(): AgentFork[];
   listForksForTeam(teamId: string): AgentFork[];
 };
@@ -148,6 +150,9 @@ export function createForkStore(deps: ForkStoreDeps): ForkStore {
   const getByPoolStatement = db.prepare(
     "SELECT sourcePoolId, forkAgentId, teamId, createdBy, createdAt, assignedBy, assignedAt FROM agent_forks WHERE sourcePoolId = ?"
   );
+  const getByAgentIdStatement = db.prepare(
+    "SELECT sourcePoolId, forkAgentId, teamId, createdBy, createdAt, assignedBy, assignedAt FROM agent_forks WHERE forkAgentId = ?"
+  );
   const listStatement = db.prepare(
     "SELECT sourcePoolId, forkAgentId, teamId, createdBy, createdAt, assignedBy, assignedAt FROM agent_forks ORDER BY forkAgentId"
   );
@@ -167,6 +172,11 @@ export function createForkStore(deps: ForkStoreDeps): ForkStore {
 
   function getForkByPool(poolId: string): AgentFork | null {
     const row = getByPoolStatement.get(poolId) as ForkRow | undefined;
+    return row ? rowToFork(row) : null;
+  }
+
+  function getForkByAgentId(forkAgentId: string): AgentFork | null {
+    const row = getByAgentIdStatement.get(forkAgentId) as ForkRow | undefined;
     return row ? rowToFork(row) : null;
   }
 
@@ -229,6 +239,7 @@ export function createForkStore(deps: ForkStoreDeps): ForkStore {
       return requireFork(poolId);
     },
     getForkByPool,
+    getForkByAgentId,
     listForks() {
       return (listStatement.all() as ForkRow[]).map(rowToFork);
     },

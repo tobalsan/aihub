@@ -20,6 +20,7 @@ import {
   type MembershipStore,
 } from "./membership.js";
 import { createForkStore, type ForkStore } from "./forks.js";
+import { createAccessResolver, type AccessResolver } from "./access.js";
 import path from "node:path";
 
 export type MultiUserRuntime = {
@@ -29,6 +30,7 @@ export type MultiUserRuntime = {
   teams: TeamStore;
   membership: MembershipStore;
   forks: ForkStore;
+  access: AccessResolver;
   getAgent: ExtensionContext["getAgent"];
   logger: ExtensionLogger;
 };
@@ -52,11 +54,14 @@ export function getAgentFilter(
 ): <T extends Pick<AgentConfig, "id">>(agents: T[]) => T[] {
   return (agents) => {
     const activeRuntime = getMultiUserRuntime();
+    // Staff bypass and single-user (no runtime) both see everything. Otherwise
+    // visibility resolves from team membership via the access resolver — the
+    // `agent_assignments` allowlist is no longer consulted.
     if (!activeRuntime || hasAdminRole(role)) return agents;
-    const allowedAgentIds = new Set(
-      activeRuntime.assignments.getAssignmentsForUser(userId)
+    const visibleAgentIds = new Set(
+      activeRuntime.access.getVisibleChatAgents(userId)
     );
-    return agents.filter((agent) => allowedAgentIds.has(agent.id));
+    return agents.filter((agent) => visibleAgentIds.has(agent.id));
   };
 }
 
@@ -99,6 +104,8 @@ export type {
 } from "./teams.js";
 export { createMembershipStore } from "./membership.js";
 export type { MembershipStore, TeamMember } from "./membership.js";
+export { createAccessResolver } from "./access.js";
+export type { AccessResolver } from "./access.js";
 export {
   createForkStore,
   forkIdForPool,
@@ -166,6 +173,7 @@ export const multiUserExtension: Extension = {
     // teams needs a fork lookup so deleteTeam can name soon-to-be-teamless
     // forks; forks has no dependency on teams, so construct it first.
     const teams = createTeamStore(db, membership, () => forks);
+    const access = createAccessResolver({ membership, forks });
     runtime = {
       auth,
       db,
@@ -173,6 +181,7 @@ export const multiUserExtension: Extension = {
       teams,
       membership,
       forks,
+      access,
       getAgent: ctx.getAgent,
       logger: ctx.logger,
     };

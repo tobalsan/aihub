@@ -1,5 +1,6 @@
 import fs from "node:fs";
 import path from "node:path";
+import { randomUUID } from "node:crypto";
 import Database from "better-sqlite3";
 
 export const AUTH_DB_FILENAME = "auth.db";
@@ -141,6 +142,113 @@ export function ensureAgentForksTable(db: Database.Database): void {
   `);
 }
 
+/** Records one-shot data migrations so bootstrap never re-runs them. */
+export function ensureMigrationsTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS schema_migrations (
+      name TEXT PRIMARY KEY,
+      appliedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP
+    );
+  `);
+}
+
+/** Identifier of the assignments → teams one-shot migration. */
+export const ASSIGNMENTS_TO_TEAMS_MIGRATION = "assignments_to_teams";
+
+/**
+ * One-shot migration converting the legacy `agent_assignments` allowlist into
+ * the team model so chat access keeps working on installs that predate teams.
+ *
+ * For each distinct assigned agent it creates one migration team, adds every
+ * user who was assigned that agent as a member, and writes an `agent_forks`
+ * link row pointing that agent at the team. The original `agentId` is kept as
+ * both `sourcePoolId` and `forkAgentId` so the pre-existing (already
+ * discovered/runnable) agent still matches the resolver's fork lookup by id.
+ *
+ * The result preserves access exactly: user U could chat agent A iff a
+ * `(U, A)` assignment existed; afterward U is a member of A's team and A's
+ * fork links to that team, so `canUserChatAgent(U, A)` holds iff it did before.
+ *
+ * Idempotent: guarded by a `schema_migrations` marker so re-running bootstrap
+ * converts the rows exactly once. `agent_assignments` rows are left in place
+ * (untouched) but are no longer read as an access source post-migration.
+ */
+export function migrateAssignmentsToTeams(db: Database.Database): boolean {
+  ensureMigrationsTable(db);
+
+  const alreadyRun = db
+    .prepare("SELECT 1 FROM schema_migrations WHERE name = ?")
+    .get(ASSIGNMENTS_TO_TEAMS_MIGRATION);
+  if (alreadyRun) return false;
+
+  const assignments = db
+    .prepare(
+      "SELECT userId, agentId, assignedBy FROM agent_assignments ORDER BY agentId, userId"
+    )
+    .all() as Array<{ userId: string; agentId: string; assignedBy: string }>;
+
+  // Nothing to convert (fresh install, or already-empty allowlist): mark the
+  // migration done and skip preparing the insert statements. This also avoids
+  // touching the `user` table before better-auth has created it at bootstrap.
+  if (assignments.length === 0) {
+    db.prepare("INSERT INTO schema_migrations (name) VALUES (?)").run(
+      ASSIGNMENTS_TO_TEAMS_MIGRATION
+    );
+    return false;
+  }
+
+  const insertTeam = db.prepare(
+    "INSERT INTO teams (id, name, description, createdBy) VALUES (?, ?, ?, ?)"
+  );
+  const insertMember = db.prepare(
+    "INSERT INTO team_members (teamId, userId, addedBy) VALUES (?, ?, ?) ON CONFLICT (teamId, userId) DO NOTHING"
+  );
+  const insertFork = db.prepare(
+    "INSERT INTO agent_forks (sourcePoolId, forkAgentId, teamId, createdBy, assignedBy, assignedAt) VALUES (?, ?, ?, ?, ?, CURRENT_TIMESTAMP)"
+  );
+  const markDone = db.prepare(
+    "INSERT INTO schema_migrations (name) VALUES (?)"
+  );
+
+  const run = db.transaction(() => {
+    // Group the flat assignment rows by agent so each agent yields one team.
+    const byAgent = new Map<
+      string,
+      { users: Set<string>; assignedBy: string }
+    >();
+    for (const row of assignments) {
+      const entry = byAgent.get(row.agentId);
+      if (entry) {
+        entry.users.add(row.userId);
+      } else {
+        byAgent.set(row.agentId, {
+          users: new Set([row.userId]),
+          assignedBy: row.assignedBy,
+        });
+      }
+    }
+
+    for (const [agentId, { users, assignedBy }] of byAgent) {
+      const teamId = randomUUID();
+      insertTeam.run(
+        teamId,
+        `Migrated: ${agentId}`,
+        `Auto-created from legacy assignments for agent ${agentId}`,
+        assignedBy
+      );
+      for (const userId of users) {
+        insertMember.run(teamId, userId, assignedBy);
+      }
+      insertFork.run(agentId, agentId, teamId, assignedBy, assignedBy);
+    }
+
+    markDone.run(ASSIGNMENTS_TO_TEAMS_MIGRATION);
+  });
+
+  run();
+  return true;
+}
+
 export function initializeMultiUserDatabase(
   dataDirOrPath: string
 ): Database.Database {
@@ -155,5 +263,10 @@ export function initializeMultiUserDatabase(
   ensureTeamsTable(db);
   ensureTeamMembersTable(db);
   ensureAgentForksTable(db);
+  ensureMigrationsTable(db);
+  // Convert legacy allowlist rows into the team model once, at bootstrap, so
+  // pre-teams installs keep working after the resolver stops reading the
+  // allowlist. Safe no-op on fresh installs (no assignment rows).
+  migrateAssignmentsToTeams(db);
   return db;
 }
