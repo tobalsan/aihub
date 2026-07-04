@@ -464,9 +464,9 @@ export async function hasAgentAccess(
   const runtime = getMultiUserRuntime();
   if (!runtime) return true;
 
-  return runtime.assignments
-    .getAssignmentsForUser(authContext.user.id)
-    .includes(agentId);
+  // Chat access resolves from team membership, not the legacy allowlist: a
+  // non-staff user may chat a fork iff they share a team with it.
+  return runtime.access.canUserChatAgent(authContext.user.id, agentId);
 }
 
 export const requireAgentAccess = (agentIdParam = "id"): MiddlewareHandler => {

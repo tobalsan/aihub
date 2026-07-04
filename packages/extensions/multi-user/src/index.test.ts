@@ -75,6 +75,7 @@ describe("multi-user component", () => {
         reassign: vi.fn(),
         unassign: vi.fn(),
         getForkByPool: vi.fn(() => null),
+        getForkByAgentId: vi.fn(() => null),
         listForks: vi.fn(() => []),
         listForksForTeam: vi.fn(() => []),
       })),

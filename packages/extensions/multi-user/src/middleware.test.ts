@@ -167,8 +167,8 @@ describe("multi-user middleware", () => {
           get: vi.fn(() => undefined),
         })),
       },
-      assignments: {
-        getAssignmentsForUser: vi.fn(() => []),
+      access: {
+        canUserChatAgent: vi.fn(() => false),
       },
     });
 
@@ -359,8 +359,8 @@ describe("multi-user middleware", () => {
           })),
         })),
       },
-      assignments: {
-        getAssignmentsForUser: vi.fn(() => []),
+      access: {
+        canUserChatAgent: vi.fn(() => false),
       },
     });
 
