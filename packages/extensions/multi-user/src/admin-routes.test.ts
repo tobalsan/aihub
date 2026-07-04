@@ -1,5 +1,18 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
+import Database from "better-sqlite3";
+import { ensureTeamsTable } from "./db.js";
+import { createTeamStore } from "./teams.js";
+
+function createInMemoryTeamStore() {
+  const db = new Database(":memory:");
+  db.pragma("foreign_keys = ON");
+  db.exec("CREATE TABLE user (id TEXT PRIMARY KEY)");
+  db.prepare("INSERT INTO user (id) VALUES (?)").run("admin-1");
+  db.prepare("INSERT INTO user (id) VALUES (?)").run("superadmin-1");
+  ensureTeamsTable(db);
+  return createTeamStore(db);
+}
 
 const getMultiUserRuntime = vi.fn();
 const getAgent = vi.fn();
@@ -223,6 +236,8 @@ function createRuntime(options?: {
     async () => options?.session ?? createSession("admin")
   );
 
+  const teams = createInMemoryTeamStore();
+
   const runtime = {
     auth: {
       api: {
@@ -234,6 +249,7 @@ function createRuntime(options?: {
     },
     db,
     assignments: assignmentStore.store,
+    teams,
     getAgent,
   };
 
@@ -246,6 +262,7 @@ function createRuntime(options?: {
     setRole,
     getSession,
     assignmentStore,
+    teams,
   };
 }
 
@@ -648,6 +665,146 @@ describe("multi-user admin routes", () => {
     expect(
       runtime.assignmentStore.store.getAssignmentsForAgent("agent-b")
     ).toEqual([]);
+  });
+
+  it("admin can create, edit, list and delete a team", async () => {
+    const runtime = createRuntime();
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const createResponse = await app.request(
+      new Request("http://localhost/admin/teams", {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ name: "Platform", description: "Core" }),
+      })
+    );
+    expect(createResponse.status).toBe(201);
+    const created = (await createResponse.json()) as {
+      team: {
+        id: string;
+        name: string;
+        color: string;
+        icon: string;
+        createdBy: string;
+      };
+    };
+    expect(created.team).toMatchObject({
+      name: "Platform",
+      createdBy: "admin-1",
+    });
+    // Defaults applied server-side when color/icon omitted.
+    expect(created.team.color).toBeTruthy();
+    expect(created.team.icon).toBeTruthy();
+
+    const editResponse = await app.request(
+      new Request(`http://localhost/admin/teams/${created.team.id}`, {
+        method: "PATCH",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ name: "Platform Team", color: "#123456" }),
+      })
+    );
+    expect(editResponse.status).toBe(200);
+    await expect(editResponse.json()).resolves.toMatchObject({
+      team: { id: created.team.id, name: "Platform Team", color: "#123456" },
+    });
+
+    const deleteResponse = await app.request(
+      new Request(`http://localhost/admin/teams/${created.team.id}`, {
+        method: "DELETE",
+        headers: { cookie: "session=1" },
+      })
+    );
+    expect(deleteResponse.status).toBe(200);
+    await expect(deleteResponse.json()).resolves.toEqual({
+      deleted: true,
+      teamlessUsers: [],
+      teamlessAgents: [],
+    });
+  });
+
+  it("rejects a duplicate team name with 409", async () => {
+    const runtime = createRuntime();
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+    runtime.teams.createTeam({ name: "Alpha", createdBy: "admin-1" });
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/teams", {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ name: "alpha" }),
+      })
+    );
+    expect(response.status).toBe(409);
+  });
+
+  it("returns 404 when editing a missing team", async () => {
+    const runtime = createRuntime();
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/teams/missing", {
+        method: "PATCH",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ name: "X" }),
+      })
+    );
+    expect(response.status).toBe(404);
+  });
+
+  it("any authenticated user can list teams", async () => {
+    const runtime = createRuntime({ session: createSession("user") });
+    runtime.teams.createTeam({ name: "Visible", createdBy: "admin-1" });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(makeAuthRequest("/teams"));
+    expect(response.status).toBe(200);
+    const body = (await response.json()) as { teams: Array<{ name: string }> };
+    expect(body.teams.map((team) => team.name)).toContain("Visible");
+  });
+
+  it("non-admin cannot mutate teams (403)", async () => {
+    const runtime = createRuntime({ session: createSession("user") });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/teams", {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ name: "Nope" }),
+      })
+    );
+    expect(response.status).toBe(403);
+    expect(runtime.teams.listTeams()).toHaveLength(0);
   });
 
   it("non-admin gets 403 on admin routes", async () => {

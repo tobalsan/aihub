@@ -227,7 +227,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
         (module) => module.multiUserExtension
       ),
     getConfig: (config) => config.extensions?.multiUser,
-    routePrefixes: ["/api/auth", "/api/me", "/api/admin"],
+    routePrefixes: ["/api/auth", "/api/me", "/api/admin", "/api/teams"],
   },
   board: builtInExtension("@aihub/extension-board", "boardExtension", {
     getConfig: (config) => config.extensions?.board,

@@ -352,9 +352,10 @@ OneCLI notes:
 
 - Enable with top-level `multiUser.enabled: true`. When disabled, gateway skips Better Auth setup, SQLite creation, auth middleware, and per-user storage paths.
 - Better Auth mounts on `/api/auth/*` with Google OAuth and cookie sessions. `GET /api/me` returns the current user plus assigned agent IDs. Admin-only APIs live under `/api/admin/users` and `/api/admin/agents`.
+- Teams are a first-class entity backed by a `teams` table (`id`, unique `name`, `description`, nullable `color`/`icon`, `createdBy`, `createdAt`). Admins mutate them via `POST/PATCH/DELETE /api/admin/teams` (guarded by `requireAdmin`); any authenticated user lists them via `GET /api/teams`. Unset color/icon fall back to grey and a generic Font Awesome team icon. `DELETE /api/admin/teams/:id` returns `{ deleted, teamlessUsers, teamlessAgents }`; the teamless sets are empty until membership and agent↔team assignment land in later slices, but the shape drives the delete-confirmation warning today. The web Teams page (`/teams`) lists teams and gives admins a create/edit modal (name, description, color picker, Font Awesome icon picker) plus a delete confirmation.
 - Startup flow:
   1. Gateway loads config and checks `multiUser.enabled`
-  2. If enabled, it creates `$AIHUB_HOME/auth.db`, runs Better Auth migrations, creates the custom `agent_assignments` table, and initializes the auth runtime before binding the HTTP listener
+  2. If enabled, it creates `$AIHUB_HOME/auth.db`, runs Better Auth migrations, creates the custom `agent_assignments` and `teams` tables, and initializes the auth runtime before binding the HTTP listener
   3. `/api/*` requests require a valid approved session except `/api/auth/*`; `/ws` upgrades are rejected without a valid session
   4. First OAuth user is promoted to `admin`; later allowed-domain users start as unapproved `user`
 - Per-user file isolation:

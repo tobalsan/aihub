@@ -50,6 +50,15 @@ describe("multi-user component", () => {
         removeAssignment: vi.fn(),
       })),
     }));
+    vi.doMock("./teams.js", () => ({
+      createTeamStore: vi.fn(() => ({
+        listTeams: vi.fn(() => []),
+        getTeam: vi.fn(() => null),
+        createTeam: vi.fn(),
+        updateTeam: vi.fn(),
+        deleteTeam: vi.fn(),
+      })),
+    }));
 
     const { multiUserExtension } = await import("./index.js");
     const ctx = {

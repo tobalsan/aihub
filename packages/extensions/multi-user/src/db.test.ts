@@ -36,6 +36,7 @@ describe("multi-user db", () => {
 
     expect(fs.existsSync(dbPath)).toBe(true);
     expect(tables.map((table) => table.name)).toContain("agent_assignments");
+    expect(tables.map((table) => table.name)).toContain("teams");
     expect(foreignKeysEnabled).toBe(1);
     expect(foreignKeys).toEqual(
       expect.arrayContaining([
@@ -43,5 +44,35 @@ describe("multi-user db", () => {
         expect.objectContaining({ table: "user", from: "assignedBy" }),
       ])
     );
+  });
+
+  it("creates a teams table with a unique name index", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-teams-db-"));
+    tempDirs.push(tempDir);
+    const dbPath = path.join(tempDir, "auth.db");
+
+    const db = initializeMultiUserDatabase(dbPath);
+    const columns = db
+      .prepare("PRAGMA table_info(teams)")
+      .all() as Array<{ name: string; notnull: number }>;
+    const indexes = db
+      .prepare("PRAGMA index_list(teams)")
+      .all() as Array<{ name: string; unique: number }>;
+
+    db.close();
+
+    const columnNames = columns.map((column) => column.name);
+    expect(columnNames).toEqual(
+      expect.arrayContaining([
+        "id",
+        "name",
+        "description",
+        "color",
+        "icon",
+        "createdBy",
+        "createdAt",
+      ])
+    );
+    expect(indexes.some((index) => index.unique === 1)).toBe(true);
   });
 });
