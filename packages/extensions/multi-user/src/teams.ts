@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import type Database from "better-sqlite3";
+import type { MembershipStore } from "./membership.js";
 
 export const DEFAULT_TEAM_COLOR = "#6b7280";
 export const DEFAULT_TEAM_ICON = "fa-solid fa-users";
@@ -32,9 +33,9 @@ export type UpdateTeamInput = {
 /**
  * Returned by {@link TeamStore.deleteTeam}. The `users` and `agents` sets name
  * the members that would be left without any team once this team is removed.
- * Membership (slice 3) and agent↔team assignment (slice 4) do not exist yet, so
- * both arrays are always empty for now; the shape is stable so the delete
- * confirmation warning can be wired up ahead of those slices.
+ * `teamlessUsers` now resolves from real membership (this slice); agent↔team
+ * assignment does not exist yet (slice 4), so `teamlessAgents` stays empty with
+ * a stable shape.
  */
 export type DeleteTeamResult = {
   deleted: boolean;
@@ -111,7 +112,10 @@ function isUniqueViolation(error: unknown): boolean {
   );
 }
 
-export function createTeamStore(db: Database.Database): TeamStore {
+export function createTeamStore(
+  db: Database.Database,
+  membership?: MembershipStore
+): TeamStore {
   const listStatement = db.prepare(
     "SELECT id, name, description, color, icon, createdBy, createdAt FROM teams ORDER BY name COLLATE NOCASE"
   );
@@ -199,13 +203,17 @@ export function createTeamStore(db: Database.Database): TeamStore {
       const existing = getStatement.get(id) as TeamRow | undefined;
       if (!existing) throw new TeamNotFoundError(id);
 
+      // Compute the soon-to-be-teamless users before deleting: the ON DELETE
+      // CASCADE on team_members removes those rows once the team is gone, so
+      // the set must be captured while the memberships still exist.
+      const teamlessUsers = membership?.usersOnlyInTeam(id) ?? [];
+
       const result = deleteStatement.run(id);
-      // Membership and agent↔team links do not exist yet (slices 3/4), so no
-      // user or agent can be orphaned by this delete. Return empty sets with a
-      // stable shape so the delete-warning UI can be built now.
+      // Agent↔team links do not exist yet (slice 4), so no agent can be
+      // orphaned by this delete; keep the stable shape with an empty set.
       return {
         deleted: result.changes > 0,
-        teamlessUsers: [],
+        teamlessUsers,
         teamlessAgents: [],
       };
     },

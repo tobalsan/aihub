@@ -1,17 +1,22 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { Hono } from "hono";
 import Database from "better-sqlite3";
-import { ensureTeamsTable } from "./db.js";
+import { ensureTeamMembersTable, ensureTeamsTable } from "./db.js";
 import { createTeamStore } from "./teams.js";
+import { createMembershipStore } from "./membership.js";
 
-function createInMemoryTeamStore() {
+function createInMemoryTeamStore(extraUserIds: string[] = []) {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
   db.exec("CREATE TABLE user (id TEXT PRIMARY KEY)");
-  db.prepare("INSERT INTO user (id) VALUES (?)").run("admin-1");
-  db.prepare("INSERT INTO user (id) VALUES (?)").run("superadmin-1");
+  for (const id of ["admin-1", "superadmin-1", ...extraUserIds]) {
+    db.prepare("INSERT OR IGNORE INTO user (id) VALUES (?)").run(id);
+  }
   ensureTeamsTable(db);
-  return createTeamStore(db);
+  ensureTeamMembersTable(db);
+  const membership = createMembershipStore(db);
+  const teams = createTeamStore(db, membership);
+  return { teams, membership };
 }
 
 const getMultiUserRuntime = vi.fn();
@@ -164,6 +169,12 @@ function createDbMock(users: Map<string, Record<string, unknown>>) {
     approvedByUserId,
     db: {
       prepare: vi.fn((sql: string) => ({
+        get: vi.fn((userId: string) => {
+          if (sql.includes("SELECT 1 FROM user WHERE id = ?")) {
+            return users.has(userId) ? { 1: 1 } : undefined;
+          }
+          return undefined;
+        }),
         all: vi.fn((...userIds: string[]) => {
           if (sql.includes("SELECT id FROM user WHERE id IN")) {
             return userIds
@@ -236,7 +247,7 @@ function createRuntime(options?: {
     async () => options?.session ?? createSession("admin")
   );
 
-  const teams = createInMemoryTeamStore();
+  const { teams, membership } = createInMemoryTeamStore([...users.keys()]);
 
   const runtime = {
     auth: {
@@ -250,6 +261,7 @@ function createRuntime(options?: {
     db,
     assignments: assignmentStore.store,
     teams,
+    membership,
     getAgent,
   };
 
@@ -263,6 +275,7 @@ function createRuntime(options?: {
     getSession,
     assignmentStore,
     teams,
+    membership,
   };
 }
 
@@ -805,6 +818,139 @@ describe("multi-user admin routes", () => {
     );
     expect(response.status).toBe(403);
     expect(runtime.teams.listTeams()).toHaveLength(0);
+  });
+
+  it("admin adds and removes team members; add is idempotent", async () => {
+    const runtime = createRuntime();
+    const team = runtime.teams.createTeam({
+      name: "Platform",
+      createdBy: "admin-1",
+    });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const addUrl = `http://localhost/admin/teams/${team.id}/members`;
+    const addBody = (userId: string) =>
+      new Request(addUrl, {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ userId }),
+      });
+
+    const firstAdd = await app.request(addBody("user-1"));
+    expect(firstAdd.status).toBe(200);
+    await expect(firstAdd.json()).resolves.toEqual({
+      teamId: team.id,
+      userIds: ["user-1"],
+    });
+
+    // Re-adding is idempotent: still one member, still 200.
+    const secondAdd = await app.request(addBody("user-1"));
+    expect(secondAdd.status).toBe(200);
+    await expect(secondAdd.json()).resolves.toEqual({
+      teamId: team.id,
+      userIds: ["user-1"],
+    });
+
+    const removeResponse = await app.request(
+      new Request(
+        `http://localhost/admin/teams/${team.id}/members/user-1`,
+        { method: "DELETE", headers: { cookie: "session=1" } }
+      )
+    );
+    expect(removeResponse.status).toBe(200);
+    await expect(removeResponse.json()).resolves.toEqual({
+      teamId: team.id,
+      userIds: [],
+    });
+  });
+
+  it("add-member returns 404 for a missing team or user", async () => {
+    const runtime = createRuntime();
+    const team = runtime.teams.createTeam({
+      name: "Platform",
+      createdBy: "admin-1",
+    });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const missingTeam = await app.request(
+      new Request("http://localhost/admin/teams/nope/members", {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ userId: "user-1" }),
+      })
+    );
+    expect(missingTeam.status).toBe(404);
+
+    const missingUser = await app.request(
+      new Request(`http://localhost/admin/teams/${team.id}/members`, {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ userId: "ghost" }),
+      })
+    );
+    expect(missingUser.status).toBe(404);
+  });
+
+  it("non-admin cannot add a member (403)", async () => {
+    const runtime = createRuntime({ session: createSession("user") });
+    const team = runtime.teams.createTeam({
+      name: "Platform",
+      createdBy: "admin-1",
+    });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request(`http://localhost/admin/teams/${team.id}/members`, {
+        method: "POST",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ userId: "user-1" }),
+      })
+    );
+    expect(response.status).toBe(403);
+    expect(runtime.membership.listUsersForTeam(team.id)).toEqual([]);
+  });
+
+  it("any authenticated user can list a team's members", async () => {
+    const runtime = createRuntime({ session: createSession("user") });
+    const team = runtime.teams.createTeam({
+      name: "Platform",
+      createdBy: "admin-1",
+    });
+    runtime.membership.addMember(team.id, "user-1", "admin-1");
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      makeAuthRequest(`/teams/${team.id}/members`)
+    );
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({
+      teamId: team.id,
+      userIds: ["user-1"],
+    });
   });
 
   it("non-admin gets 403 on admin routes", async () => {
