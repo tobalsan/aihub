@@ -33,6 +33,20 @@ export type AgentFork = {
   assignedAt: string | null;
 };
 
+// The single action a pool catalog card should offer the current user. Mirrors
+// the gateway pool-catalog resolver: chat (fork exists + chattable/staff),
+// assign_to_team (staff, no fork yet), or none (visible-but-inert).
+export type PoolCatalogAction = "chat" | "assign_to_team" | "none";
+
+export type PoolCatalogEntry = {
+  poolId: string;
+  forked: boolean;
+  // The fork agent id the Chat action routes to; non-null only when action is
+  // "chat".
+  chatAgentId: string | null;
+  action: PoolCatalogAction;
+};
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
   const res = await globalThis.fetch(path, {
     ...init,
@@ -137,6 +151,15 @@ export async function fetchTeamAgents(teamId: string): Promise<AgentFork[]> {
     `/api/teams/${encodeURIComponent(teamId)}/agents`
   );
   return data.forks;
+}
+
+// Per-user catalog action states for every pool agent. Available to any
+// authenticated user; visibility is global and only the action is gated.
+export async function fetchPoolActions(): Promise<PoolCatalogEntry[]> {
+  const data = await request<{ actions: PoolCatalogEntry[] }>(
+    "/api/pool-actions"
+  );
+  return data.actions;
 }
 
 // Admin-only: assign a pool agent to a team (forks on first assignment).
