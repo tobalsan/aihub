@@ -573,4 +573,79 @@ describe("multi-user middleware", () => {
       },
     });
   });
+
+  function mockSessionRole(role: string) {
+    getMultiUserRuntime.mockReturnValue({
+      auth: {
+        api: {
+          getSession: vi.fn(async () => ({
+            user: { id: `${role}-1`, role, approved: true },
+            session: { id: "session-1", userId: `${role}-1` },
+          })),
+        },
+      },
+    });
+  }
+
+  it("staff bypass (requireAdmin) allows both admin and superadmin", async () => {
+    for (const role of ["admin", "superadmin"]) {
+      vi.resetModules();
+      mockSessionRole(role);
+      const { createAuthMiddleware, requireAdmin } = await import(
+        "./middleware.js"
+      );
+      const app = new Hono();
+      app.use("/api/*", createAuthMiddleware());
+      app.get("/api/admin", requireAdmin(), (c) => c.json({ ok: true }));
+
+      const response = await app.request("/api/admin", {
+        headers: { cookie: "session=1" },
+      });
+      expect(response.status).toBe(200);
+    }
+  });
+
+  it("requireSuperadmin allows superadmin", async () => {
+    mockSessionRole("superadmin");
+    const { createAuthMiddleware, requireSuperadmin } = await import(
+      "./middleware.js"
+    );
+    const app = new Hono();
+    app.use("/api/*", createAuthMiddleware());
+    app.get("/api/su", requireSuperadmin(), (c) => c.json({ ok: true }));
+
+    const response = await app.request("/api/su", {
+      headers: { cookie: "session=1" },
+    });
+    expect(response.status).toBe(200);
+  });
+
+  it("requireSuperadmin rejects admin and user with 403", async () => {
+    for (const role of ["admin", "user"]) {
+      vi.resetModules();
+      mockSessionRole(role);
+      const { createAuthMiddleware, requireSuperadmin } = await import(
+        "./middleware.js"
+      );
+      const app = new Hono();
+      app.use("/api/*", createAuthMiddleware());
+      app.get("/api/su", requireSuperadmin(), (c) => c.json({ ok: true }));
+
+      const response = await app.request("/api/su", {
+        headers: { cookie: "session=1" },
+      });
+      expect(response.status).toBe(403);
+      await expect(response.json()).resolves.toEqual({ error: "forbidden" });
+    }
+  });
+
+  it("single-user mode: requireSuperadmin passes through when multiUser not loaded", async () => {
+    getMultiUserRuntime.mockReturnValue(null);
+    const { requireSuperadmin } = await import("./middleware.js");
+    const app = new Hono();
+    app.get("/api/su", requireSuperadmin(), (c) => c.json({ ok: true }));
+
+    const response = await app.request("/api/su");
+    expect(response.status).toBe(200);
+  });
 });

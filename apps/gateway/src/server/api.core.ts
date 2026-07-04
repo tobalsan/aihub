@@ -82,9 +82,12 @@ async function getRequestUserId(c: Context): Promise<string | undefined> {
   return (await getRequestAuthContext(c))?.session.userId;
 }
 
+const STAFF_ROLES = ["admin", "superadmin"];
+
 function hasAdminRole(role: unknown): boolean {
-  if (Array.isArray(role)) return role.includes("admin");
-  return role === "admin";
+  if (Array.isArray(role))
+    return role.some((r) => typeof r === "string" && STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
 }
 
 async function canViewAgentPrivateMeta(c: Context): Promise<boolean> {

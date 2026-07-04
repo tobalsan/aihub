@@ -81,7 +81,10 @@ type MockSession = {
   };
 };
 
-function createSession(role: "admin" | "user", approved = true): MockSession {
+function createSession(
+  role: "superadmin" | "admin" | "user",
+  approved = true
+): MockSession {
   return {
     user: {
       id: `${role}-1`,
@@ -422,8 +425,127 @@ describe("multi-user admin routes", () => {
     expect(runtime.approvedByUserId.get("user-1")).toBe(0);
   });
 
-  it("admin can change user role", async () => {
-    const runtime = createRuntime();
+  async function patchRole(session: MockSession, targetId: string, role: string) {
+    const runtime = createRuntime({ session });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request(`http://localhost/admin/users/${targetId}`, {
+        method: "PATCH",
+        headers: {
+          cookie: "session=1",
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({ role }),
+      })
+    );
+    return { runtime, response };
+  }
+
+  it("superadmin can promote user->admin", async () => {
+    const { runtime, response } = await patchRole(
+      createSession("superadmin"),
+      "user-1",
+      "admin"
+    );
+    expect(response.status).toBe(200);
+    expect(runtime.setRole).toHaveBeenCalledWith({
+      headers: expect.any(Headers),
+      body: { userId: "user-1", role: "admin" },
+    });
+    await expect(response.json()).resolves.toEqual({
+      user: expect.objectContaining({ id: "user-1", role: "admin" }),
+    });
+  });
+
+  it("superadmin can demote admin->user", async () => {
+    const { runtime, response } = await patchRole(
+      createSession("superadmin"),
+      "admin-1",
+      "user"
+    );
+    expect(response.status).toBe(200);
+    expect(runtime.setRole).toHaveBeenCalledWith({
+      headers: expect.any(Headers),
+      body: { userId: "admin-1", role: "user" },
+    });
+  });
+
+  it("superadmin can promote user->superadmin", async () => {
+    const { runtime, response } = await patchRole(
+      createSession("superadmin"),
+      "user-1",
+      "superadmin"
+    );
+    expect(response.status).toBe(200);
+    expect(runtime.setRole).toHaveBeenCalledWith({
+      headers: expect.any(Headers),
+      body: { userId: "user-1", role: "superadmin" },
+    });
+  });
+
+  it("superadmin can demote another superadmin (succession/recovery)", async () => {
+    const session = createSession("superadmin");
+    const runtime = createRuntime({
+      session,
+      users: [
+        {
+          id: "superadmin-1",
+          name: "Super",
+          email: "superadmin@example.com",
+          role: "superadmin",
+          approved: true,
+        },
+        {
+          id: "superadmin-2",
+          name: "Super Two",
+          email: "super2@example.com",
+          role: "superadmin",
+          approved: true,
+        },
+      ],
+    });
+    getMultiUserRuntime.mockReturnValue(runtime.runtime);
+
+    const { registerMultiUserRoutes } = await importAdminRoutes();
+    const { createAuthMiddleware } = await importAuthMiddleware();
+    const app = createAdminApp();
+    app.use("*", createAuthMiddleware());
+    registerMultiUserRoutes(app);
+
+    const response = await app.request(
+      new Request("http://localhost/admin/users/superadmin-2", {
+        method: "PATCH",
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ role: "admin" }),
+      })
+    );
+    expect(response.status).toBe(200);
+    expect(runtime.setRole).toHaveBeenCalledWith({
+      headers: expect.any(Headers),
+      body: { userId: "superadmin-2", role: "admin" },
+    });
+  });
+
+  it("admin cannot change any role (403) and setRole is not called", async () => {
+    const { runtime, response } = await patchRole(
+      createSession("admin"),
+      "user-1",
+      "admin"
+    );
+    expect(response.status).toBe(403);
+    await expect(response.json()).resolves.toEqual({ error: "forbidden" });
+    expect(runtime.setRole).not.toHaveBeenCalled();
+  });
+
+  it("admin can still approve users (non-role change)", async () => {
+    const runtime = createRuntime({ session: createSession("admin") });
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
     const { registerMultiUserRoutes } = await importAdminRoutes();
@@ -435,22 +557,22 @@ describe("multi-user admin routes", () => {
     const response = await app.request(
       new Request("http://localhost/admin/users/user-1", {
         method: "PATCH",
-        headers: {
-          cookie: "session=1",
-          "content-type": "application/json",
-        },
-        body: JSON.stringify({ role: "admin" }),
+        headers: { cookie: "session=1", "content-type": "application/json" },
+        body: JSON.stringify({ approved: true }),
       })
     );
-
     expect(response.status).toBe(200);
-    expect(runtime.setRole).toHaveBeenCalledWith({
-      headers: expect.any(Headers),
-      body: { userId: "user-1", role: "admin" },
-    });
-    await expect(response.json()).resolves.toEqual({
-      user: expect.objectContaining({ id: "user-1", role: "admin" }),
-    });
+    expect(runtime.approvedByUserId.get("user-1")).toBe(1);
+  });
+
+  it("regular user cannot change any role (403)", async () => {
+    const { runtime, response } = await patchRole(
+      createSession("user"),
+      "user-2",
+      "admin"
+    );
+    expect(response.status).toBe(403);
+    expect(runtime.setRole).not.toHaveBeenCalled();
   });
 
   it("admin can list and set agent assignments", async () => {
