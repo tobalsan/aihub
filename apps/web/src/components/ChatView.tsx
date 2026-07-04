@@ -468,8 +468,12 @@ export function ChatView() {
   const navigate = useNavigate();
   const [agent] = createResource(() => params.agentId, fetchAgent);
 
-  const hasAdminRole = (role: string | string[] | null | undefined) =>
-    Array.isArray(role) ? role.includes("admin") : role === "admin";
+  const hasAdminRole = (role: string | string[] | null | undefined) => {
+    const staff = ["admin", "superadmin"];
+    return Array.isArray(role)
+      ? role.some((r) => staff.includes(r))
+      : typeof role === "string" && staff.includes(role);
+  };
   const canUseFullView = createMemo(
     () => !capabilities.multiUser || hasAdminRole(capabilities.user?.role)
   );

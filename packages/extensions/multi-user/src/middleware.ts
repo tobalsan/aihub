@@ -66,10 +66,22 @@ function normalizeAuthContext(session: {
   };
 }
 
+const STAFF_ROLES = ["admin", "superadmin"];
+
+/**
+ * Staff bypass: both `admin` and `superadmin` are privileged staff and
+ * bypass approval / agent-assignment checks.
+ */
 export function hasAdminRole(authContext: RequestAuthContext): boolean {
   const { role } = authContext.user;
-  if (Array.isArray(role)) return role.includes("admin");
-  return role === "admin";
+  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
+}
+
+export function hasSuperadminRole(authContext: RequestAuthContext): boolean {
+  const { role } = authContext.user;
+  if (Array.isArray(role)) return role.includes("superadmin");
+  return role === "superadmin";
 }
 
 function isApproved(authContext: RequestAuthContext): boolean {
@@ -393,6 +405,19 @@ export const requireNotImpersonating = (): MiddlewareHandler => {
   };
 };
 
+function resolveAuthContext(c: Context): RequestAuthContext | null {
+  let authContext = getRequestAuthContext(c);
+  if (!authContext) {
+    // When running inside the api sub-app, the main app forwards the
+    // auth context via header instead of Hono's context store.
+    authContext = getForwardedAuthContext(c.req.raw.headers);
+    if (authContext) {
+      c.set(REQUEST_AUTH_CONTEXT_KEY, authContext);
+    }
+  }
+  return authContext;
+}
+
 export const requireAdmin = (): MiddlewareHandler => {
   return async (c, next) => {
     if (!getMultiUserRuntime()) {
@@ -400,19 +425,29 @@ export const requireAdmin = (): MiddlewareHandler => {
       return;
     }
 
-    let authContext = getRequestAuthContext(c);
-    if (!authContext) {
-      // When running inside the api sub-app, the main app forwards the
-      // auth context via header instead of Hono's context store.
-      authContext = getForwardedAuthContext(c.req.raw.headers);
-      if (authContext) {
-        c.set(REQUEST_AUTH_CONTEXT_KEY, authContext);
-      }
-    }
+    const authContext = resolveAuthContext(c);
     if (!authContext) {
       return c.json({ error: "unauthorized" }, 401);
     }
     if (!hasAdminRole(authContext)) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+    await next();
+  };
+};
+
+export const requireSuperadmin = (): MiddlewareHandler => {
+  return async (c, next) => {
+    if (!getMultiUserRuntime()) {
+      await next();
+      return;
+    }
+
+    const authContext = resolveAuthContext(c);
+    if (!authContext) {
+      return c.json({ error: "unauthorized" }, 401);
+    }
+    if (!hasSuperadminRole(authContext)) {
       return c.json({ error: "forbidden" }, 403);
     }
     await next();

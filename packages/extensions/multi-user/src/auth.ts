@@ -2,6 +2,7 @@ import { betterAuth } from "better-auth";
 import { APIError } from "better-auth/api";
 import { getMigrations } from "better-auth/db/migration";
 import { admin } from "better-auth/plugins/admin";
+import { defaultAc, userAc } from "better-auth/plugins/admin/access";
 import { apiKey } from "@better-auth/api-key";
 import type Database from "better-sqlite3";
 import type { GatewayConfig, MultiUserConfig } from "@aihub/shared";
@@ -36,6 +37,25 @@ function getTrustedOrigins(config: GatewayConfig): string[] {
   ].filter((value): value is string => !!value);
 
   return [...new Set(candidates.map(normalizeOrigin))];
+}
+
+/**
+ * Bootstrap fields applied to a new user in the `before` create hook.
+ * The very first user of a fresh instance becomes `superadmin` and is
+ * auto-approved; everyone else keeps the default role and is unapproved.
+ *
+ * Setting these in `before` ensures the initial session reflects them
+ * immediately (an `after`-hook update would be masked by the session cache).
+ */
+export function resolveBootstrapUserFields(userCount: number): {
+  approved: boolean;
+  role?: string;
+} {
+  const isFirstUser = userCount === 0;
+  return {
+    approved: isFirstUser,
+    ...(isFirstUser ? { role: "superadmin" } : {}),
+  };
 }
 
 function isAllowedDomain(email: string, allowedDomains?: string[]): boolean {
@@ -119,6 +139,53 @@ function buildMultiUserAuth(
     plugins: [
       admin({
         defaultRole: "user",
+        // Both admins and superadmins count as staff for better-auth admin
+        // APIs (listUsers, setRole, impersonation, etc.).
+        adminRoles: ["admin", "superadmin"],
+        // Both roles must be declared in the access-control roles map or
+        // better-auth rejects them in `adminRoles`.
+        //
+        // `create`, `set-role`, and `impersonate-admins` are granted ONLY to
+        // `superadmin`. This is the enforcement point for "admins cannot
+        // change roles":
+        //   - Without `set-role`, the built-in `POST /admin/set-role` (and the
+        //     `role` field of `POST /admin/update-user`) rejects admins, so an
+        //     admin cannot escalate an existing user's role.
+        //   - Without `create`, the built-in `POST /admin/create-user` rejects
+        //     admins, so an admin cannot mint a brand-new superadmin account.
+        // Users self-register via Google OAuth, so admins never need the
+        // built-in create-user endpoint.
+        roles: {
+          user: userAc,
+          // Stock admin permissions minus `create` and `set-role`.
+          admin: defaultAc.newRole({
+            user: [
+              "list",
+              "ban",
+              "impersonate",
+              "delete",
+              "set-password",
+              "get",
+              "update",
+            ],
+            session: ["list", "revoke", "delete"],
+          }),
+          superadmin: defaultAc.newRole({
+            user: [
+              "create",
+              "list",
+              "set-role",
+              "ban",
+              "impersonate",
+              "impersonate-admins",
+              "delete",
+              "set-password",
+              "get",
+              "update",
+            ],
+            session: ["list", "revoke", "delete"],
+          }),
+        },
       }),
       apiKey({
         rateLimit: { enabled: false },
@@ -134,19 +201,14 @@ function buildMultiUserAuth(
               });
             }
 
-            // First user becomes admin and is auto-approved.
-            // Must be set in `before` so the session is created with correct values;
-            // `after` hook updates bypass the session cache.
             const userCount = db
               .prepare("SELECT COUNT(*) AS count FROM user")
               .get() as { count: number };
-            const isFirstUser = userCount.count === 0;
 
             return {
               data: {
                 ...user,
-                approved: isFirstUser,
-                ...(isFirstUser && { role: "admin" }),
+                ...resolveBootstrapUserFields(userCount.count),
               },
             };
           },

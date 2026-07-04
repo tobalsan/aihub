@@ -1,13 +1,17 @@
 import type { Hono } from "hono";
 import { z } from "zod";
-import { getRequestAuthContext, requireAdmin } from "./middleware.js";
+import {
+  getRequestAuthContext,
+  hasSuperadminRole,
+  requireAdmin,
+} from "./middleware.js";
 import { getMultiUserRuntime } from "./index.js";
 import { logImpersonationEvent, startImpersonation } from "./impersonation.js";
 
 const UpdateAdminUserBodySchema = z
   .object({
     approved: z.boolean().optional(),
-    role: z.enum(["admin", "user"]).optional(),
+    role: z.enum(["superadmin", "admin", "user"]).optional(),
   })
   .refine((data) => data.approved !== undefined || data.role !== undefined, {
     message: "approved or role is required",
@@ -73,6 +77,15 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
     const parsed = UpdateAdminUserBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: parsed.error.message }, 400);
+    }
+
+    // Role changes are superadmin-only. Admins may still approve/reject
+    // users but cannot change any role.
+    if (parsed.data.role !== undefined) {
+      const authContext = getRequestAuthContext(c);
+      if (!authContext || !hasSuperadminRole(authContext)) {
+        return c.json({ error: "forbidden" }, 403);
+      }
     }
 
     const userId = c.req.param("id");

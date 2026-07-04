@@ -21,9 +21,11 @@ type SessionUser = {
   role?: string | string[] | null;
 };
 
+const STAFF_ROLES = ["admin", "superadmin"];
+
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
-  if (Array.isArray(role)) return role.includes("admin");
-  return role === "admin";
+  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
 }
 
 function buildAssignmentMap(

@@ -16,9 +16,32 @@ type SessionUser = {
   role?: string | string[] | null;
 };
 
+const STAFF_ROLES = ["admin", "superadmin"];
+
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
-  if (Array.isArray(role)) return role.includes("admin");
-  return role === "admin";
+  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
+}
+
+function hasSuperadminRole(
+  role: string | string[] | null | undefined
+): boolean {
+  if (Array.isArray(role)) return role.includes("superadmin");
+  return role === "superadmin";
+}
+
+function normalizeRole(role: string | string[] | null | undefined): string {
+  const value = Array.isArray(role) ? role[0] : role;
+  if (value === "superadmin") return "superadmin";
+  if (value === "admin") return "admin";
+  return "user";
+}
+
+function roleLabel(role: string | string[] | null | undefined): string {
+  const normalized = normalizeRole(role);
+  if (normalized === "superadmin") return "Superadmin";
+  if (normalized === "admin") return "Admin";
+  return "User";
 }
 
 function formatDate(value: string | undefined): string {
@@ -43,6 +66,10 @@ export default function AdminUsersPage() {
       void navigate("/", { replace: true });
     }
   });
+
+  const isSuperadmin = createMemo(() =>
+    hasSuperadminRole(sessionUser()?.role)
+  );
 
   const sortedUsers = createMemo(() =>
     [...(users() ?? [])].sort((left, right) => {
@@ -124,8 +151,12 @@ export default function AdminUsersPage() {
                           </div>
                         </td>
                         <td>
-                          <span class={`admin-badge ${hasAdminRole(user.role) ? "admin" : "user"}`}>
-                            {hasAdminRole(user.role) ? "Admin" : "User"}
+                          <span
+                            class={`admin-badge ${
+                              hasAdminRole(user.role) ? "admin" : "user"
+                            }`}
+                          >
+                            {roleLabel(user.role)}
                           </span>
                         </td>
                         <td>
@@ -160,21 +191,24 @@ export default function AdminUsersPage() {
                             >
                               {user.approved ? "Reject" : "Approve"}
                             </button>
-                            <label class="admin-select">
-                              <span class="sr-only">Role</span>
-                              <select
-                                value={hasAdminRole(user.role) ? "admin" : "user"}
-                                disabled={busy()}
-                                onChange={(event) =>
-                                  void handleUpdate(user.id, {
-                                    role: event.currentTarget.value,
-                                  })
-                                }
-                              >
-                                <option value="user">User</option>
-                                <option value="admin">Admin</option>
-                              </select>
-                            </label>
+                            <Show when={isSuperadmin()}>
+                              <label class="admin-select">
+                                <span class="sr-only">Role</span>
+                                <select
+                                  value={normalizeRole(user.role)}
+                                  disabled={busy()}
+                                  onChange={(event) =>
+                                    void handleUpdate(user.id, {
+                                      role: event.currentTarget.value,
+                                    })
+                                  }
+                                >
+                                  <option value="user">User</option>
+                                  <option value="admin">Admin</option>
+                                  <option value="superadmin">Superadmin</option>
+                                </select>
+                              </label>
+                            </Show>
                           </div>
                         </td>
                       </tr>
