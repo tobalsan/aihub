@@ -5,6 +5,7 @@ These release notes are retro-created from commit history and handoff docs. Vers
 ## [Unreleased]
 
 ### Added
+- Added user↔team membership. Admins can add and remove users from a team; a user may belong to many teams at once. The Teams page now has a per-team members view with admin-only add/remove controls, and any authenticated user can see which users belong to each team. Deleting a team now reports the real set of users who would be left teamless (those with no other team). Chat access does not yet resolve from membership — that lands in a later slice.
 - Added Teams as a first-class entity. Admins can create, edit, and delete teams (name, description, optional color and icon) from a new Teams page; team names are unique and unset color/icon fall back to grey and a generic team icon. Any authenticated user can view all teams. Deleting a team shows a confirmation that reports how many users and agents would be left teamless (always zero until membership and agent↔team assignment land in later slices).
 - Introduced a `superadmin` role above `admin`. The first user of a fresh instance now bootstraps as `superadmin`. Superadmins can promote/demote admins and other superadmins from the User access page; admins and regular users cannot change roles. Both `admin` and `superadmin` count as staff for approval and agent-assignment bypass.
 

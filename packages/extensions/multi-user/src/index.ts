@@ -15,12 +15,17 @@ import {
   type AgentAssignmentStore,
 } from "./assignments.js";
 import { createTeamStore, type TeamStore } from "./teams.js";
+import {
+  createMembershipStore,
+  type MembershipStore,
+} from "./membership.js";
 
 export type MultiUserRuntime = {
   auth: Awaited<ReturnType<typeof createMultiUserAuth>>;
   db: Database.Database;
   assignments: AgentAssignmentStore;
   teams: TeamStore;
+  membership: MembershipStore;
   getAgent: ExtensionContext["getAgent"];
   logger: ExtensionLogger;
 };
@@ -89,6 +94,8 @@ export type {
   UpdateTeamInput,
   DeleteTeamResult,
 } from "./teams.js";
+export { createMembershipStore } from "./membership.js";
+export type { MembershipStore, TeamMember } from "./membership.js";
 
 export const multiUserExtension: Extension = {
   id: "multiUser",
@@ -124,12 +131,14 @@ export const multiUserExtension: Extension = {
     const db = initializeMultiUserDatabase(ctx.getDataDir());
     const auth = await createMultiUserAuth(ctx.getConfig(), config, db);
     const assignments = createAgentAssignmentStore(db);
-    const teams = createTeamStore(db);
+    const membership = createMembershipStore(db);
+    const teams = createTeamStore(db, membership);
     runtime = {
       auth,
       db,
       assignments,
       teams,
+      membership,
       getAgent: ctx.getAgent,
       logger: ctx.logger,
     };

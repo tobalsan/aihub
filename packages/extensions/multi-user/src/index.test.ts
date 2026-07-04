@@ -59,6 +59,16 @@ describe("multi-user component", () => {
         deleteTeam: vi.fn(),
       })),
     }));
+    vi.doMock("./membership.js", () => ({
+      createMembershipStore: vi.fn(() => ({
+        addMember: vi.fn(),
+        removeMember: vi.fn(),
+        isMember: vi.fn(() => false),
+        listTeamsForUser: vi.fn(() => []),
+        listUsersForTeam: vi.fn(() => []),
+        usersOnlyInTeam: vi.fn(() => []),
+      })),
+    }));
 
     const { multiUserExtension } = await import("./index.js");
     const ctx = {

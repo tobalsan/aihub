@@ -22,6 +22,10 @@ const SetAgentAssignmentsBodySchema = z.object({
   userIds: z.array(z.string()),
 });
 
+const AddTeamMemberBodySchema = z.object({
+  userId: z.string().min(1, "userId is required"),
+});
+
 const StartImpersonationBodySchema = z.object({
   targetUserId: z.string().min(1),
 });
@@ -218,6 +222,56 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
       throw error;
     }
   });
+
+  app.post("/admin/teams/:teamId/members", requireAdmin(), async (c) => {
+    const parsed = AddTeamMemberBodySchema.safeParse(await c.req.json());
+    if (!parsed.success) {
+      return c.json({ error: parsed.error.message }, 400);
+    }
+
+    const authContext = getRequestAuthContext(c);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+
+    const teamId = c.req.param("teamId");
+    const { teams, membership, db } = getRuntimeOrThrow();
+    if (!teams.getTeam(teamId)) {
+      return c.json({ error: "Team not found" }, 404);
+    }
+
+    const userExists = db
+      .prepare("SELECT 1 FROM user WHERE id = ?")
+      .get(parsed.data.userId);
+    if (!userExists) {
+      return c.json({ error: "User not found" }, 404);
+    }
+
+    // add is idempotent: re-adding an existing member is a 200 no-op.
+    membership.addMember(teamId, parsed.data.userId, authContext.user.id);
+    return c.json({
+      teamId,
+      userIds: membership.listUsersForTeam(teamId),
+    });
+  });
+
+  app.delete(
+    "/admin/teams/:teamId/members/:userId",
+    requireAdmin(),
+    (c) => {
+      const teamId = c.req.param("teamId");
+      const userId = c.req.param("userId");
+      const { teams, membership } = getRuntimeOrThrow();
+      if (!teams.getTeam(teamId)) {
+        return c.json({ error: "Team not found" }, 404);
+      }
+
+      // remove is idempotent too: removing a non-member is a no-op.
+      membership.removeMember(teamId, userId);
+      return c.json({
+        teamId,
+        userIds: membership.listUsersForTeam(teamId),
+      });
+    }
+  );
 
   app.put("/admin/agents/:agentId/assignments", requireAdmin(), async (c) => {
     const parsed = SetAgentAssignmentsBodySchema.safeParse(await c.req.json());

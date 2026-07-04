@@ -104,6 +104,20 @@ export function registerMultiUserRoutes(app: Hono): void {
     return c.json({ teams: teams.listTeams() });
   });
 
+  app.get("/teams/:teamId/members", (c) => {
+    const { teams, membership } = getRuntimeOrThrow();
+    const authContext =
+      getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);
+    if (!authContext) return c.json({ error: "unauthorized" }, 401);
+    // Membership visibility is global: any authenticated user can see which
+    // users belong to a team.
+    const teamId = c.req.param("teamId");
+    if (!teams.getTeam(teamId)) {
+      return c.json({ error: "Team not found" }, 404);
+    }
+    return c.json({ teamId, userIds: membership.listUsersForTeam(teamId) });
+  });
+
   app.get("/impersonation/status", (c) => {
     const authContext =
       getRequestAuthContext(c) ?? getForwardedAuthContext(c.req.raw.headers);

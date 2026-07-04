@@ -37,6 +37,7 @@ describe("multi-user db", () => {
     expect(fs.existsSync(dbPath)).toBe(true);
     expect(tables.map((table) => table.name)).toContain("agent_assignments");
     expect(tables.map((table) => table.name)).toContain("teams");
+    expect(tables.map((table) => table.name)).toContain("team_members");
     expect(foreignKeysEnabled).toBe(1);
     expect(foreignKeys).toEqual(
       expect.arrayContaining([
@@ -74,5 +75,36 @@ describe("multi-user db", () => {
       ])
     );
     expect(indexes.some((index) => index.unique === 1)).toBe(true);
+  });
+
+  it("creates a team_members M2M table with team/user foreign keys", () => {
+    const tempDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-members-db-"));
+    tempDirs.push(tempDir);
+    const dbPath = path.join(tempDir, "auth.db");
+
+    const db = initializeMultiUserDatabase(dbPath);
+    const columns = db
+      .prepare("PRAGMA table_info(team_members)")
+      .all() as Array<{ name: string; pk: number }>;
+    const foreignKeys = db
+      .prepare("PRAGMA foreign_key_list(team_members)")
+      .all() as Array<{ table: string; from: string }>;
+
+    db.close();
+
+    const columnNames = columns.map((column) => column.name);
+    expect(columnNames).toEqual(
+      expect.arrayContaining(["teamId", "userId", "addedBy", "addedAt"])
+    );
+    // Composite primary key on (teamId, userId) makes the pair unique.
+    expect(columns.filter((column) => column.pk > 0).map((c) => c.name)).toEqual(
+      expect.arrayContaining(["teamId", "userId"])
+    );
+    expect(foreignKeys).toEqual(
+      expect.arrayContaining([
+        expect.objectContaining({ table: "teams", from: "teamId" }),
+        expect.objectContaining({ table: "user", from: "userId" }),
+      ])
+    );
   });
 });

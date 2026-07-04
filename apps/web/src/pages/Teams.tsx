@@ -8,12 +8,16 @@ import {
   onMount,
 } from "solid-js";
 import {
+  addTeamMember,
   createTeam,
   deleteTeam,
+  fetchTeamMembers,
   fetchTeams,
+  removeTeamMember,
   updateTeam,
   type Team,
 } from "../api/teams";
+import { fetchUsers, type AdminUser } from "../api/admin";
 import { useSession } from "../auth/client";
 
 const STAFF_ROLES = ["admin", "superadmin"];
@@ -264,6 +268,11 @@ function DeleteTeamDialog(props: {
 }) {
   const [deleting, setDeleting] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
+  // Surface the real membership size so the admin sees how many users this
+  // delete touches; the exact soon-to-be-teamless subset comes back on the
+  // delete response.
+  const [members] = createResource(() => props.team.id, fetchTeamMembers);
+  const memberCount = createMemo(() => members()?.length ?? 0);
 
   const handleDelete = async () => {
     if (deleting()) return;
@@ -299,8 +308,13 @@ function DeleteTeamDialog(props: {
         </header>
         <div class="team-modal__body">
           <p class="team-delete-warning">
-            This permanently removes the team. Members and agents assigned to it
-            will be left without a team. This cannot be undone.
+            This permanently removes the team.
+            <Show when={memberCount() > 0}>
+              {" "}
+              Its {memberCount()} member{memberCount() === 1 ? "" : "s"} will be
+              removed from it; anyone with no other team will be left teamless.
+            </Show>{" "}
+            This cannot be undone.
           </p>
           <Show when={error()}>
             {(message) => <p class="team-modal__error">⚠ {message()}</p>}
@@ -329,6 +343,203 @@ function DeleteTeamDialog(props: {
   );
 }
 
+function userLabel(
+  userId: string,
+  directory: Map<string, AdminUser> | undefined
+): string {
+  const user = directory?.get(userId);
+  if (!user) return userId;
+  return user.name || user.email || userId;
+}
+
+function TeamDetail(props: {
+  team: Team;
+  isAdmin: boolean;
+  onClose: () => void;
+  onMembersChanged: () => void;
+}) {
+  const [members, { refetch: refetchMembers }] = createResource(
+    () => props.team.id,
+    fetchTeamMembers
+  );
+  // Only admins can read the user directory (/api/admin/users); non-admins see
+  // raw user ids, which is acceptable for a read-only membership view.
+  const [users] = createResource(
+    () => props.isAdmin,
+    (isAdmin) => (isAdmin ? fetchUsers() : Promise.resolve([] as AdminUser[]))
+  );
+  const [selectedUser, setSelectedUser] = createSignal("");
+  const [busy, setBusy] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+
+  const directory = createMemo(() => {
+    const map = new Map<string, AdminUser>();
+    for (const user of users() ?? []) map.set(user.id, user);
+    return map;
+  });
+
+  const memberSet = createMemo(() => new Set(members() ?? []));
+
+  const addableUsers = createMemo(() =>
+    (users() ?? [])
+      .filter((user) => !memberSet().has(user.id))
+      .sort((a, b) =>
+        userLabel(a.id, directory()).localeCompare(
+          userLabel(b.id, directory())
+        )
+      )
+  );
+
+  const sortedMembers = createMemo(() =>
+    [...(members() ?? [])].sort((a, b) =>
+      userLabel(a, directory()).localeCompare(userLabel(b, directory()))
+    )
+  );
+
+  const handleAdd = async () => {
+    const userId = selectedUser();
+    if (!userId || busy()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await addTeamMember(props.team.id, userId);
+      setSelectedUser("");
+      await refetchMembers();
+      props.onMembersChanged();
+    } catch (cause) {
+      setError(cause instanceof Error ? cause.message : "Failed to add member.");
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  const handleRemove = async (userId: string) => {
+    if (busy()) return;
+    setBusy(true);
+    setError(null);
+    try {
+      await removeTeamMember(props.team.id, userId);
+      await refetchMembers();
+      props.onMembersChanged();
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Failed to remove member."
+      );
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div
+      class="team-modal-overlay"
+      onMouseDown={(event) => {
+        if (event.target === event.currentTarget) props.onClose();
+      }}
+    >
+      <section
+        class="team-modal team-detail"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="team-detail-title"
+        onMouseDown={(event) => event.stopPropagation()}
+      >
+        <header class="team-modal__header team-detail__header">
+          <div
+            class="team-card__icon"
+            style={{ background: props.team.color }}
+          >
+            <i class={props.team.icon} aria-hidden="true" />
+          </div>
+          <div>
+            <h2 id="team-detail-title">{props.team.name}</h2>
+            <Show when={props.team.description}>
+              <p class="team-detail__description">{props.team.description}</p>
+            </Show>
+          </div>
+        </header>
+        <div class="team-modal__body">
+          <Show when={props.isAdmin}>
+            <div class="team-detail__add">
+              <select
+                class="team-field__input"
+                value={selectedUser()}
+                disabled={busy() || addableUsers().length === 0}
+                onChange={(event) => setSelectedUser(event.currentTarget.value)}
+              >
+                <option value="">
+                  {addableUsers().length === 0
+                    ? "No users to add"
+                    : "Select a user…"}
+                </option>
+                <For each={addableUsers()}>
+                  {(user) => (
+                    <option value={user.id}>
+                      {userLabel(user.id, directory())}
+                    </option>
+                  )}
+                </For>
+              </select>
+              <button
+                type="button"
+                class="team-button team-button--primary"
+                disabled={busy() || !selectedUser()}
+                onClick={() => void handleAdd()}
+              >
+                Add
+              </button>
+            </div>
+          </Show>
+
+          <h3 class="team-detail__section-title">
+            Members ({sortedMembers().length})
+          </h3>
+          <Show
+            when={!members.loading}
+            fallback={<p class="team-detail__empty">Loading members…</p>}
+          >
+            <Show
+              when={sortedMembers().length > 0}
+              fallback={<p class="team-detail__empty">No members yet.</p>}
+            >
+              <ul class="team-member-list">
+                <For each={sortedMembers()}>
+                  {(userId) => (
+                    <li class="team-member">
+                      <span class="team-member__name">
+                        {userLabel(userId, directory())}
+                      </span>
+                      <Show when={props.isAdmin}>
+                        <button
+                          type="button"
+                          class="team-button team-button--danger-text"
+                          disabled={busy()}
+                          onClick={() => void handleRemove(userId)}
+                        >
+                          Remove
+                        </button>
+                      </Show>
+                    </li>
+                  )}
+                </For>
+              </ul>
+            </Show>
+          </Show>
+
+          <Show when={error()}>
+            {(message) => <p class="team-modal__error">⚠ {message()}</p>}
+          </Show>
+        </div>
+        <footer class="team-modal__footer">
+          <button type="button" class="team-button" onClick={props.onClose}>
+            Close
+          </button>
+        </footer>
+      </section>
+    </div>
+  );
+}
+
 export function Teams() {
   const session = useSession();
   const [teams, { refetch }] = createResource(fetchTeams);
@@ -336,6 +547,7 @@ export function Teams() {
     undefined
   );
   const [deleteTarget, setDeleteTarget] = createSignal<Team | null>(null);
+  const [detailTeam, setDetailTeam] = createSignal<Team | null>(null);
 
   const isAdmin = createMemo(() =>
     hasAdminRole((session().data?.user as { role?: string } | undefined)?.role)
@@ -397,8 +609,15 @@ export function Teams() {
                       <p class="team-card__description">{team.description}</p>
                     </Show>
                   </div>
-                  <Show when={isAdmin()}>
-                    <div class="team-card__actions">
+                  <div class="team-card__actions">
+                    <button
+                      type="button"
+                      class="team-button"
+                      onClick={() => setDetailTeam(team)}
+                    >
+                      Members
+                    </button>
+                    <Show when={isAdmin()}>
                       <button
                         type="button"
                         class="team-button"
@@ -413,8 +632,8 @@ export function Teams() {
                       >
                         Delete
                       </button>
-                    </div>
-                  </Show>
+                    </Show>
+                  </div>
                 </article>
               )}
             </For>
@@ -439,6 +658,17 @@ export function Teams() {
               setDeleteTarget(null);
               void refetch();
             }}
+          />
+        )}
+      </Show>
+
+      <Show when={detailTeam()}>
+        {(team) => (
+          <TeamDetail
+            team={team()}
+            isAdmin={isAdmin()}
+            onClose={() => setDetailTeam(null)}
+            onMembersChanged={() => void refetch()}
           />
         )}
       </Show>
@@ -683,6 +913,66 @@ export function Teams() {
           margin: 0;
           font-size: 13px;
           color: var(--text-secondary);
+        }
+
+        .team-detail__header {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+        }
+
+        .team-detail__description {
+          margin: 4px 0 0;
+          font-size: 13px;
+          color: var(--text-secondary);
+        }
+
+        .team-detail__add {
+          display: flex;
+          gap: 8px;
+          align-items: center;
+        }
+
+        .team-detail__add select {
+          flex: 1;
+        }
+
+        .team-detail__section-title {
+          margin: 4px 0 0;
+          font-size: 13px;
+          font-weight: 600;
+          color: var(--text-secondary);
+        }
+
+        .team-detail__empty {
+          margin: 0;
+          font-size: 13px;
+          color: var(--text-tertiary);
+        }
+
+        .team-member-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .team-member {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 8px;
+          padding: 8px 10px;
+          border: 1px solid var(--border-subtle);
+          border-radius: 8px;
+          background: var(--bg-overlay);
+        }
+
+        .team-member__name {
+          font-size: 13px;
+          color: var(--text-primary);
         }
       `}</style>
     </div>

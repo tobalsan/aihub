@@ -75,3 +75,39 @@ export async function deleteTeam(id: string): Promise<DeleteTeamResult> {
     { method: "DELETE" }
   );
 }
+
+// Any authenticated user can read a team's members (global visibility).
+export async function fetchTeamMembers(teamId: string): Promise<string[]> {
+  const data = await request<{ teamId: string; userIds: string[] }>(
+    `/api/teams/${encodeURIComponent(teamId)}/members`
+  );
+  return data.userIds;
+}
+
+// Admin-only: add a user to a team. Idempotent server-side.
+export async function addTeamMember(
+  teamId: string,
+  userId: string
+): Promise<string[]> {
+  const data = await request<{ teamId: string; userIds: string[] }>(
+    `/api/admin/teams/${encodeURIComponent(teamId)}/members`,
+    {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ userId }),
+    }
+  );
+  return data.userIds;
+}
+
+// Admin-only: remove a user from a team.
+export async function removeTeamMember(
+  teamId: string,
+  userId: string
+): Promise<string[]> {
+  const data = await request<{ teamId: string; userIds: string[] }>(
+    `/api/admin/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
+    { method: "DELETE" }
+  );
+  return data.userIds;
+}

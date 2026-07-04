@@ -95,6 +95,23 @@ export function ensureTeamsTable(db: Database.Database): void {
   `);
 }
 
+export function ensureTeamMembersTable(db: Database.Database): void {
+  db.exec(`
+    CREATE TABLE IF NOT EXISTS team_members (
+      teamId TEXT NOT NULL,
+      userId TEXT NOT NULL,
+      addedBy TEXT NOT NULL,
+      addedAt TEXT NOT NULL DEFAULT CURRENT_TIMESTAMP,
+      PRIMARY KEY (teamId, userId),
+      FOREIGN KEY (teamId) REFERENCES teams(id) ON DELETE CASCADE,
+      FOREIGN KEY (userId) REFERENCES user(id) ON DELETE CASCADE,
+      FOREIGN KEY (addedBy) REFERENCES user(id) ON DELETE CASCADE
+    );
+    CREATE INDEX IF NOT EXISTS idx_team_members_user_id
+      ON team_members (userId);
+  `);
+}
+
 export function initializeMultiUserDatabase(
   dataDirOrPath: string
 ): Database.Database {
@@ -107,5 +124,6 @@ export function initializeMultiUserDatabase(
   db.pragma("foreign_keys = ON");
   ensureAgentAssignmentsTable(db);
   ensureTeamsTable(db);
+  ensureTeamMembersTable(db);
   return db;
 }
