@@ -419,4 +419,67 @@ describe("gateway status websocket in multi-user mode", () => {
       { type: "status", agentId: "allowed-agent", status: "idle" },
     ]);
   });
+
+  async function firstMessage(
+    subscribeMsg: Record<string, unknown>
+  ): Promise<{ type?: string; message?: string }> {
+    const ws = new WebSocket(`ws://127.0.0.1:${port}/ws`, {
+      headers: { cookie: "session=allowed" },
+    });
+    try {
+      await new Promise<void>((resolve, reject) => {
+        ws.once("open", () => resolve());
+        ws.once("error", reject);
+      });
+      const received = new Promise<{ type?: string; message?: string }>(
+        (resolve) => {
+          const timeout = setTimeout(
+            () => resolve({ type: undefined }),
+            300
+          );
+          ws.on("message", (raw) => {
+            clearTimeout(timeout);
+            resolve(
+              JSON.parse(raw.toString()) as { type?: string; message?: string }
+            );
+          });
+        }
+      );
+      ws.send(JSON.stringify(subscribeMsg));
+      return await received;
+    } finally {
+      ws.close();
+    }
+  }
+
+  it("rejects subscribe to an agent the user cannot access", async () => {
+    const msg = await firstMessage({
+      type: "subscribe",
+      agentId: "blocked-agent",
+      sessionKey: "main",
+    });
+    expect(msg.type).toBe("error");
+    expect(msg.message).toBe("Forbidden");
+  });
+
+  it("allows subscribe to an agent the user can access", async () => {
+    // An authorized subscribe produces no immediate error frame (idle session).
+    const msg = await firstMessage({
+      type: "subscribe",
+      agentId: "allowed-agent",
+      sessionKey: "main",
+    });
+    expect(msg.type).not.toBe("error");
+  });
+
+  it("rejects send to an agent the user cannot access", async () => {
+    const msg = await firstMessage({
+      type: "send",
+      agentId: "blocked-agent",
+      sessionKey: "main",
+      message: "hi",
+    });
+    expect(msg.type).toBe("error");
+    expect(msg.message).toBe("Forbidden");
+  });
 });

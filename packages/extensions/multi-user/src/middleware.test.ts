@@ -381,6 +381,97 @@ describe("multi-user middleware", () => {
     await expect(response.json()).resolves.toEqual({ error: "forbidden" });
   });
 
+  it("allows bearer auth on an agent the resolver grants", async () => {
+    const canUserChatAgent = vi.fn(() => true);
+    getMultiUserRuntime.mockReturnValue({
+      auth: {
+        api: {
+          getSession: vi.fn(async () => null),
+          verifyApiKey: vi.fn(async () => ({
+            valid: true,
+            key: { id: "key-1", referenceId: "user-1" },
+          })),
+        },
+      },
+      db: {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => ({
+            id: "user-1",
+            email: "user@example.com",
+            name: "User",
+            image: null,
+            role: "user",
+            approved: 1,
+          })),
+        })),
+      },
+      access: { canUserChatAgent },
+    });
+
+    const { createAuthMiddleware, requireAgentAccess } =
+      await import("./middleware.js");
+
+    const app = new Hono();
+    app.use("/api/*", createAuthMiddleware());
+    app.get("/api/agents/:id", requireAgentAccess("id"), (c) =>
+      c.json({ ok: true })
+    );
+
+    const response = await app.request("/api/agents/agent-1", {
+      headers: { Authorization: "Bearer my-token" },
+    });
+
+    expect(response.status).toBe(200);
+    await expect(response.json()).resolves.toEqual({ ok: true });
+    // Team access is resolved the same way as for a cookie session.
+    expect(canUserChatAgent).toHaveBeenCalledWith("user-1", "agent-1");
+  });
+
+  it("allows bearer auth for staff regardless of team membership", async () => {
+    const canUserChatAgent = vi.fn(() => false);
+    getMultiUserRuntime.mockReturnValue({
+      auth: {
+        api: {
+          getSession: vi.fn(async () => null),
+          verifyApiKey: vi.fn(async () => ({
+            valid: true,
+            key: { id: "key-1", referenceId: "admin-1" },
+          })),
+        },
+      },
+      db: {
+        prepare: vi.fn(() => ({
+          get: vi.fn(() => ({
+            id: "admin-1",
+            email: "admin@example.com",
+            name: "Admin",
+            image: null,
+            role: "admin",
+            approved: 1,
+          })),
+        })),
+      },
+      access: { canUserChatAgent },
+    });
+
+    const { createAuthMiddleware, requireAgentAccess } =
+      await import("./middleware.js");
+
+    const app = new Hono();
+    app.use("/api/*", createAuthMiddleware());
+    app.get("/api/agents/:id", requireAgentAccess("id"), (c) =>
+      c.json({ ok: true })
+    );
+
+    const response = await app.request("/api/agents/agent-1", {
+      headers: { Authorization: "Bearer my-token" },
+    });
+
+    expect(response.status).toBe(200);
+    // Staff bypass short-circuits before the membership resolver is consulted.
+    expect(canUserChatAgent).not.toHaveBeenCalled();
+  });
+
   it("parses bearer scheme case-insensitively without lowercasing the token", async () => {
     const verifyApiKey = vi.fn(async () => ({
       valid: true,
