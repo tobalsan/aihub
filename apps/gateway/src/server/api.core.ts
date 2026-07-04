@@ -58,6 +58,7 @@ const UUID_RE =
 type MultiUserApiDeps = {
   getForwardedAuthContext: typeof import("@aihub/extension-multi-user").getForwardedAuthContext;
   getAgentFilter: typeof import("@aihub/extension-multi-user").getAgentFilter;
+  hasAgentAccess: typeof import("@aihub/extension-multi-user").hasAgentAccess;
 };
 
 let multiUserApiDepsPromise: Promise<MultiUserApiDeps> | null = null;
@@ -67,6 +68,7 @@ function loadMultiUserApiDeps(): Promise<MultiUserApiDeps> {
     (module) => ({
       getForwardedAuthContext: module.getForwardedAuthContext,
       getAgentFilter: module.getAgentFilter,
+      hasAgentAccess: module.hasAgentAccess,
     })
   );
   return multiUserApiDepsPromise;
@@ -76,6 +78,24 @@ async function getRequestAuthContext(c: Context) {
   if (!isExtensionLoaded("multiUser")) return null;
   const { getForwardedAuthContext } = await loadMultiUserApiDeps();
   return getForwardedAuthContext(c.req.raw.headers);
+}
+
+/**
+ * True iff the caller may access `agentId`. In single-user mode (or when the
+ * multi-user extension is not loaded) there is no access boundary, so allow.
+ * In multi-user mode this delegates to the team-access resolver, which applies
+ * staff bypass (admin/superadmin) and resolves chat access from team
+ * membership.
+ */
+async function callerHasAgentAccess(
+  c: Context,
+  agentId: string
+): Promise<boolean> {
+  if (!isExtensionLoaded("multiUser")) return true;
+  const { hasAgentAccess } = await loadMultiUserApiDeps();
+  const authContext = await getRequestAuthContext(c);
+  if (!authContext) return false;
+  return hasAgentAccess(authContext, agentId);
 }
 
 async function getRequestUserId(c: Context): Promise<string | undefined> {
@@ -771,6 +791,23 @@ api.post("/media/upload", async (c) => {
       return c.json({ error: "No file provided" }, 400);
     }
 
+    // An upload may be bound to a target agent so the resulting media inherits
+    // that agent's access boundary (both here and on later download). A caller
+    // who cannot chat the agent must not be able to stage an attachment for it.
+    const agentIdField = formData.get("agentId");
+    const agentId =
+      typeof agentIdField === "string" && agentIdField.length > 0
+        ? agentIdField
+        : undefined;
+    const sessionIdField = formData.get("sessionId");
+    const sessionId =
+      typeof sessionIdField === "string" && sessionIdField.length > 0
+        ? sessionIdField
+        : undefined;
+    if (agentId && !(await callerHasAgentAccess(c, agentId))) {
+      return c.json({ error: "forbidden" }, 403);
+    }
+
     if (file.size > MAX_UPLOAD_SIZE_BYTES) {
       return c.json(
         {
@@ -795,7 +832,10 @@ api.post("/media/upload", async (c) => {
     }
 
     const arrayBuffer = await file.arrayBuffer();
-    const result = await saveUploadedFile(arrayBuffer, mimeType, file.name);
+    const result = await saveUploadedFile(arrayBuffer, mimeType, file.name, {
+      agentId,
+      sessionId,
+    });
 
     return c.json(result);
   } catch (err) {
@@ -830,6 +870,17 @@ api.get("/media/download/:id", async (c) => {
   const metadata = await getMediaFileMetadata(fileId);
   if (!metadata) {
     return c.json({ error: "File not found" }, 404);
+  }
+
+  // Media tied to an agent session inherits that agent's access boundary: a
+  // caller who cannot chat the agent must not be able to pull its attachments
+  // by guessing/reusing a file id. Files with no agent binding (e.g. inbound
+  // uploads not yet attached to a run) stay open as before.
+  if (
+    metadata.agentId &&
+    !(await callerHasAgentAccess(c, metadata.agentId))
+  ) {
+    return c.json({ error: "forbidden" }, 403);
   }
 
   try {

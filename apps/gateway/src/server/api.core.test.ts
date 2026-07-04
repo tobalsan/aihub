@@ -57,6 +57,7 @@ vi.mock("../extensions/registry.js", () => ({
 vi.mock("@aihub/extension-multi-user", () => ({
   getForwardedAuthContext: vi.fn(() => multiUserState.authContext),
   getAgentFilter: vi.fn(() => (agents: unknown[]) => agents),
+  hasAgentAccess: vi.fn(async () => true),
 }));
 
 vi.mock("../agents/index.js", () => ({

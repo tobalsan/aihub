@@ -109,8 +109,20 @@ app.use("/api/*", async (c, next) => {
   await next();
 });
 
+// Aggregate agent endpoints (`/api/agents/status`, `/api/agents/sessions`)
+// are shaped like `/api/agents/:id` but are not addressed to a single agent —
+// they already filter their payload per-user via `getVisibleAgents`. Gating
+// them with a per-agent access check would treat the literal segment
+// ("status"/"sessions") as an agent id and reject every non-staff caller.
+const AGGREGATE_AGENT_SEGMENTS = new Set(["status", "sessions"]);
+
 app.use("/api/agents/:id", async (c, next) => {
   if (!currentExtensionRuntime().isEnabled("multiUser")) {
+    await next();
+    return;
+  }
+
+  if (AGGREGATE_AGENT_SEGMENTS.has(c.req.param("id"))) {
     await next();
     return;
   }
@@ -120,6 +132,14 @@ app.use("/api/agents/:id", async (c, next) => {
 });
 app.use("/api/agents/:id/*", async (c, next) => {
   if (!currentExtensionRuntime().isEnabled("multiUser")) {
+    await next();
+    return;
+  }
+
+  // The `:id/*` pattern also matches the bare aggregate paths (empty trailing
+  // segment), so exclude them here too; their own sub-routes (e.g.
+  // `/agents/:agentId/sessions/:sessionId`) still gate on the real agent id.
+  if (AGGREGATE_AGENT_SEGMENTS.has(c.req.param("id"))) {
     await next();
     return;
   }

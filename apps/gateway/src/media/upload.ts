@@ -183,7 +183,8 @@ function sanitizeFilename(
 export async function saveUploadedFile(
   data: ArrayBuffer | Buffer,
   mimeType: string,
-  originalFilename?: string
+  originalFilename?: string,
+  binding?: { agentId?: string; sessionId?: string }
 ): Promise<UploadResult> {
   const resolvedMimeType = resolveUploadMimeType(mimeType, originalFilename);
   const originalExt = getExtension(originalFilename);
@@ -210,6 +211,8 @@ export async function saveUploadedFile(
     path: filepath,
     mimeType: resolvedMimeType,
     size: buffer.length,
+    agentId: binding?.agentId,
+    sessionId: binding?.sessionId,
   });
 
   return {
