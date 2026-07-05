@@ -46,6 +46,17 @@ export async function fetchAgentExtensions(
   return data.extensions;
 }
 
+// Admin-only: fetch one extension's catalog entry for an agent (the schema +
+// requiredSecrets the auto-form renderer draws from). Returns null when the
+// extension id is not present in the agent's catalog.
+export async function fetchAgentExtension(
+  agentId: string,
+  extensionId: string
+): Promise<ExtensionCatalogEntry | null> {
+  const all = await fetchAgentExtensions(agentId);
+  return all.find((entry) => entry.id === extensionId) ?? null;
+}
+
 export type ExtensionConfigPatch = {
   enabled?: boolean;
   config?: Record<string, unknown>;

@@ -20,6 +20,7 @@ import { LeftNavShell } from "./components/LeftNavShell";
 import { ConsoleShell } from "./components/ConsoleShell";
 import { AgentCatalog } from "./pages/AgentCatalog";
 import { EditAgent } from "./pages/EditAgent";
+import { ExtensionConfigForm } from "./pages/ExtensionConfigForm";
 import { Teams } from "./pages/Teams";
 import {
   ImpersonationBanner,
@@ -311,6 +312,14 @@ function EditAgentRouteShell() {
   );
 }
 
+function ExtensionConfigRouteShell() {
+  return (
+    <ConsoleShell>
+      <ExtensionConfigForm />
+    </ConsoleShell>
+  );
+}
+
 
 function ChatRouteShell() {
   return (
@@ -382,6 +391,14 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <EditAgentRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/agents/:agentId/extensions/:extensionId/config"
+        component={() => (
+          <GuardedRoute>
+            <ExtensionConfigRouteShell />
           </GuardedRoute>
         )}
       />

@@ -1,0 +1,362 @@
+import {
+  createEffect,
+  createMemo,
+  createResource,
+  createSignal,
+  For,
+  Show,
+} from "solid-js";
+import { A, useNavigate, useParams } from "@solidjs/router";
+import {
+  fetchAgentExtension,
+  patchAgentExtension,
+} from "../api/extensions";
+import {
+  buildAutoFormFields,
+  splitAutoFormValues,
+  type AutoFormValues,
+} from "../lib/auto-form-schema";
+import { useSession } from "../auth/client";
+
+const STAFF_ROLES = ["admin", "superadmin"];
+
+function hasAdminRole(role: string | string[] | null | undefined): boolean {
+  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
+}
+
+/**
+ * Schema-driven auto-form renderer (ALG-355). Builds a per-agent config form
+ * from an extension's config JSON-schema and `requiredSecrets`, then submits
+ * through the extension write path: secrets become `$env:` refs in agent.yaml
+ * with the value stored in the agent's `.env`, non-secrets are written verbatim
+ * into agent.yaml, and the extension is enabled. Reached from the Edit-Agent
+ * hub for `auto-form` tier extensions at
+ * `/agents/:agentId/extensions/:extensionId/config`.
+ */
+export function ExtensionConfigForm() {
+  const params = useParams<{ agentId: string; extensionId: string }>();
+  const navigate = useNavigate();
+  const session = useSession();
+  const isAdmin = createMemo(() =>
+    hasAdminRole(
+      (session().data?.user as { role?: string | string[] } | undefined)?.role
+    )
+  );
+
+  // Admin-gated page: bounce non-admins home once the session has resolved.
+  createEffect(() => {
+    if (session().isPending) return;
+    if (!isAdmin()) void navigate("/", { replace: true });
+  });
+
+  const [entry] = createResource(() =>
+    isAdmin()
+      ? fetchAgentExtension(params.agentId, params.extensionId)
+      : Promise.resolve(null)
+  );
+
+  const fields = createMemo(() => {
+    const current = entry();
+    if (!current) return [];
+    return buildAutoFormFields(
+      current.configJsonSchema,
+      current.requiredSecrets
+    );
+  });
+
+  const [values, setValues] = createSignal<AutoFormValues>({});
+  const [saving, setSaving] = createSignal(false);
+  const [error, setError] = createSignal<string | null>(null);
+  const [saved, setSaved] = createSignal(false);
+
+  const setValue = (name: string, value: string | number | boolean) => {
+    setValues((prev) => ({ ...prev, [name]: value }));
+    setSaved(false);
+  };
+
+  const backHref = createMemo(
+    () => `/agents/${encodeURIComponent(params.agentId)}/edit`
+  );
+
+  const handleSubmit = async (event: Event) => {
+    event.preventDefault();
+    if (saving()) return;
+    const current = entry();
+    if (!current) return;
+
+    const formFields = fields();
+    // Guard required fields client-side so a blank required secret doesn't
+    // silently submit an empty patch. (The server also re-validates.)
+    const missing = formFields.filter((field) => {
+      if (!field.required) return false;
+      const value = values()[field.name];
+      if (field.type === "boolean") return false;
+      return value === undefined || value === "" || value === null;
+    });
+    if (missing.length > 0) {
+      setError(`Fill in required field: ${missing.map((f) => f.label).join(", ")}`);
+      return;
+    }
+
+    setSaving(true);
+    setError(null);
+    setSaved(false);
+    try {
+      const { config, secrets } = splitAutoFormValues(formFields, values());
+      await patchAgentExtension(params.agentId, params.extensionId, {
+        enabled: true,
+        config,
+        secrets,
+      });
+      setSaved(true);
+    } catch (cause) {
+      setError(
+        cause instanceof Error ? cause.message : "Failed to save configuration."
+      );
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Show when={isAdmin()}>
+      <div class="ext-config">
+        <A href={backHref()} class="ext-config-back">
+          ← Back to agent
+        </A>
+
+        <Show when={entry.loading}>
+          <div class="ext-config-status">Loading configuration…</div>
+        </Show>
+        <Show when={entry.error}>
+          <div class="ext-config-status ext-config-error">
+            Failed to load extension.
+          </div>
+        </Show>
+        <Show when={!entry.loading && !entry.error && !entry()}>
+          <div class="ext-config-status ext-config-error">
+            Extension not found.
+          </div>
+        </Show>
+
+        <Show when={entry()}>
+          {(ext) => (
+            <>
+              <h1 class="ext-config-title">Configure {ext().displayName}</h1>
+              <p class="ext-config-desc">{ext().description}</p>
+
+              <Show
+                when={fields().length > 0}
+                fallback={
+                  <div class="ext-config-status">
+                    This extension has no configurable fields.
+                  </div>
+                }
+              >
+                <form class="ext-config-form" onSubmit={handleSubmit}>
+                  <For each={fields()}>
+                    {(field) => (
+                      <div class="ext-config-field">
+                        <Show when={field.type !== "boolean"}>
+                          <label
+                            class="ext-config-label"
+                            for={`ext-field-${field.name}`}
+                          >
+                            {field.label}
+                            <Show when={field.required}>
+                              <span class="ext-config-req"> *</span>
+                            </Show>
+                          </label>
+                        </Show>
+                        <Show when={field.type === "boolean"}>
+                          <label class="ext-config-checkbox-label">
+                            <input
+                              id={`ext-field-${field.name}`}
+                              type="checkbox"
+                              checked={Boolean(values()[field.name])}
+                              onChange={(e) =>
+                                setValue(field.name, e.currentTarget.checked)
+                              }
+                            />
+                            {field.label}
+                          </label>
+                        </Show>
+                        <Show when={field.type === "secret"}>
+                          <input
+                            id={`ext-field-${field.name}`}
+                            class="ext-config-input"
+                            type="password"
+                            autocomplete="off"
+                            value={String(values()[field.name] ?? "")}
+                            onInput={(e) =>
+                              setValue(field.name, e.currentTarget.value)
+                            }
+                          />
+                        </Show>
+                        <Show when={field.type === "number"}>
+                          <input
+                            id={`ext-field-${field.name}`}
+                            class="ext-config-input"
+                            type="number"
+                            value={String(values()[field.name] ?? "")}
+                            onInput={(e) =>
+                              setValue(field.name, e.currentTarget.value)
+                            }
+                          />
+                        </Show>
+                        <Show when={field.type === "text"}>
+                          <input
+                            id={`ext-field-${field.name}`}
+                            class="ext-config-input"
+                            type="text"
+                            value={String(values()[field.name] ?? "")}
+                            onInput={(e) =>
+                              setValue(field.name, e.currentTarget.value)
+                            }
+                          />
+                        </Show>
+                        <Show when={field.secret}>
+                          <span class="ext-config-hint">
+                            Stored as a secret in the agent's env file.
+                          </span>
+                        </Show>
+                        <Show when={field.description}>
+                          {(text) => (
+                            <span class="ext-config-hint">{text()}</span>
+                          )}
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+
+                  <div class="ext-config-actions">
+                    <button
+                      type="submit"
+                      class="ext-config-save"
+                      disabled={saving()}
+                    >
+                      {saving() ? "Saving…" : "Save configuration"}
+                    </button>
+                    <Show when={saved()}>
+                      <span class="ext-config-saved">Saved ✓</span>
+                    </Show>
+                  </div>
+                  <Show when={error()}>
+                    {(message) => (
+                      <p class="ext-config-form-error">{message()}</p>
+                    )}
+                  </Show>
+                </form>
+              </Show>
+            </>
+          )}
+        </Show>
+      </div>
+
+      <style>{`
+        .ext-config {
+          padding: 24px;
+          max-width: 520px;
+        }
+        .ext-config-back {
+          display: inline-block;
+          margin-bottom: 20px;
+          font-size: 14px;
+          color: var(--text-secondary);
+          text-decoration: none;
+        }
+        .ext-config-back:hover {
+          color: var(--text-primary);
+        }
+        .ext-config-title {
+          margin: 0;
+          font-size: 22px;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+        .ext-config-desc {
+          margin: 6px 0 20px;
+          font-size: 14px;
+          color: var(--text-tertiary);
+        }
+        .ext-config-status {
+          padding: 12px 0;
+          font-size: 14px;
+          color: var(--text-tertiary);
+        }
+        .ext-config-error {
+          color: #e55;
+        }
+        .ext-config-form {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .ext-config-field {
+          display: flex;
+          flex-direction: column;
+          gap: 4px;
+        }
+        .ext-config-label {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+        .ext-config-req {
+          color: #e55;
+        }
+        .ext-config-input {
+          padding: 8px 10px;
+          border-radius: 6px;
+          border: 1px solid var(--border-default);
+          background: var(--bg-raised);
+          color: var(--text-primary);
+          font-size: 14px;
+        }
+        .ext-config-checkbox-label {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+        .ext-config-hint {
+          font-size: 12px;
+          color: var(--text-tertiary);
+        }
+        .ext-config-actions {
+          display: flex;
+          align-items: center;
+          gap: 12px;
+          margin-top: 4px;
+        }
+        .ext-config-save {
+          padding: 8px 16px;
+          border-radius: 6px;
+          border: none;
+          background: var(--accent, #3b82f6);
+          color: #fff;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+        }
+        .ext-config-save:disabled {
+          opacity: 0.5;
+          cursor: not-allowed;
+        }
+        .ext-config-saved {
+          font-size: 13px;
+          color: #16a34a;
+          font-weight: 600;
+        }
+        .ext-config-form-error {
+          font-size: 13px;
+          color: #e55;
+          margin: 0;
+        }
+      `}</style>
+    </Show>
+  );
+}
