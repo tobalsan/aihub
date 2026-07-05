@@ -13,8 +13,25 @@ export type ExtensionCatalogEntry = {
   enabled: boolean;
   configJsonSchema: Record<string, unknown> | null;
   requiredSecrets: string[];
+  /**
+   * Agent-resolved bespoke config route (`:agentId` substituted) when the
+   * extension self-registers one, else null. The hub redirects here on enable
+   * for `bespoke-route` extensions.
+   */
+  configRoutePath: string | null;
   tier: ExtensionConfigTier;
 };
+
+/**
+ * Client route to the schema-driven auto-form for one extension on one agent.
+ * The renderer itself lands in ALG-355; the hub links here so enabling an
+ * auto-form extension surfaces its config form path today.
+ */
+export function autoFormPath(agentId: string, extensionId: string): string {
+  return `/agents/${encodeURIComponent(agentId)}/extensions/${encodeURIComponent(
+    extensionId
+  )}/config`;
+}
 
 // Admin-only: the full extension catalog for one agent (built-in + runtime
 // scanned), each with its per-agent enabled state and config metadata.

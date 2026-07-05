@@ -9,6 +9,7 @@ import {
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { fetchPool } from "../api";
 import {
+  autoFormPath,
   fetchAgentExtensions,
   patchAgentExtension,
   type ExtensionCatalogEntry,
@@ -171,18 +172,30 @@ export function EditAgent() {
   const [pending, setPending] = createSignal<string | null>(null);
   const [extError, setExtError] = createSignal<string | null>(null);
 
-  // Flip an extension's enabled state and persist it to agent.yaml via the
-  // admin PATCH endpoint. The server returns the refreshed catalog, which we
-  // use as the source of truth so the UI reflects what was actually written.
+  // Route an extension enable to its config surface per the 3-tier contract
+  // (catalog `tier`):
+  //  - toggle-only: flip inline, instant, no redirect.
+  //  - bespoke-route: the extension self-registered an agent-keyed config route;
+  //    persist the enable, then redirect there so it owns its custom config UI.
+  //  - auto-form: the extension exposes a config schema; persist the enable,
+  //    then surface its schema-driven form path (renderer lands in ALG-355).
+  // Disabling is always an inline flip regardless of tier — turning a config
+  // surface off never redirects into it.
   const toggleExtension = async (ext: ExtensionCatalogEntry) => {
     if (pending()) return;
     setPending(ext.id);
     setExtError(null);
     try {
+      const enabling = !ext.enabled;
       const next = await patchAgentExtension(params.agentId, ext.id, {
-        enabled: !ext.enabled,
+        enabled: enabling,
       });
       mutateExtensions(next);
+      if (enabling && ext.tier === "bespoke-route" && ext.configRoutePath) {
+        void navigate(ext.configRoutePath);
+      } else if (enabling && ext.tier === "auto-form") {
+        void navigate(autoFormPath(params.agentId, ext.id));
+      }
     } catch (cause) {
       setExtError(
         cause instanceof Error ? cause.message : "Failed to update extension."

@@ -3,6 +3,7 @@ import { zodToJsonSchema } from "zod-to-json-schema";
 import {
   ExtensionBaseConfigSchema,
   type AgentConfig,
+  type AgentConfigRoute,
   type Extension,
   type ExtensionAgentToolContext,
   type ExtensionAgentTool,
@@ -35,6 +36,12 @@ export interface ToolExtensionDefinition {
   configSchema: z.ZodTypeAny;
   agentConfigSchema?: z.ZodTypeAny;
   requiredSecrets: string[];
+  /**
+   * Optional self-registered, agent-keyed config route. Declare this to own a
+   * bespoke config UI instead of the schema-driven auto-form. The path must
+   * include the `:agentId` param (e.g. `"/agents/:agentId/extensions/mcp"`).
+   */
+  configRoute?: AgentConfigRoute;
   createTools(config: ResolvedToolExtensionConfig): ToolExtensionTool[];
 }
 
@@ -189,6 +196,7 @@ export function defineToolExtension(
       $refStrategy: "none",
     }) as Record<string, unknown>,
     requiredSecrets: definition.requiredSecrets,
+    configRoute: definition.configRoute,
     routePrefixes: [],
     validateConfig(raw) {
       const result = ExtensionBaseConfigSchema.safeParse(raw ?? {});

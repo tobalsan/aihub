@@ -1006,6 +1006,42 @@ export type ExtensionHookContext = {
   config: GatewayConfig;
 };
 
+/**
+ * Self-registered, agent-keyed config route (the "bespoke route" tier of the
+ * config-surface contract). An extension that owns a custom config UI declares
+ * a route template containing the `:agentId` param — mirroring the existing
+ * `:projectId` param pattern — and the hub redirects there when the extension
+ * is enabled for an agent, instead of rendering a generic auto-form.
+ *
+ * `path` is a client route template (e.g. `"/agents/:agentId/extensions/mcp"`).
+ * It MUST include the literal `:agentId` token; the hub substitutes the real
+ * agent id to produce the concrete redirect target. This is the low-friction
+ * escape hatch: an extension self-registers one field and gets a bespoke
+ * config surface with no other wiring.
+ */
+export type AgentConfigRoute = {
+  path: string;
+};
+
+/**
+ * Substitute the concrete agent id into an agent-keyed config route template.
+ * Returns `undefined` when no route is declared. Throws if the template is
+ * missing the required `:agentId` token, so a malformed self-registration is a
+ * loud contract error rather than a silent broken link.
+ */
+export function resolveAgentConfigRoute(
+  route: AgentConfigRoute | undefined,
+  agentId: string
+): string | undefined {
+  if (!route) return undefined;
+  if (!route.path.includes(":agentId")) {
+    throw new Error(
+      `Extension configRoute "${route.path}" must include the ":agentId" param`
+    );
+  }
+  return route.path.replace(/:agentId/g, encodeURIComponent(agentId));
+}
+
 export interface Extension {
   id: string;
   displayName: string;
@@ -1023,6 +1059,13 @@ export interface Extension {
    */
   configJsonSchema?: Record<string, unknown>;
   requiredSecrets?: string[];
+  /**
+   * Optional self-registered, agent-keyed config route. When present, the hub
+   * treats this extension as the `bespoke-route` tier: enabling it redirects to
+   * this route (with `:agentId` resolved) instead of rendering an auto-form.
+   * The escape hatch for custom config UI (e.g. a file-based config editor).
+   */
+  configRoute?: AgentConfigRoute;
   validateConfig(raw: unknown): ValidationResult;
   registerRoutes(app: Hono): void;
   start(ctx: ExtensionContext): Promise<void>;
@@ -1058,6 +1101,15 @@ export const ExtensionDefinitionSchema = z.object({
   routePrefixes: z.array(z.string()),
   configJsonSchema: z.record(z.string(), z.unknown()).optional(),
   requiredSecrets: z.array(z.string()).optional(),
+  configRoute: z
+    .object({
+      path: z
+        .string()
+        .refine((value) => value.includes(":agentId"), {
+          message: 'configRoute.path must include the ":agentId" param',
+        }),
+    })
+    .optional(),
   validateConfig: z
     .function()
     .args(z.unknown())

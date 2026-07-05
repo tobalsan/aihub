@@ -35,6 +35,8 @@ vi.mock("../api", () => ({ fetchPool: fetchPoolMock }));
 vi.mock("../api/extensions", () => ({
   fetchAgentExtensions: fetchAgentExtensionsMock,
   patchAgentExtension: patchAgentExtensionMock,
+  autoFormPath: (agentId: string, extensionId: string) =>
+    `/agents/${agentId}/extensions/${extensionId}/config`,
 }));
 
 vi.mock("../api/teams", () => ({
@@ -323,6 +325,147 @@ describe("EditAgent", () => {
     )!;
     expect(after.textContent).toBe("On");
     expect(after.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("redirects to the bespoke config route when enabling a bespoke-route extension", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "mcp",
+        displayName: "MCP",
+        description: "File-based MCP config",
+        builtIn: false,
+        enabled: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        configRoutePath: "/agents/scribe/extensions/mcp",
+        tier: "bespoke-route",
+      },
+    ]);
+    patchAgentExtensionMock.mockResolvedValue([
+      {
+        id: "mcp",
+        displayName: "MCP",
+        description: "File-based MCP config",
+        builtIn: false,
+        enabled: true,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        configRoutePath: "/agents/scribe/extensions/mcp",
+        tier: "bespoke-route",
+      },
+    ]);
+    await mountEdit("scribe");
+
+    container
+      .querySelector<HTMLButtonElement>(
+        ".edit-agent-ext-item button.edit-agent-ext-state"
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(patchAgentExtensionMock).toHaveBeenCalledWith("scribe", "mcp", {
+      enabled: true,
+    });
+    expect(navigateMock).toHaveBeenCalledWith("/agents/scribe/extensions/mcp");
+  });
+
+  it("redirects to the auto-form path when enabling an auto-form extension", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    const entry = {
+      id: "exa",
+      displayName: "Exa",
+      description: "Search",
+      builtIn: true,
+      configJsonSchema: {
+        type: "object",
+        properties: { apiKey: { type: "string" } },
+      },
+      requiredSecrets: ["apiKey"],
+      configRoutePath: null,
+      tier: "auto-form" as const,
+    };
+    fetchAgentExtensionsMock.mockResolvedValue([{ ...entry, enabled: false }]);
+    patchAgentExtensionMock.mockResolvedValue([{ ...entry, enabled: true }]);
+    await mountEdit("scribe");
+
+    container
+      .querySelector<HTMLButtonElement>(
+        ".edit-agent-ext-item button.edit-agent-ext-state"
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(patchAgentExtensionMock).toHaveBeenCalledWith("scribe", "exa", {
+      enabled: true,
+    });
+    expect(navigateMock).toHaveBeenCalledWith(
+      "/agents/scribe/extensions/exa/config"
+    );
+  });
+
+  it("flips a toggle-only extension inline with no redirect", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    const entry = {
+      id: "crm",
+      displayName: "CRM",
+      description: "CRM tools",
+      builtIn: false,
+      configJsonSchema: null,
+      requiredSecrets: [],
+      configRoutePath: null,
+      tier: "toggle-only" as const,
+    };
+    fetchAgentExtensionsMock.mockResolvedValue([{ ...entry, enabled: false }]);
+    patchAgentExtensionMock.mockResolvedValue([{ ...entry, enabled: true }]);
+    await mountEdit("scribe");
+
+    container
+      .querySelector<HTMLButtonElement>(
+        ".edit-agent-ext-item button.edit-agent-ext-state"
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(patchAgentExtensionMock).toHaveBeenCalledWith("scribe", "crm", {
+      enabled: true,
+    });
+    // Toggle-only never redirects into a config surface.
+    expect(navigateMock).not.toHaveBeenCalled();
+  });
+
+  it("does not redirect when disabling a bespoke-route extension", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    const entry = {
+      id: "mcp",
+      displayName: "MCP",
+      description: "File-based MCP config",
+      builtIn: false,
+      configJsonSchema: null,
+      requiredSecrets: [],
+      configRoutePath: "/agents/scribe/extensions/mcp",
+      tier: "bespoke-route" as const,
+    };
+    fetchAgentExtensionsMock.mockResolvedValue([{ ...entry, enabled: true }]);
+    patchAgentExtensionMock.mockResolvedValue([{ ...entry, enabled: false }]);
+    await mountEdit("scribe");
+
+    container
+      .querySelector<HTMLButtonElement>(
+        ".edit-agent-ext-item button.edit-agent-ext-state"
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(patchAgentExtensionMock).toHaveBeenCalledWith("scribe", "mcp", {
+      enabled: false,
+    });
+    // Turning a config surface off must not redirect into it.
+    expect(navigateMock).not.toHaveBeenCalled();
   });
 
   it("shows an error when a toggle fails to persist", async () => {

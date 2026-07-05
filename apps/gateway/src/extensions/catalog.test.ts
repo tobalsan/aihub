@@ -20,6 +20,7 @@ async function writeExternalExtension(
     configSchema?: string;
     configJsonSchema?: string;
     requiredSecrets?: string;
+    configRoute?: string;
   } = {}
 ): Promise<void> {
   const dir = path.join(root, id);
@@ -44,6 +45,7 @@ async function writeExternalExtension(
       body.requiredSecrets
         ? `  requiredSecrets: ${body.requiredSecrets},`
         : "",
+      body.configRoute ? `  configRoute: ${body.configRoute},` : "",
       `  routePrefixes: ${body.routePrefixes ?? "[]"},`,
       "  validateConfig: () => ({ valid: true, errors: [] }),",
       "  registerRoutes: () => undefined,",
@@ -162,11 +164,19 @@ describe("buildExtensionCatalog", () => {
   });
 
   it("assigns tiers: bespoke-route > auto-form > toggle-only", async () => {
-    // Route-having external → bespoke-route, even with a schema.
+    // Self-registered agent-keyed config route → bespoke-route, even with a
+    // schema. Backend routePrefixes (API routes) do NOT make it bespoke — only
+    // a declared configRoute (config UI surface) does.
     await writeExternalExtension(root, "routed", {
+      configRoute: '{ path: "/agents/:agentId/extensions/routed" }',
       routePrefixes: '["/api/routed"]',
       configJsonSchema:
         '{ type: "object", properties: { apiKey: { type: "string" } } }',
+    });
+    // Backend API routePrefixes but NO configRoute and no schema → toggle-only
+    // (owning an API route is not owning a config surface).
+    await writeExternalExtension(root, "api-only", {
+      routePrefixes: '["/api/api-only"]',
     });
     // Schema-having, no route → auto-form.
     await writeExternalExtension(root, "formy", {
@@ -186,9 +196,26 @@ describe("buildExtensionCatalog", () => {
     const byId = Object.fromEntries(catalog.map((e) => [e.id, e]));
 
     expect(byId["routed"].tier).toBe("bespoke-route");
+    expect(byId["routed"].configRoutePath).toBe(
+      "/agents/main/extensions/routed"
+    );
+    expect(byId["api-only"].tier).toBe("toggle-only");
+    expect(byId["api-only"].configRoutePath).toBeNull();
     expect(byId["formy"].tier).toBe("auto-form");
+    expect(byId["formy"].configRoutePath).toBeNull();
     expect(byId["toggly"].tier).toBe("toggle-only");
     expect(byId["plain"].tier).toBe("toggle-only");
+  });
+
+  it("resolves the agent-keyed configRoute :agentId param per agent", async () => {
+    await writeExternalExtension(root, "bespoke", {
+      configRoute: '{ path: "/agents/:agentId/extensions/bespoke" }',
+    });
+    const agent = makeAgent();
+    const catalog = await buildExtensionCatalog(configWith(agent, root), agent);
+    const entry = catalog.find((e) => e.id === "bespoke");
+    expect(entry?.tier).toBe("bespoke-route");
+    expect(entry?.configRoutePath).toBe("/agents/main/extensions/bespoke");
   });
 
   it("surfaces configJsonSchema and requiredSecrets when the extension exposes them", async () => {

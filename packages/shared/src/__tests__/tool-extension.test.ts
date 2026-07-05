@@ -1,7 +1,7 @@
 import { describe, expect, it, vi } from "vitest";
 import { z } from "zod";
 import { defineToolExtension } from "../tool-extension.js";
-import { GatewayConfigSchema } from "../types.js";
+import { GatewayConfigSchema, resolveAgentConfigRoute } from "../types.js";
 
 describe("tool extensions", () => {
   it("merges root and agent config, resolves env refs, and prefixes tools", async () => {
@@ -181,5 +181,59 @@ describe("tool extensions", () => {
         'Extension "sample" for agent "main" config invalid: Extension "sample" for agent "main" missing required secret "apiKey"',
       ],
     });
+  });
+
+  it("passes through a self-registered agent-keyed configRoute", () => {
+    const extension = defineToolExtension({
+      id: "mcp",
+      displayName: "MCP",
+      description: "File-based MCP config",
+      configSchema: z.object({}),
+      requiredSecrets: [],
+      configRoute: { path: "/agents/:agentId/extensions/mcp" },
+      createTools: () => [],
+    });
+    expect(extension.configRoute).toEqual({
+      path: "/agents/:agentId/extensions/mcp",
+    });
+  });
+
+  it("omits configRoute when the extension does not self-register one", () => {
+    const extension = defineToolExtension({
+      id: "plain",
+      displayName: "Plain",
+      description: "No bespoke config",
+      configSchema: z.object({}),
+      requiredSecrets: [],
+      createTools: () => [],
+    });
+    expect(extension.configRoute).toBeUndefined();
+  });
+});
+
+describe("resolveAgentConfigRoute", () => {
+  it("substitutes the concrete agent id for :agentId", () => {
+    expect(
+      resolveAgentConfigRoute(
+        { path: "/agents/:agentId/extensions/mcp" },
+        "sales"
+      )
+    ).toBe("/agents/sales/extensions/mcp");
+  });
+
+  it("url-encodes the agent id", () => {
+    expect(
+      resolveAgentConfigRoute({ path: "/agents/:agentId/cfg" }, "a b/c")
+    ).toBe("/agents/a%20b%2Fc/cfg");
+  });
+
+  it("returns undefined when no route is declared", () => {
+    expect(resolveAgentConfigRoute(undefined, "sales")).toBeUndefined();
+  });
+
+  it("throws when the template is missing the :agentId token", () => {
+    expect(() =>
+      resolveAgentConfigRoute({ path: "/agents/static/cfg" }, "sales")
+    ).toThrow(/:agentId/);
   });
 });

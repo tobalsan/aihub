@@ -1,5 +1,8 @@
 import type { AgentConfig, Extension, GatewayConfig } from "@aihub/shared";
-import { discoverExternalExtensions } from "@aihub/shared";
+import {
+  discoverExternalExtensions,
+  resolveAgentConfigRoute,
+} from "@aihub/shared";
 import {
   getBuiltInExtensionRegistrations,
   getExternalExtensionsPath,
@@ -10,12 +13,13 @@ import {
  * it:
  *  - `auto-form`: the extension exposes a config JSON-schema we can render as a
  *    form.
- *  - `bespoke-route`: the extension self-registers its own admin route(s); the
- *    hub links out instead of rendering a form.
+ *  - `bespoke-route`: the extension self-registers its own agent-keyed config
+ *    route (`configRoute`); the hub redirects there instead of rendering a
+ *    form.
  *  - `toggle-only`: no config beyond enabled/disabled.
  *
- * Bespoke routes win over auto-form: an extension that ships its own route owns
- * its config surface even if it also happens to expose a schema.
+ * Bespoke routes win over auto-form: an extension that declares its own config
+ * route owns its config surface even if it also happens to expose a schema.
  */
 export type ExtensionConfigTier =
   | "auto-form"
@@ -34,6 +38,12 @@ export type ExtensionCatalogEntry = {
   configJsonSchema: Record<string, unknown> | null;
   /** Field names a UI must mask. */
   requiredSecrets: string[];
+  /**
+   * Agent-resolved bespoke config route (`:agentId` substituted) when the
+   * extension self-registers one, else null. The hub redirects here on enable
+   * for `bespoke-route` extensions.
+   */
+  configRoutePath: string | null;
   tier: ExtensionConfigTier;
 };
 
@@ -60,10 +70,10 @@ function hasMeaningfulSchema(
 }
 
 function resolveTier(
-  routePrefixes: string[],
+  configRoutePath: string | null,
   configJsonSchema: Record<string, unknown> | null
 ): ExtensionConfigTier {
-  if (routePrefixes.length > 0) return "bespoke-route";
+  if (configRoutePath) return "bespoke-route";
   if (hasMeaningfulSchema(configJsonSchema)) return "auto-form";
   return "toggle-only";
 }
@@ -80,11 +90,12 @@ function isEnabledForAgent(agent: AgentConfig, extensionId: string): boolean {
 
 function toCatalogEntry(
   extension: Extension,
-  routePrefixes: string[],
   builtIn: boolean,
   agent: AgentConfig
 ): ExtensionCatalogEntry {
   const configJsonSchema = extension.configJsonSchema ?? null;
+  const configRoutePath =
+    resolveAgentConfigRoute(extension.configRoute, agent.id) ?? null;
   return {
     id: extension.id,
     displayName: extension.displayName,
@@ -93,7 +104,8 @@ function toCatalogEntry(
     enabled: isEnabledForAgent(agent, extension.id),
     configJsonSchema,
     requiredSecrets: extension.requiredSecrets ?? [],
-    tier: resolveTier(routePrefixes, configJsonSchema),
+    configRoutePath,
+    tier: resolveTier(configRoutePath, configJsonSchema),
   };
 }
 
@@ -126,9 +138,7 @@ export async function buildExtensionCatalog(
     }
     if (seen.has(extension.id)) continue;
     seen.add(extension.id);
-    entries.push(
-      toCatalogEntry(extension, registration.routePrefixes, true, agent)
-    );
+    entries.push(toCatalogEntry(extension, true, agent));
   }
 
   const external = await discoverExternalExtensions(
@@ -137,9 +147,7 @@ export async function buildExtensionCatalog(
   for (const { extension } of external) {
     if (seen.has(extension.id)) continue;
     seen.add(extension.id);
-    entries.push(
-      toCatalogEntry(extension, extension.routePrefixes, false, agent)
-    );
+    entries.push(toCatalogEntry(extension, false, agent));
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));
