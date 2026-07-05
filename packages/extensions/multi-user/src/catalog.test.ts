@@ -70,7 +70,11 @@ beforeEach(() => {
   });
   membership = createMembershipStore(db);
   const access = createAccessResolver({ membership, forks });
-  catalog = createPoolCatalogResolver({ forks, access });
+  catalog = createPoolCatalogResolver({
+    forks,
+    access,
+    isAgentRunnable: () => true,
+  });
 
   // scribe → red, sage → blue, scout → green; orphan is forked but teamless;
   // fresh is never forked.
@@ -187,6 +191,42 @@ describe("resolvePoolAction — staff on a teamless fork", () => {
     expect(catalog.resolvePoolAction("fresh", staff("admin-1")).action).toBe(
       "assign_to_team"
     );
+  });
+});
+
+describe("resolvePoolAction — orphaned fork (agent not discoverable)", () => {
+  it("is none for a member who would otherwise be able to chat", () => {
+    // alice shares team-red with scribe, so she'd normally get chat — but the
+    // fork's agent folder is gone, so the config loader can't discover it.
+    const access = createAccessResolver({ membership, forks });
+    const orphanedCatalog = createPoolCatalogResolver({
+      forks,
+      access,
+      isAgentRunnable: (agentId) => agentId !== forkId("scribe"),
+    });
+    const entry = orphanedCatalog.resolvePoolAction("scribe", member("alice"));
+    expect(entry).toEqual({
+      poolId: "scribe",
+      forked: true,
+      chatAgentId: null,
+      action: "none",
+    });
+  });
+
+  it("is none for staff too (nobody can chat an undiscoverable agent)", () => {
+    const access = createAccessResolver({ membership, forks });
+    const orphanedCatalog = createPoolCatalogResolver({
+      forks,
+      access,
+      isAgentRunnable: (agentId) => agentId !== forkId("scribe"),
+    });
+    const entry = orphanedCatalog.resolvePoolAction("scribe", staff("admin-1"));
+    expect(entry).toEqual({
+      poolId: "scribe",
+      forked: true,
+      chatAgentId: null,
+      action: "none",
+    });
   });
 });
 

@@ -107,7 +107,11 @@ function buildRuntime() {
     getPoolAgent: (poolId) => poolAgents.get(poolId) ?? null,
   });
   const access = createAccessResolver({ membership, forks });
-  const catalog = createPoolCatalogResolver({ forks, access });
+  const catalog = createPoolCatalogResolver({
+    forks,
+    access,
+    isAgentRunnable: () => true,
+  });
   return {
     auth: { api: { getSession } },
     db,

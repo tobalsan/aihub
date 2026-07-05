@@ -189,7 +189,11 @@ export const multiUserExtension: Extension = {
     // forks; forks has no dependency on teams, so construct it first.
     const teams = createTeamStore(db, membership, () => forks);
     const access = createAccessResolver({ membership, forks });
-    const catalog = createPoolCatalogResolver({ forks, access });
+    const catalog = createPoolCatalogResolver({
+      forks,
+      access,
+      isAgentRunnable: (agentId) => Boolean(ctx.getAgent(agentId)),
+    });
     runtime = {
       auth,
       db,

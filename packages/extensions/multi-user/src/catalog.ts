@@ -9,13 +9,17 @@ import type { ForkStore } from "./forks.js";
  * listed) — only the action is gated here.
  *
  * The three action states (mirroring the ALG-346 acceptance criteria):
- *   - `chat`           — a fork exists and the user may chat it (a member of
- *                        the fork's team, or staff). Renders the Chat action.
+ *   - `chat`           — a fork exists, its agent is discoverable/runnable by
+ *                        the gateway config loader, and the user may chat it (a
+ *                        member of the fork's team, or staff). Renders the Chat
+ *                        action.
  *   - `assign_to_team` — no fork exists yet AND the user is staff. Renders the
  *                        "Assign to team" flow so an admin can fork+assign.
  *   - `none`           — visible but not chattable: the fork is teamless, or
  *                        the user shares no team with it, or no fork exists and
- *                        the user is not staff. Renders no action.
+ *                        the user is not staff, or the fork's agent is no longer
+ *                        discoverable on disk (e.g. its folder was renamed or
+ *                        removed). Renders no action.
  *
  * Staff (admin / superadmin) always get a usable `chat` for any existing fork
  * regardless of team membership; the staff bypass is layered here because this
@@ -58,12 +62,19 @@ export type CatalogUser = {
 export type PoolCatalogResolverDeps = {
   forks: ForkStore;
   access: AccessResolver;
+  /**
+   * Returns true iff the given agent id resolves to a discovered/runnable
+   * agent (i.e. the gateway config loader found its on-disk folder). Used to
+   * gate the `chat` action so a fork row whose agent folder went missing
+   * (renamed/removed) doesn't offer a dead Chat action.
+   */
+  isAgentRunnable(agentId: string): boolean;
 };
 
 export function createPoolCatalogResolver(
   deps: PoolCatalogResolverDeps
 ): PoolCatalogResolver {
-  const { forks, access } = deps;
+  const { forks, access, isAgentRunnable } = deps;
 
   function resolvePoolAction(
     poolId: string,
@@ -80,6 +91,16 @@ export function createPoolCatalogResolver(
         chatAgentId: null,
         action: user.isStaff ? "assign_to_team" : "none",
       };
+    }
+
+    // The fork row exists, but its agent may not: an operator can rename or
+    // remove the agent's on-disk folder (or, for legacy-migrated forks where
+    // forkAgentId === agentId, the original pool agent folder itself) without
+    // the fork row being cleaned up. If the gateway config loader can't
+    // discover the agent, nobody — not even staff — can chat it, so this
+    // check precedes the staff bypass below.
+    if (!isAgentRunnable(fork.forkAgentId)) {
+      return { poolId, forked: true, chatAgentId: null, action: "none" };
     }
 
     // A fork exists. Staff always chat it; other users chat it only when they
