@@ -12,6 +12,7 @@ const {
   fetchForksMock,
   assignPoolToTeamMock,
   reassignForkMock,
+  fetchAgentExtensionsMock,
   useSessionMock,
   useParamsMock,
   navigateMock,
@@ -21,12 +22,17 @@ const {
   fetchForksMock: vi.fn(),
   assignPoolToTeamMock: vi.fn(),
   reassignForkMock: vi.fn(),
+  fetchAgentExtensionsMock: vi.fn(),
   useSessionMock: vi.fn(),
   useParamsMock: vi.fn(),
   navigateMock: vi.fn(),
 }));
 
 vi.mock("../api", () => ({ fetchPool: fetchPoolMock }));
+
+vi.mock("../api/extensions", () => ({
+  fetchAgentExtensions: fetchAgentExtensionsMock,
+}));
 
 vi.mock("../api/teams", () => ({
   fetchTeams: fetchTeamsMock,
@@ -90,6 +96,7 @@ beforeEach(() => {
   fetchPoolMock.mockReset();
   fetchTeamsMock.mockReset().mockResolvedValue([] as Team[]);
   fetchForksMock.mockReset().mockResolvedValue([] as AgentFork[]);
+  fetchAgentExtensionsMock.mockReset().mockResolvedValue([]);
   assignPoolToTeamMock.mockReset();
   reassignForkMock.mockReset();
   useSessionMock.mockReset();
@@ -213,5 +220,64 @@ describe("EditAgent", () => {
     await mountEdit("scribe");
 
     expect(container.querySelector(".edit-agent-team")).toBeNull();
+  });
+
+  it("lists extensions read-only with on/off state for an admin", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: true,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+      {
+        id: "mailer",
+        displayName: "Mailer",
+        description: "Email tools",
+        builtIn: true,
+        enabled: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ]);
+    await mountEdit("scribe");
+
+    expect(fetchAgentExtensionsMock).toHaveBeenCalledWith("scribe");
+    const items = container.querySelectorAll(".edit-agent-ext-item");
+    expect(items.length).toBe(2);
+
+    const names = Array.from(
+      container.querySelectorAll(".edit-agent-ext-name")
+    ).map((el) => el.textContent);
+    expect(names).toEqual(["CRM", "Mailer"]);
+
+    const states = Array.from(
+      container.querySelectorAll(".edit-agent-ext-state")
+    ).map((el) => el.textContent);
+    expect(states).toEqual(["On", "Off"]);
+
+    // Read-only: no toggles/buttons in the extension list.
+    expect(
+      container.querySelector(".edit-agent-ext-item button")
+    ).toBeNull();
+    expect(
+      container.querySelector(".edit-agent-ext-item input")
+    ).toBeNull();
+  });
+
+  it("does not fetch extensions for a non-admin", async () => {
+    setSession("user");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    await mountEdit("scribe");
+
+    expect(fetchAgentExtensionsMock).not.toHaveBeenCalled();
+    expect(container.querySelector(".edit-agent-extensions")).toBeNull();
   });
 });

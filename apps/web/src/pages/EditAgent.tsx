@@ -9,6 +9,10 @@ import {
 import { A, useNavigate, useParams } from "@solidjs/router";
 import { fetchPool } from "../api";
 import {
+  fetchAgentExtensions,
+  type ExtensionCatalogEntry,
+} from "../api/extensions";
+import {
   assignPoolToTeam,
   fetchForks,
   fetchTeams,
@@ -158,6 +162,12 @@ export function EditAgent() {
     (forks() ?? []).find((entry) => entry.sourcePoolId === params.agentId)
   );
 
+  const [extensions] = createResource(() =>
+    isAdmin()
+      ? fetchAgentExtensions(params.agentId)
+      : Promise.resolve([] as ExtensionCatalogEntry[])
+  );
+
   return (
     <Show when={isAdmin()}>
       <div class="edit-agent">
@@ -208,6 +218,52 @@ export function EditAgent() {
             fork={fork()}
             onChanged={() => void refetchForks()}
           />
+        </Show>
+
+        <Show when={agent()}>
+          <section class="edit-agent-extensions">
+            <h2 class="edit-agent-section-title">Extensions</h2>
+            <Show when={extensions.loading}>
+              <div class="edit-agent-ext-empty">Loading extensions…</div>
+            </Show>
+            <Show when={extensions.error}>
+              <div class="edit-agent-ext-empty">
+                Failed to load extensions.
+              </div>
+            </Show>
+            <Show
+              when={
+                !extensions.loading && (extensions() ?? []).length === 0
+              }
+            >
+              <div class="edit-agent-ext-empty">No extensions available.</div>
+            </Show>
+            <ul class="edit-agent-ext-list">
+              <For each={extensions() ?? []}>
+                {(ext) => (
+                  <li class="edit-agent-ext-item">
+                    <div class="edit-agent-ext-main">
+                      <span class="edit-agent-ext-name">
+                        {ext.displayName}
+                      </span>
+                      <span class="edit-agent-ext-desc">
+                        {ext.description}
+                      </span>
+                    </div>
+                    <span
+                      class="edit-agent-ext-state"
+                      classList={{
+                        "is-on": ext.enabled,
+                        "is-off": !ext.enabled,
+                      }}
+                    >
+                      {ext.enabled ? "On" : "Off"}
+                    </span>
+                  </li>
+                )}
+              </For>
+            </ul>
+          </section>
         </Show>
       </div>
 
@@ -340,6 +396,78 @@ export function EditAgent() {
           font-size: 13px;
           color: #e55;
           margin: 0;
+        }
+
+        .edit-agent-extensions {
+          margin-top: 28px;
+          max-width: 520px;
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+        }
+
+        .edit-agent-ext-empty {
+          font-size: 13px;
+          color: var(--text-tertiary);
+        }
+
+        .edit-agent-ext-list {
+          list-style: none;
+          margin: 0;
+          padding: 0;
+          display: flex;
+          flex-direction: column;
+          gap: 6px;
+        }
+
+        .edit-agent-ext-item {
+          display: flex;
+          align-items: center;
+          justify-content: space-between;
+          gap: 12px;
+          padding: 10px 12px;
+          border-radius: 8px;
+          border: 1px solid var(--border-default);
+          background: var(--bg-raised);
+        }
+
+        .edit-agent-ext-main {
+          display: flex;
+          flex-direction: column;
+          gap: 2px;
+          min-width: 0;
+        }
+
+        .edit-agent-ext-name {
+          font-size: 14px;
+          font-weight: 600;
+          color: var(--text-primary);
+        }
+
+        .edit-agent-ext-desc {
+          font-size: 12px;
+          color: var(--text-tertiary);
+          overflow: hidden;
+          text-overflow: ellipsis;
+          white-space: nowrap;
+        }
+
+        .edit-agent-ext-state {
+          flex-shrink: 0;
+          font-size: 12px;
+          font-weight: 600;
+          padding: 2px 10px;
+          border-radius: 999px;
+        }
+
+        .edit-agent-ext-state.is-on {
+          color: #16a34a;
+          background: color-mix(in srgb, #16a34a 14%, transparent);
+        }
+
+        .edit-agent-ext-state.is-off {
+          color: var(--text-tertiary);
+          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
         }
       `}</style>
     </Show>

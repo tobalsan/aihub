@@ -1013,6 +1013,16 @@ export interface Extension {
   dependencies: string[];
   configSchema: z.ZodTypeAny;
   routePrefixes: string[];
+  /**
+   * Optional config metadata for admin config surfaces (e.g. the Edit-Agent
+   * extension hub). `configJsonSchema` is the JSON-schema rendering of the
+   * extension's real config shape (populated by `defineToolExtension` from its
+   * Zod `configSchema`); `requiredSecrets` names the fields a UI must mask.
+   * Both are optional: extensions that have not yet migrated simply omit them,
+   * and the catalog marks their tier accordingly.
+   */
+  configJsonSchema?: Record<string, unknown>;
+  requiredSecrets?: string[];
   validateConfig(raw: unknown): ValidationResult;
   registerRoutes(app: Hono): void;
   start(ctx: ExtensionContext): Promise<void>;
@@ -1046,6 +1056,8 @@ export const ExtensionDefinitionSchema = z.object({
   dependencies: z.array(z.string()),
   configSchema: ZodSchemaSchema,
   routePrefixes: z.array(z.string()),
+  configJsonSchema: z.record(z.string(), z.unknown()).optional(),
+  requiredSecrets: z.array(z.string()).optional(),
   validateConfig: z
     .function()
     .args(z.unknown())

@@ -181,6 +181,14 @@ export function defineToolExtension(
     description: definition.description,
     dependencies: [],
     configSchema: ExtensionBaseConfigSchema,
+    // Surface the real config shape as JSON-schema for config UIs. The
+    // Extension-level `configSchema` above stays the base (validation only
+    // gates `enabled`); `configJsonSchema` carries the tool extension's actual
+    // Zod `configSchema` so the catalog can drive a schema-based form.
+    configJsonSchema: zodToJsonSchema(definition.configSchema, {
+      $refStrategy: "none",
+    }) as Record<string, unknown>,
+    requiredSecrets: definition.requiredSecrets,
     routePrefixes: [],
     validateConfig(raw) {
       const result = ExtensionBaseConfigSchema.safeParse(raw ?? {});

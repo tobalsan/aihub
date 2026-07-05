@@ -17,6 +17,7 @@ import {
   getHomeExtension,
   getLoadedExtensions,
 } from "../extensions/registry.js";
+import { buildExtensionCatalog } from "../extensions/catalog.js";
 import {
   runAgent,
   getAllSessionsForAgent,
@@ -538,6 +539,28 @@ api.get("/agents/:id", async (c) => {
     authMode: agent.auth?.mode,
     queueMode: agent.queueMode ?? "queue",
   });
+});
+
+// GET /api/agents/:id/extensions - admin-only extension catalog for one agent.
+// Lists every available extension (built-in static registry + runtime scan of
+// $AIHUB_HOME/extensions) with its per-agent enabled state, config JSON-schema,
+// required secrets, and config-surface tier. Read-only.
+api.get("/agents/:id/extensions", async (c) => {
+  // Admin-guarded: in single-user mode there is no boundary, otherwise staff
+  // only. Non-admins get 403 without leaking whether the agent exists.
+  if (!(await canViewAgentPrivateMeta(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+  const agentId = c.req.param("id");
+  const config = loadConfig();
+  const agent =
+    config.pool?.find((candidate) => candidate.id === agentId) ??
+    config.agents.find((candidate) => candidate.id === agentId);
+  if (!agent) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+  const extensions = await buildExtensionCatalog(config, agent);
+  return c.json({ agentId, extensions });
 });
 
 // GET /api/agents/:id/avatar - serve avatar image from workspace

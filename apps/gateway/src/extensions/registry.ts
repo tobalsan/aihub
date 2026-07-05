@@ -276,6 +276,24 @@ export function getKnownExtensionRouteMetadata(): Array<{
   }));
 }
 
+/** Built-in extension ids in the static registry, with their route prefixes. */
+export function getBuiltInExtensionRegistrations(): Array<{
+  id: string;
+  routePrefixes: string[];
+  load: () => Promise<Extension>;
+}> {
+  return Object.entries(EXTENSION_REGISTRY).map(([id, registration]) => ({
+    id,
+    routePrefixes: registration.routePrefixes,
+    load: registration.load,
+  }));
+}
+
+/** Directory scanned for runtime (external) extensions. */
+export function getExternalExtensionsPath(config: GatewayConfig): string {
+  return config.extensionsPath ?? path.join(CONFIG_DIR, "extensions");
+}
+
 export function topoSort(extensions: Extension[]): Extension[] {
   const ordered: Extension[] = [];
   const visiting = new Set<string>();
@@ -350,8 +368,7 @@ export async function loadExtensions(
   }
 
   // Discover external extensions
-  const extensionsPath =
-    config.extensionsPath ?? path.join(CONFIG_DIR, "extensions");
+  const extensionsPath = getExternalExtensionsPath(config);
   const external = await discoverExternalExtensions(extensionsPath);
   for (const { extension, id } of external) {
     if (EXTENSION_REGISTRY[id]) {

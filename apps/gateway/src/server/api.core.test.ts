@@ -60,6 +60,12 @@ vi.mock("@aihub/extension-multi-user", () => ({
   hasAgentAccess: vi.fn(async () => true),
 }));
 
+const buildExtensionCatalog = vi.fn();
+
+vi.mock("../extensions/catalog.js", () => ({
+  buildExtensionCatalog,
+}));
+
 vi.mock("../agents/index.js", () => ({
   runAgent,
   getAllSessionsForAgent,
@@ -112,6 +118,7 @@ describe("api core session resolution", () => {
     isAbortTrigger.mockReturnValue(false);
     multiUserState.loaded = false;
     multiUserState.authContext = null;
+    buildExtensionCatalog.mockResolvedValue([]);
     runAgent.mockResolvedValue({
       payloads: [],
       meta: { durationMs: 0, sessionId: "resolved-1" },
@@ -466,6 +473,113 @@ describe("api core session resolution", () => {
       sessionId: "resolved-1",
       summary: "Compacted summary",
       keptMessages: 8,
+    });
+  });
+
+  describe("GET /agents/:id/extensions (catalog)", () => {
+    const catalog = [
+      {
+        id: "acme",
+        displayName: "Acme",
+        description: "Acme extension",
+        builtIn: false,
+        enabled: true,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ];
+
+    it("returns the agent's extension catalog in single-user mode", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha" }],
+        pool: [],
+      };
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions")
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        agentId: "alpha",
+        extensions: catalog,
+      });
+      expect(buildExtensionCatalog).toHaveBeenCalledWith(
+        loadConfigValue,
+        expect.objectContaining({ id: "alpha" })
+      );
+    });
+
+    it("resolves the agent from the pool when not an active agent", async () => {
+      loadConfigValue = {
+        agents: [],
+        pool: [{ id: "poolie", name: "Poolie" }],
+      };
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/poolie/extensions")
+      );
+
+      expect(response.status).toBe(200);
+      expect(buildExtensionCatalog).toHaveBeenCalledWith(
+        loadConfigValue,
+        expect.objectContaining({ id: "poolie" })
+      );
+    });
+
+    it("404s for an unknown agent", async () => {
+      loadConfigValue = { agents: [], pool: [] };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/ghost/extensions")
+      );
+
+      expect(response.status).toBe(404);
+      expect(buildExtensionCatalog).not.toHaveBeenCalled();
+    });
+
+    it("403s for non-admins in multi-user mode", async () => {
+      loadConfigValue = { agents: [{ id: "alpha", name: "Alpha" }], pool: [] };
+      multiUserState.loaded = true;
+      multiUserState.authContext = {
+        user: { id: "u1", role: "user" },
+        session: { id: "s1", userId: "u1" },
+      };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions")
+      );
+
+      expect(response.status).toBe(403);
+      expect(buildExtensionCatalog).not.toHaveBeenCalled();
+    });
+
+    it("allows admins in multi-user mode", async () => {
+      loadConfigValue = { agents: [{ id: "alpha", name: "Alpha" }], pool: [] };
+      multiUserState.loaded = true;
+      multiUserState.authContext = {
+        user: { id: "admin1", role: "admin" },
+        session: { id: "s2", userId: "admin1" },
+      };
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions")
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        agentId: "alpha",
+        extensions: catalog,
+      });
     });
   });
 });
