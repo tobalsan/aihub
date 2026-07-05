@@ -31,6 +31,8 @@ const multiUserState = vi.hoisted(() => ({
   },
 }));
 
+const reloadConfig = vi.fn(() => loadConfigValue);
+
 vi.mock("../config/index.js", () => ({
   CONFIG_DIR: "/tmp/aihub-test",
   getAgent,
@@ -38,6 +40,7 @@ vi.mock("../config/index.js", () => ({
   isAgentActive,
   resolveWorkspaceDir,
   loadConfig: () => loadConfigValue,
+  reloadConfig,
 }));
 
 vi.mock("../extensions/registry.js", () => ({
@@ -64,6 +67,12 @@ const buildExtensionCatalog = vi.fn();
 
 vi.mock("../extensions/catalog.js", () => ({
   buildExtensionCatalog,
+}));
+
+const updateAgentExtensionConfig = vi.fn();
+
+vi.mock("../extensions/agent-config-writer.js", () => ({
+  updateAgentExtensionConfig,
 }));
 
 vi.mock("../agents/index.js", () => ({
@@ -580,6 +589,192 @@ describe("api core session resolution", () => {
         agentId: "alpha",
         extensions: catalog,
       });
+    });
+  });
+
+  describe("PATCH /agents/:id/extensions/:extensionId (write)", () => {
+    const catalog = [
+      {
+        id: "acme",
+        displayName: "Acme",
+        description: "Acme extension",
+        builtIn: false,
+        enabled: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ];
+
+    beforeEach(() => {
+      reloadConfig.mockImplementation(() => loadConfigValue);
+    });
+
+    it("updates an extension and returns the refreshed catalog", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      updateAgentExtensionConfig.mockResolvedValue({});
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        agentId: "alpha",
+        extensionId: "acme",
+        extensions: catalog,
+      });
+      // Wrote to the resolved workspace dir with the parsed patch.
+      expect(updateAgentExtensionConfig).toHaveBeenCalledWith(
+        "/ws/alpha",
+        "acme",
+        { enabled: true }
+      );
+      // Config cache is invalidated so the change takes effect next run.
+      expect(reloadConfig).toHaveBeenCalled();
+    });
+
+    it("passes config and secrets through to the writer", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      updateAgentExtensionConfig.mockResolvedValue({});
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({
+            enabled: true,
+            config: { region: "eu" },
+            secrets: { apiKey: "sk-1" },
+          }),
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(updateAgentExtensionConfig).toHaveBeenCalledWith(
+        "/ws/alpha",
+        "acme",
+        { enabled: true, config: { region: "eu" }, secrets: { apiKey: "sk-1" } }
+      );
+    });
+
+    it("resolves the agent from the pool", async () => {
+      loadConfigValue = {
+        agents: [],
+        pool: [{ id: "poolie", name: "Poolie", workspace: "/ws/poolie" }],
+      };
+      updateAgentExtensionConfig.mockResolvedValue({});
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/poolie/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(updateAgentExtensionConfig).toHaveBeenCalledWith(
+        "/ws/poolie",
+        "acme",
+        { enabled: false }
+      );
+    });
+
+    it("404s for an unknown agent", async () => {
+      loadConfigValue = { agents: [], pool: [] };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/ghost/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(404);
+      expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
+    });
+
+    it("403s for non-admins in multi-user mode (server-side guard)", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      multiUserState.loaded = true;
+      multiUserState.authContext = {
+        user: { id: "u1", role: "user" },
+        session: { id: "s1", userId: "u1" },
+      };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(403);
+      expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
+    });
+
+    it("400s on a non-boolean enabled", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: "yes" }),
+        })
+      );
+
+      expect(response.status).toBe(400);
+      expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
+    });
+
+    it("400s when the writer rejects (schema invalid)", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      updateAgentExtensionConfig.mockRejectedValue(
+        new Error("agent.yaml would be invalid after update")
+      );
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(400);
     });
   });
 });

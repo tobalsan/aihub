@@ -10,6 +10,7 @@ import { A, useNavigate, useParams } from "@solidjs/router";
 import { fetchPool } from "../api";
 import {
   fetchAgentExtensions,
+  patchAgentExtension,
   type ExtensionCatalogEntry,
 } from "../api/extensions";
 import {
@@ -162,11 +163,34 @@ export function EditAgent() {
     (forks() ?? []).find((entry) => entry.sourcePoolId === params.agentId)
   );
 
-  const [extensions] = createResource(() =>
+  const [extensions, { mutate: mutateExtensions }] = createResource(() =>
     isAdmin()
       ? fetchAgentExtensions(params.agentId)
       : Promise.resolve([] as ExtensionCatalogEntry[])
   );
+  const [pending, setPending] = createSignal<string | null>(null);
+  const [extError, setExtError] = createSignal<string | null>(null);
+
+  // Flip an extension's enabled state and persist it to agent.yaml via the
+  // admin PATCH endpoint. The server returns the refreshed catalog, which we
+  // use as the source of truth so the UI reflects what was actually written.
+  const toggleExtension = async (ext: ExtensionCatalogEntry) => {
+    if (pending()) return;
+    setPending(ext.id);
+    setExtError(null);
+    try {
+      const next = await patchAgentExtension(params.agentId, ext.id, {
+        enabled: !ext.enabled,
+      });
+      mutateExtensions(next);
+    } catch (cause) {
+      setExtError(
+        cause instanceof Error ? cause.message : "Failed to update extension."
+      );
+    } finally {
+      setPending(null);
+    }
+  };
 
   return (
     <Show when={isAdmin()}>
@@ -250,19 +274,32 @@ export function EditAgent() {
                         {ext.description}
                       </span>
                     </div>
-                    <span
+                    <button
+                      type="button"
                       class="edit-agent-ext-state"
                       classList={{
                         "is-on": ext.enabled,
                         "is-off": !ext.enabled,
                       }}
+                      disabled={pending() !== null}
+                      aria-pressed={ext.enabled}
+                      onClick={() => void toggleExtension(ext)}
                     >
-                      {ext.enabled ? "On" : "Off"}
-                    </span>
+                      {pending() === ext.id
+                        ? "…"
+                        : ext.enabled
+                          ? "On"
+                          : "Off"}
+                    </button>
                   </li>
                 )}
               </For>
             </ul>
+            <Show when={extError()}>
+              {(message) => (
+                <p class="edit-agent-ext-error">{message()}</p>
+              )}
+            </Show>
           </section>
         </Show>
       </div>
@@ -458,6 +495,14 @@ export function EditAgent() {
           font-weight: 600;
           padding: 2px 10px;
           border-radius: 999px;
+          border: none;
+          cursor: pointer;
+          min-width: 40px;
+        }
+
+        .edit-agent-ext-state:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
 
         .edit-agent-ext-state.is-on {
@@ -468,6 +513,12 @@ export function EditAgent() {
         .edit-agent-ext-state.is-off {
           color: var(--text-tertiary);
           background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+        }
+
+        .edit-agent-ext-error {
+          font-size: 13px;
+          color: #e55;
+          margin: 4px 0 0;
         }
       `}</style>
     </Show>

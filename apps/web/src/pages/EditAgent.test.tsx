@@ -13,6 +13,7 @@ const {
   assignPoolToTeamMock,
   reassignForkMock,
   fetchAgentExtensionsMock,
+  patchAgentExtensionMock,
   useSessionMock,
   useParamsMock,
   navigateMock,
@@ -23,6 +24,7 @@ const {
   assignPoolToTeamMock: vi.fn(),
   reassignForkMock: vi.fn(),
   fetchAgentExtensionsMock: vi.fn(),
+  patchAgentExtensionMock: vi.fn(),
   useSessionMock: vi.fn(),
   useParamsMock: vi.fn(),
   navigateMock: vi.fn(),
@@ -32,6 +34,7 @@ vi.mock("../api", () => ({ fetchPool: fetchPoolMock }));
 
 vi.mock("../api/extensions", () => ({
   fetchAgentExtensions: fetchAgentExtensionsMock,
+  patchAgentExtension: patchAgentExtensionMock,
 }));
 
 vi.mock("../api/teams", () => ({
@@ -97,6 +100,7 @@ beforeEach(() => {
   fetchTeamsMock.mockReset().mockResolvedValue([] as Team[]);
   fetchForksMock.mockReset().mockResolvedValue([] as AgentFork[]);
   fetchAgentExtensionsMock.mockReset().mockResolvedValue([]);
+  patchAgentExtensionMock.mockReset();
   assignPoolToTeamMock.mockReset();
   reassignForkMock.mockReset();
   useSessionMock.mockReset();
@@ -222,7 +226,7 @@ describe("EditAgent", () => {
     expect(container.querySelector(".edit-agent-team")).toBeNull();
   });
 
-  it("lists extensions read-only with on/off state for an admin", async () => {
+  it("lists extensions with on/off toggle state for an admin", async () => {
     setSession("admin");
     fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
     fetchAgentExtensionsMock.mockResolvedValue([
@@ -263,13 +267,97 @@ describe("EditAgent", () => {
     ).map((el) => el.textContent);
     expect(states).toEqual(["On", "Off"]);
 
-    // Read-only: no toggles/buttons in the extension list.
+    // The state is a clickable toggle button reflecting enabled via
+    // aria-pressed.
+    const toggles = container.querySelectorAll<HTMLButtonElement>(
+      ".edit-agent-ext-item button.edit-agent-ext-state"
+    );
+    expect(toggles.length).toBe(2);
+    expect(toggles[0].getAttribute("aria-pressed")).toBe("true");
+    expect(toggles[1].getAttribute("aria-pressed")).toBe("false");
+  });
+
+  it("toggles an extension and persists via patchAgentExtension", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ]);
+    // Server returns the refreshed catalog with the flipped state.
+    patchAgentExtensionMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: true,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ]);
+    await mountEdit("scribe");
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".edit-agent-ext-item button.edit-agent-ext-state"
+    )!;
+    expect(toggle.textContent).toBe("Off");
+    toggle.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(patchAgentExtensionMock).toHaveBeenCalledWith("scribe", "crm", {
+      enabled: true,
+    });
+    // UI reflects the server-confirmed state.
+    const after = container.querySelector<HTMLButtonElement>(
+      ".edit-agent-ext-item button.edit-agent-ext-state"
+    )!;
+    expect(after.textContent).toBe("On");
+    expect(after.getAttribute("aria-pressed")).toBe("true");
+  });
+
+  it("shows an error when a toggle fails to persist", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ]);
+    patchAgentExtensionMock.mockRejectedValue(new Error("nope"));
+    await mountEdit("scribe");
+
+    container
+      .querySelector<HTMLButtonElement>(
+        ".edit-agent-ext-item button.edit-agent-ext-state"
+      )!
+      .click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.querySelector(".edit-agent-ext-error")?.textContent).toBe(
+      "nope"
+    );
+    // State stays Off since the write failed.
     expect(
-      container.querySelector(".edit-agent-ext-item button")
-    ).toBeNull();
-    expect(
-      container.querySelector(".edit-agent-ext-item input")
-    ).toBeNull();
+      container.querySelector(".edit-agent-ext-item button.edit-agent-ext-state")
+        ?.textContent
+    ).toBe("Off");
   });
 
   it("does not fetch extensions for a non-admin", async () => {

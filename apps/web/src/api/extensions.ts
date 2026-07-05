@@ -28,3 +28,31 @@ export async function fetchAgentExtensions(
   const data = (await res.json()) as { extensions: ExtensionCatalogEntry[] };
   return data.extensions;
 }
+
+export type ExtensionConfigPatch = {
+  enabled?: boolean;
+  config?: Record<string, unknown>;
+  secrets?: Record<string, string>;
+};
+
+// Admin-only: update an agent's per-extension config (enable/disable, config
+// fields, secrets). Returns the refreshed catalog after the write.
+export async function patchAgentExtension(
+  agentId: string,
+  extensionId: string,
+  patch: ExtensionConfigPatch
+): Promise<ExtensionCatalogEntry[]> {
+  const res = await fetch(
+    `${API_BASE}/agents/${encodeURIComponent(agentId)}/extensions/${encodeURIComponent(
+      extensionId
+    )}`,
+    {
+      method: "PATCH",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify(patch),
+    }
+  );
+  if (!res.ok) throw new Error("Failed to update extension");
+  const data = (await res.json()) as { extensions: ExtensionCatalogEntry[] };
+  return data.extensions;
+}

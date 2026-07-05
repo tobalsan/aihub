@@ -9,6 +9,7 @@ import {
   getAgent,
   isAgentActive,
   loadConfig,
+  reloadConfig,
   resolveWorkspaceDir,
 } from "../config/index.js";
 import {
@@ -18,6 +19,10 @@ import {
   getLoadedExtensions,
 } from "../extensions/registry.js";
 import { buildExtensionCatalog } from "../extensions/catalog.js";
+import {
+  updateAgentExtensionConfig,
+  type ExtensionConfigPatch,
+} from "../extensions/agent-config-writer.js";
 import {
   runAgent,
   getAllSessionsForAgent,
@@ -561,6 +566,104 @@ api.get("/agents/:id/extensions", async (c) => {
   }
   const extensions = await buildExtensionCatalog(config, agent);
   return c.json({ agentId, extensions });
+});
+
+// PATCH /api/agents/:id/extensions/:extensionId - admin-only write path that
+// updates an agent's per-extension config in agent.yaml. Flips enabled and/or
+// merges config fields; secret values are written as $env:NAME sentinels in
+// agent.yaml with the concrete value stored in the agent's .env (never
+// plaintext in yaml). After a successful write the config cache is invalidated
+// so the change takes effect on the agent's next run.
+api.patch("/agents/:id/extensions/:extensionId", async (c) => {
+  // Server-side admin guard (not just UI hiding): non-admins get 403 without
+  // leaking whether the agent exists.
+  if (!(await canViewAgentPrivateMeta(c))) {
+    return c.json({ error: "forbidden" }, 403);
+  }
+
+  const agentId = c.req.param("id");
+  const extensionId = c.req.param("extensionId");
+  const config = loadConfig();
+  const agent =
+    config.pool?.find((candidate) => candidate.id === agentId) ??
+    config.agents.find((candidate) => candidate.id === agentId);
+  if (!agent) {
+    return c.json({ error: "Agent not found" }, 404);
+  }
+
+  let body: unknown;
+  try {
+    body = await c.req.json();
+  } catch {
+    return c.json({ error: "Invalid JSON body" }, 400);
+  }
+  if (typeof body !== "object" || body === null) {
+    return c.json({ error: "Invalid request body" }, 400);
+  }
+  const {
+    enabled,
+    config: configPatch,
+    secrets,
+  } = body as {
+    enabled?: unknown;
+    config?: unknown;
+    secrets?: unknown;
+  };
+
+  const patch: ExtensionConfigPatch = {};
+  if (enabled !== undefined) {
+    if (typeof enabled !== "boolean") {
+      return c.json({ error: "`enabled` must be a boolean" }, 400);
+    }
+    patch.enabled = enabled;
+  }
+  if (configPatch !== undefined) {
+    if (
+      typeof configPatch !== "object" ||
+      configPatch === null ||
+      Array.isArray(configPatch)
+    ) {
+      return c.json({ error: "`config` must be an object" }, 400);
+    }
+    patch.config = configPatch as Record<string, unknown>;
+  }
+  if (secrets !== undefined) {
+    if (
+      typeof secrets !== "object" ||
+      secrets === null ||
+      Array.isArray(secrets) ||
+      Object.values(secrets).some((value) => typeof value !== "string")
+    ) {
+      return c.json(
+        { error: "`secrets` must be an object of string values" },
+        400
+      );
+    }
+    patch.secrets = secrets as Record<string, string>;
+  }
+
+  const workspaceDir = resolveWorkspaceDir(
+    agent.workspaceDir ?? agent.workspace
+  );
+  try {
+    await updateAgentExtensionConfig(workspaceDir, extensionId, patch);
+  } catch (error) {
+    return c.json(
+      { error: (error as Error).message || "Failed to update extension" },
+      400
+    );
+  }
+
+  // Invalidate the config cache so the next run (and the next catalog read)
+  // observes the change rather than the stale in-memory config.
+  const reloaded = reloadConfig();
+  const updatedAgent =
+    reloaded.pool?.find((candidate) => candidate.id === agentId) ??
+    reloaded.agents.find((candidate) => candidate.id === agentId);
+  const extensions = updatedAgent
+    ? await buildExtensionCatalog(reloaded, updatedAgent)
+    : [];
+  return c.json({ agentId, extensionId, extensions });
 });
 
 // GET /api/agents/:id/avatar - serve avatar image from workspace
