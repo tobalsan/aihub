@@ -7,6 +7,7 @@ import {
   onCleanup,
   onMount,
 } from "solid-js";
+import { A } from "@solidjs/router";
 import {
   addTeamMember,
   createTeam,
@@ -581,6 +582,11 @@ function TeamDetail(props: {
               </ul>
             </Show>
           </Show>
+          <Show when={props.isAdmin}>
+            <p class="team-detail__hint">
+              Assign an agent to this team from the <A href="/agents">Agents page</A>.
+            </p>
+          </Show>
 
           <Show when={error()}>
             {(message) => <p class="team-modal__error">⚠ {message()}</p>}
@@ -1004,6 +1010,16 @@ export function Teams() {
           margin: 0;
           font-size: 13px;
           color: var(--text-tertiary);
+        }
+
+        .team-detail__hint {
+          margin: 6px 0 0;
+          font-size: 12px;
+          color: var(--text-tertiary);
+        }
+
+        .team-detail__hint a {
+          color: var(--color-link, #4a9eff);
         }
 
         .team-member-list {
