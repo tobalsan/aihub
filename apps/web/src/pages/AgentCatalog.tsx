@@ -159,6 +159,31 @@ export function AgentCatalog() {
           <For each={agents()}>
             {(agent) => (
               <div class="catalog-card">
+                {/* Admin-only edit affordance: a subtle top-right icon that
+                    reveals on card hover/focus and opens the Edit-Agent page
+                    for this specific agent. Non-admins never see it. */}
+                <Show when={isAdmin()}>
+                  <A
+                    href={`/agents/${agent.id}/edit`}
+                    class="catalog-edit"
+                    aria-label={`Edit ${agent.name}`}
+                    title="Edit agent"
+                  >
+                    <svg
+                      width="16"
+                      height="16"
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="2"
+                      stroke-linecap="round"
+                      stroke-linejoin="round"
+                    >
+                      <path d="M12 20h9" />
+                      <path d="M16.5 3.5a2.121 2.121 0 0 1 3 3L7 19l-4 1 1-4Z" />
+                    </svg>
+                  </A>
+                </Show>
                 <Show when={agent.avatar}>
                   {(avatar) => (
                     <div class="catalog-avatar">
@@ -250,6 +275,7 @@ export function AgentCatalog() {
         }
 
         .catalog-card {
+          position: relative;
           display: flex;
           flex-direction: column;
           align-items: center;
@@ -259,6 +285,42 @@ export function AgentCatalog() {
           background: var(--bg-surface);
           border: 1px solid var(--scrollbar-thumb);
           border-radius: 12px;
+          transition: border-color 0.2s ease, background 0.2s ease;
+        }
+
+        .catalog-card:hover,
+        .catalog-card:focus-within {
+          border-color: var(--border-default);
+          background: var(--bg-raised);
+        }
+
+        .catalog-edit {
+          position: absolute;
+          top: 8px;
+          right: 8px;
+          z-index: 1;
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          width: 28px;
+          height: 28px;
+          border-radius: 8px;
+          color: var(--text-secondary);
+          background: color-mix(in srgb, var(--bg-surface) 80%, transparent);
+          text-decoration: none;
+          opacity: 0;
+          transition: opacity 0.2s ease, background 0.2s ease, color 0.2s ease;
+        }
+
+        .catalog-card:hover .catalog-edit,
+        .catalog-card:focus-within .catalog-edit,
+        .catalog-edit:focus-visible {
+          opacity: 1;
+        }
+
+        .catalog-edit:hover {
+          background: var(--border-default);
+          color: var(--text-primary);
         }
 
         .catalog-avatar {

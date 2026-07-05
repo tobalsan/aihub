@@ -173,4 +173,24 @@ describe("AgentCatalog action states", () => {
 
     expect(container.querySelector(".catalog-assign")).toBeNull();
   });
+
+  it("shows an admin an edit icon linking to the agent's edit route", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent("scribe")]);
+    fetchPoolActionsMock.mockResolvedValue([entry("scribe", "chat")]);
+    await mountCatalog();
+
+    const edit = container.querySelector<HTMLAnchorElement>(".catalog-edit");
+    expect(edit).not.toBeNull();
+    expect(edit?.getAttribute("href")).toBe("/agents/scribe/edit");
+  });
+
+  it("does not show the edit icon to a non-admin", async () => {
+    setSession("user");
+    fetchPoolMock.mockResolvedValue([agent("scribe")]);
+    fetchPoolActionsMock.mockResolvedValue([entry("scribe", "chat")]);
+    await mountCatalog();
+
+    expect(container.querySelector(".catalog-edit")).toBeNull();
+  });
 });

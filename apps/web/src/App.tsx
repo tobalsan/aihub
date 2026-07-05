@@ -19,6 +19,7 @@ import { QuickChatOverlay } from "./components/QuickChatOverlay";
 import { LeftNavShell } from "./components/LeftNavShell";
 import { ConsoleShell } from "./components/ConsoleShell";
 import { AgentCatalog } from "./pages/AgentCatalog";
+import { EditAgent } from "./pages/EditAgent";
 import { Teams } from "./pages/Teams";
 import {
   ImpersonationBanner,
@@ -302,6 +303,14 @@ function TeamsRouteShell() {
   );
 }
 
+function EditAgentRouteShell() {
+  return (
+    <ConsoleShell>
+      <EditAgent />
+    </ConsoleShell>
+  );
+}
+
 
 function ChatRouteShell() {
   return (
@@ -365,6 +374,14 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <TeamsRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/agents/:agentId/edit"
+        component={() => (
+          <GuardedRoute>
+            <EditAgentRouteShell />
           </GuardedRoute>
         )}
       />
