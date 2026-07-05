@@ -21,6 +21,10 @@ import {
 } from "./membership.js";
 import { createForkStore, type ForkStore } from "./forks.js";
 import { createAccessResolver, type AccessResolver } from "./access.js";
+import {
+  createPoolCatalogResolver,
+  type PoolCatalogResolver,
+} from "./catalog.js";
 import path from "node:path";
 
 export type MultiUserRuntime = {
@@ -31,6 +35,9 @@ export type MultiUserRuntime = {
   membership: MembershipStore;
   forks: ForkStore;
   access: AccessResolver;
+  catalog: PoolCatalogResolver;
+  /** Current pool agent ids (the catalog card keys), in config order. */
+  getPoolAgentIds(): string[];
   getAgent: ExtensionContext["getAgent"];
   logger: ExtensionLogger;
 };
@@ -106,6 +113,13 @@ export { createMembershipStore } from "./membership.js";
 export type { MembershipStore, TeamMember } from "./membership.js";
 export { createAccessResolver } from "./access.js";
 export type { AccessResolver } from "./access.js";
+export { createPoolCatalogResolver } from "./catalog.js";
+export type {
+  PoolCatalogResolver,
+  PoolCatalogEntry,
+  PoolCatalogAction,
+  CatalogUser,
+} from "./catalog.js";
 export {
   createForkStore,
   forkIdForPool,
@@ -128,6 +142,7 @@ export const multiUserExtension: Extension = {
     "/api/me",
     "/api/admin",
     "/api/teams",
+    "/api/pool-actions",
     "/api/impersonation",
   ],
   validateConfig(raw) {
@@ -174,6 +189,7 @@ export const multiUserExtension: Extension = {
     // forks; forks has no dependency on teams, so construct it first.
     const teams = createTeamStore(db, membership, () => forks);
     const access = createAccessResolver({ membership, forks });
+    const catalog = createPoolCatalogResolver({ forks, access });
     runtime = {
       auth,
       db,
@@ -182,6 +198,9 @@ export const multiUserExtension: Extension = {
       membership,
       forks,
       access,
+      catalog,
+      getPoolAgentIds: () =>
+        (ctx.getConfig().pool ?? []).map((agent) => agent.id),
       getAgent: ctx.getAgent,
       logger: ctx.logger,
     };

@@ -4,9 +4,11 @@ import { fetchPool } from "../api";
 import {
   assignPoolToTeam,
   fetchForks,
+  fetchPoolActions,
   fetchTeams,
   reassignFork,
   type AgentFork,
+  type PoolCatalogEntry,
   type Team,
 } from "../api/teams";
 import { useSession } from "../auth/client";
@@ -121,11 +123,24 @@ export function AgentCatalog() {
   const [forks, { refetch: refetchForks }] = createResource(() =>
     isAdmin() ? fetchForks() : Promise.resolve([] as AgentFork[])
   );
+  // The per-user action state for every pool card, resolved by the gateway
+  // (chat / assign_to_team / none). Refetched alongside forks so an admin's
+  // assign/reassign immediately updates the resolved action.
+  const [actions, { refetch: refetchActions }] = createResource(fetchPoolActions);
   const forkByPool = createMemo(() => {
     const map = new Map<string, AgentFork>();
     for (const fork of forks() ?? []) map.set(fork.sourcePoolId, fork);
     return map;
   });
+  const actionByPool = createMemo(() => {
+    const map = new Map<string, PoolCatalogEntry>();
+    for (const entry of actions() ?? []) map.set(entry.poolId, entry);
+    return map;
+  });
+  const refresh = () => {
+    void refetchForks();
+    void refetchActions();
+  };
 
   return (
     <div class="agent-catalog">
@@ -163,15 +178,41 @@ export function AgentCatalog() {
                   <div class="catalog-description">{agent.description}</div>
                 </Show>
                 <div class="catalog-divider" />
-                <A href={`/chat/${agent.id}`} class="catalog-chat-link">
-                  Chat
-                </A>
+                {(() => {
+                  const entry = actionByPool().get(agent.id);
+                  // Chat: a fork exists and this user can chat it (member or
+                  // staff). Route to the fork agent id, never the pool id.
+                  return (
+                    <Show
+                      when={entry?.action === "chat"}
+                      fallback={
+                        <Show
+                          when={entry?.action === "none"}
+                          fallback={null}
+                        >
+                          <span class="catalog-unavailable">
+                            Not available
+                          </span>
+                        </Show>
+                      }
+                    >
+                      <A
+                        href={`/chat/${entry?.chatAgentId ?? agent.id}`}
+                        class="catalog-chat-link"
+                      >
+                        Chat
+                      </A>
+                    </Show>
+                  );
+                })()}
+                {/* Admins keep the assign/reassign flow: "Assign to team" for
+                    a not-yet-forked pool agent, "Move to team…" once forked. */}
                 <Show when={isAdmin()}>
                   <AssignToTeam
                     poolId={agent.id}
                     teams={teams() ?? []}
                     fork={forkByPool().get(agent.id)}
-                    onChanged={() => void refetchForks()}
+                    onChanged={refresh}
                   />
                 </Show>
               </div>
@@ -283,6 +324,14 @@ export function AgentCatalog() {
 
         .catalog-chat-link:hover {
           background: var(--border-default);
+        }
+
+        .catalog-unavailable {
+          display: inline-block;
+          padding: 8px 20px;
+          font-size: 13px;
+          color: var(--text-tertiary);
+          font-style: italic;
         }
 
         .catalog-assign {
