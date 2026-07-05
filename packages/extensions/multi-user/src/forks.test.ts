@@ -37,7 +37,7 @@ beforeEach(() => {
   homeDir = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-forks-"));
   tempDirs.push(homeDir);
   poolDir = path.join(homeDir, "pool");
-  forksDir = path.join(homeDir, "forks");
+  forksDir = path.join(homeDir, "agents");
   fs.mkdirSync(poolDir, { recursive: true });
   reloadCount = 0;
 

@@ -172,7 +172,7 @@ describe("team store deleteTeam teamlessAgents", () => {
 
     const forks = createForkStore({
       db: fdb,
-      getForksDir: () => path.join(tempDir, "forks"),
+      getForksDir: () => path.join(tempDir, "agents"),
       getPoolAgent: (poolId) =>
         poolId === "scribe" ? { id: "scribe", workspaceDir: poolDir } : null,
     });

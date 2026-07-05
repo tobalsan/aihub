@@ -103,7 +103,7 @@ function buildRuntime() {
   const poolAgents = new Map(POOL_IDS.map((id) => [id, writePoolAgent(id)]));
   const forks = createForkStore({
     db,
-    getForksDir: () => path.join(homeDir, "forks"),
+    getForksDir: () => path.join(homeDir, "agents"),
     getPoolAgent: (poolId) => poolAgents.get(poolId) ?? null,
   });
   const access = createAccessResolver({ membership, forks });
@@ -183,7 +183,7 @@ beforeEach(async () => {
   const membership = createMembershipStore(db);
   const forks = createForkStore({
     db,
-    getForksDir: () => path.join(homeDir, "forks"),
+    getForksDir: () => path.join(homeDir, "agents"),
     getPoolAgent: (poolId) => writePoolAgent(poolId),
   });
   forks.forkAndAssign("scribe", "team-red", "admin-1");

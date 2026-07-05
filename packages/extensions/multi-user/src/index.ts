@@ -167,13 +167,13 @@ export const multiUserExtension: Extension = {
     const auth = await createMultiUserAuth(ctx.getConfig(), config, db);
     const assignments = createAgentAssignmentStore(db);
     const membership = createMembershipStore(db);
-    // Forks live under $AIHUB_HOME/forks/<forkId>; the gateway `agents` glob
-    // must include `forks/*` so a freshly copied fork is picked up and made
-    // runnable through the unchanged runtime.
-    const forksDir = path.join(ctx.getDataDir(), "forks");
+    // Forks live under $AIHUB_HOME/agents/<forkId>, alongside functional
+    // agents, so the standard gateway `agents` glob discovers a freshly
+    // copied fork and makes it runnable without a separate forks glob.
+    const agentsDir = path.join(ctx.getDataDir(), "agents");
     const forks = createForkStore({
       db,
-      getForksDir: () => forksDir,
+      getForksDir: () => agentsDir,
       getPoolAgent: (poolId) => {
         const pool = ctx.getConfig().pool ?? [];
         const match = pool.find((agent) => agent.id === poolId);

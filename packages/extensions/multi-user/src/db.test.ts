@@ -259,7 +259,7 @@ describe("assignments → teams migration", () => {
     const membership = createMembershipStore(db);
     const forks = createForkStore({
       db,
-      getForksDir: () => "/tmp/forks",
+      getForksDir: () => "/tmp/agents",
       getPoolAgent: () => null,
     });
     const resolver = createAccessResolver({ membership, forks });

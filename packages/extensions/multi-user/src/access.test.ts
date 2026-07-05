@@ -34,7 +34,7 @@ beforeEach(() => {
   const home = fs.mkdtempSync(path.join(os.tmpdir(), "aihub-access-"));
   tempDirs.push(home);
   poolDir = path.join(home, "pool");
-  forksDir = path.join(home, "forks");
+  forksDir = path.join(home, "agents");
   fs.mkdirSync(poolDir, { recursive: true });
 
   db = new Database(":memory:");

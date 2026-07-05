@@ -87,7 +87,7 @@ function buildRuntime() {
   const teams = createTeamStore(db, membership);
   const forks = createForkStore({
     db,
-    getForksDir: () => path.join(homeDir, "forks"),
+    getForksDir: () => path.join(homeDir, "agents"),
     getPoolAgent: (poolId) =>
       poolId === "scribe" ? { id: "scribe", workspaceDir: poolDir } : null,
   });
@@ -177,7 +177,7 @@ describe("admin fork/assignment routes", () => {
     const body = (await res.json()) as { fork: { forkAgentId: string; teamId: string } };
     expect(body.fork.forkAgentId).toBe("fork__scribe");
     expect(body.fork.teamId).toBe(teamId);
-    expect(fs.existsSync(path.join(homeDir, "forks", "fork__scribe"))).toBe(true);
+    expect(fs.existsSync(path.join(homeDir, "agents", "fork__scribe"))).toBe(true);
   });
 
   it("is guarded to admins/superadmins", async () => {
