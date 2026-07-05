@@ -15,7 +15,7 @@ function seedUser(id: string): void {
 beforeEach(() => {
   db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
-  db.exec("CREATE TABLE user (id TEXT PRIMARY KEY)");
+  db.exec("CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT)");
   ensureTeamsTable(db);
   ensureTeamMembersTable(db);
   seedUser("admin-1");
@@ -132,6 +132,29 @@ describe("membership store", () => {
       deleted: true,
       teamlessUsers: ["user-1"],
       teamlessAgents: [],
+    });
+  });
+
+  describe("listMemberProfilesForTeam", () => {
+    it("returns member display info joined from the user table", () => {
+      db.prepare(
+        "INSERT INTO user (id, name, email) VALUES (?, ?, ?)"
+      ).run("user-3", "User Three", "user3@example.com");
+      const alpha = teams.createTeam({ name: "Alpha", createdBy: "admin-1" });
+      membership.addMember(alpha.id, "user-3", "admin-1");
+
+      expect(membership.listMemberProfilesForTeam(alpha.id)).toEqual([
+        { id: "user-3", name: "User Three", email: "user3@example.com" },
+      ]);
+    });
+
+    it("returns null name/email for a member with no profile data", () => {
+      const alpha = teams.createTeam({ name: "Alpha", createdBy: "admin-1" });
+      membership.addMember(alpha.id, "user-1", "admin-1");
+
+      expect(membership.listMemberProfilesForTeam(alpha.id)).toEqual([
+        { id: "user-1", name: null, email: null },
+      ]);
     });
   });
 });

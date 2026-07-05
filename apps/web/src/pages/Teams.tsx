@@ -19,6 +19,7 @@ import {
   unassignFork,
   updateTeam,
   type Team,
+  type TeamMemberProfile,
 } from "../api/teams";
 import { fetchUsers, type AdminUser } from "../api/admin";
 import { useSession } from "../auth/client";
@@ -355,6 +356,10 @@ function userLabel(
   return user.name || user.email || userId;
 }
 
+function memberProfileLabel(m: TeamMemberProfile): string {
+  return m.name || m.email || m.id;
+}
+
 function TeamDetail(props: {
   team: Team;
   isAdmin: boolean;
@@ -386,8 +391,9 @@ function TeamDetail(props: {
       setAgentBusy(false);
     }
   };
-  // Only admins can read the user directory (/api/admin/users); non-admins see
-  // raw user ids, which is acceptable for a read-only membership view.
+  // The admin user directory (/api/admin/users) now feeds only the admin
+  // add-member picker below; member names/emails come from the members
+  // endpoint itself, so every user sees real names, not raw ids.
   const [users] = createResource(
     () => props.isAdmin,
     (isAdmin) => (isAdmin ? fetchUsers() : Promise.resolve([] as AdminUser[]))
@@ -402,7 +408,9 @@ function TeamDetail(props: {
     return map;
   });
 
-  const memberSet = createMemo(() => new Set(members() ?? []));
+  const memberSet = createMemo(
+    () => new Set((members() ?? []).map((m) => m.id))
+  );
 
   const addableUsers = createMemo(() =>
     (users() ?? [])
@@ -416,7 +424,7 @@ function TeamDetail(props: {
 
   const sortedMembers = createMemo(() =>
     [...(members() ?? [])].sort((a, b) =>
-      userLabel(a, directory()).localeCompare(userLabel(b, directory()))
+      memberProfileLabel(a).localeCompare(memberProfileLabel(b))
     )
   );
 
@@ -528,17 +536,17 @@ function TeamDetail(props: {
             >
               <ul class="team-member-list">
                 <For each={sortedMembers()}>
-                  {(userId) => (
+                  {(member) => (
                     <li class="team-member">
                       <span class="team-member__name">
-                        {userLabel(userId, directory())}
+                        {memberProfileLabel(member)}
                       </span>
                       <Show when={props.isAdmin}>
                         <button
                           type="button"
                           class="team-button team-button--danger-text"
                           disabled={busy()}
-                          onClick={() => void handleRemove(userId)}
+                          onClick={() => void handleRemove(member.id)}
                         >
                           Remove
                         </button>

@@ -7,6 +7,8 @@ export type TeamMember = {
   addedAt: string;
 };
 
+export type TeamMemberProfile = { id: string; name: string | null; email: string | null };
+
 /**
  * The membership deep module. Owns the many-to-many user↔team relationship:
  * a user may belong to many teams and a team may hold many users. `addMember`
@@ -21,6 +23,8 @@ export type MembershipStore = {
   listTeamsForUser(userId: string): string[];
   /** User ids that belong to the given team. */
   listUsersForTeam(teamId: string): string[];
+  /** Members of the team with display info (name/email), for rendering. */
+  listMemberProfilesForTeam(teamId: string): TeamMemberProfile[];
   /**
    * Of the given user ids, those whose only remaining team is `teamId` — i.e.
    * the users who would be left teamless if `teamId` were deleted. Used to
@@ -61,6 +65,9 @@ export function createMembershipStore(db: Database.Database): MembershipStore {
       ) = 1
     ORDER BY member.userId
   `);
+  // Prepared lazily: some test fixtures create a minimal `user` table without
+  // name/email columns, and better-sqlite3 validates columns at prepare time.
+  let memberProfilesStatement: Database.Statement | undefined;
 
   return {
     addMember(teamId, userId, addedBy) {
@@ -86,6 +93,16 @@ export function createMembershipStore(db: Database.Database): MembershipStore {
       return (
         usersOnlyInTeamStatement.all(teamId) as Array<{ userId: string }>
       ).map((row) => row.userId);
+    },
+    listMemberProfilesForTeam(teamId) {
+      memberProfilesStatement ??= db.prepare(`
+        SELECT member.userId AS id, u.name AS name, u.email AS email
+        FROM team_members AS member
+        JOIN user AS u ON u.id = member.userId
+        WHERE member.teamId = ?
+        ORDER BY member.userId
+      `);
+      return memberProfilesStatement.all(teamId) as TeamMemberProfile[];
     },
   };
 }

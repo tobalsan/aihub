@@ -30,7 +30,10 @@ describe("teams membership api client", () => {
   it("fetches team members from the global route", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ teamId: "team-1", userIds: ["user-1"] }),
+      json: async () => ({
+        teamId: "team-1",
+        members: [{ id: "user-1", name: "User One", email: "u1@example.com" }],
+      }),
     });
 
     const members = await fetchTeamMembers("team-1");
@@ -38,13 +41,18 @@ describe("teams membership api client", () => {
     expect(fetchMock).toHaveBeenCalledWith("/api/teams/team-1/members", {
       credentials: "include",
     });
-    expect(members).toEqual(["user-1"]);
+    expect(members).toEqual([
+      { id: "user-1", name: "User One", email: "u1@example.com" },
+    ]);
   });
 
   it("adds a member via the admin route", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ teamId: "team-1", userIds: ["user-1"] }),
+      json: async () => ({
+        teamId: "team-1",
+        members: [{ id: "user-1", name: "User One", email: "u1@example.com" }],
+      }),
     });
 
     const result = await addTeamMember("team-1", "user-1");
@@ -55,13 +63,15 @@ describe("teams membership api client", () => {
       body: JSON.stringify({ userId: "user-1" }),
       credentials: "include",
     });
-    expect(result).toEqual(["user-1"]);
+    expect(result).toEqual([
+      { id: "user-1", name: "User One", email: "u1@example.com" },
+    ]);
   });
 
   it("removes a member via the admin route", async () => {
     fetchMock.mockResolvedValue({
       ok: true,
-      json: async () => ({ teamId: "team-1", userIds: [] }),
+      json: async () => ({ teamId: "team-1", members: [] }),
     });
 
     const result = await removeTeamMember("team-1", "user-1");

@@ -342,7 +342,7 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
     membership.addMember(teamId, parsed.data.userId, authContext.user.id);
     return c.json({
       teamId,
-      userIds: membership.listUsersForTeam(teamId),
+      members: membership.listMemberProfilesForTeam(teamId),
     });
   });
 
@@ -361,7 +361,7 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
       membership.removeMember(teamId, userId);
       return c.json({
         teamId,
-        userIds: membership.listUsersForTeam(teamId),
+        members: membership.listMemberProfilesForTeam(teamId),
       });
     }
   );

@@ -15,6 +15,8 @@ export type TeamInput = {
   icon?: string | null;
 };
 
+export type TeamMemberProfile = { id: string; name: string | null; email: string | null };
+
 export type DeleteTeamResult = {
   deleted: boolean;
   teamlessUsers: string[];
@@ -109,19 +111,21 @@ export async function deleteTeam(id: string): Promise<DeleteTeamResult> {
 }
 
 // Any authenticated user can read a team's members (global visibility).
-export async function fetchTeamMembers(teamId: string): Promise<string[]> {
-  const data = await request<{ teamId: string; userIds: string[] }>(
+export async function fetchTeamMembers(
+  teamId: string
+): Promise<TeamMemberProfile[]> {
+  const data = await request<{ teamId: string; members: TeamMemberProfile[] }>(
     `/api/teams/${encodeURIComponent(teamId)}/members`
   );
-  return data.userIds;
+  return data.members;
 }
 
 // Admin-only: add a user to a team. Idempotent server-side.
 export async function addTeamMember(
   teamId: string,
   userId: string
-): Promise<string[]> {
-  const data = await request<{ teamId: string; userIds: string[] }>(
+): Promise<TeamMemberProfile[]> {
+  const data = await request<{ teamId: string; members: TeamMemberProfile[] }>(
     `/api/admin/teams/${encodeURIComponent(teamId)}/members`,
     {
       method: "POST",
@@ -129,19 +133,19 @@ export async function addTeamMember(
       body: JSON.stringify({ userId }),
     }
   );
-  return data.userIds;
+  return data.members;
 }
 
 // Admin-only: remove a user from a team.
 export async function removeTeamMember(
   teamId: string,
   userId: string
-): Promise<string[]> {
-  const data = await request<{ teamId: string; userIds: string[] }>(
+): Promise<TeamMemberProfile[]> {
+  const data = await request<{ teamId: string; members: TeamMemberProfile[] }>(
     `/api/admin/teams/${encodeURIComponent(teamId)}/members/${encodeURIComponent(userId)}`,
     { method: "DELETE" }
   );
-  return data.userIds;
+  return data.members;
 }
 
 // Admin-only: all fork provenance rows. Lets the pool catalog decide whether a

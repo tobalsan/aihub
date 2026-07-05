@@ -8,7 +8,9 @@ import { createMembershipStore } from "./membership.js";
 function createInMemoryTeamStore(extraUserIds: string[] = []) {
   const db = new Database(":memory:");
   db.pragma("foreign_keys = ON");
-  db.exec("CREATE TABLE user (id TEXT PRIMARY KEY)");
+  db.exec(
+    "CREATE TABLE user (id TEXT PRIMARY KEY, name TEXT, email TEXT)"
+  );
   for (const id of ["admin-1", "superadmin-1", ...extraUserIds]) {
     db.prepare("INSERT OR IGNORE INTO user (id) VALUES (?)").run(id);
   }
@@ -846,7 +848,7 @@ describe("multi-user admin routes", () => {
     expect(firstAdd.status).toBe(200);
     await expect(firstAdd.json()).resolves.toEqual({
       teamId: team.id,
-      userIds: ["user-1"],
+      members: [{ id: "user-1", name: null, email: null }],
     });
 
     // Re-adding is idempotent: still one member, still 200.
@@ -854,7 +856,7 @@ describe("multi-user admin routes", () => {
     expect(secondAdd.status).toBe(200);
     await expect(secondAdd.json()).resolves.toEqual({
       teamId: team.id,
-      userIds: ["user-1"],
+      members: [{ id: "user-1", name: null, email: null }],
     });
 
     const removeResponse = await app.request(
@@ -866,7 +868,7 @@ describe("multi-user admin routes", () => {
     expect(removeResponse.status).toBe(200);
     await expect(removeResponse.json()).resolves.toEqual({
       teamId: team.id,
-      userIds: [],
+      members: [],
     });
   });
 
@@ -949,7 +951,7 @@ describe("multi-user admin routes", () => {
     expect(response.status).toBe(200);
     await expect(response.json()).resolves.toEqual({
       teamId: team.id,
-      userIds: ["user-1"],
+      members: [{ id: "user-1", name: null, email: null }],
     });
   });
 
