@@ -70,10 +70,16 @@ beforeEach(() => {
   });
   membership = createMembershipStore(db);
   const access = createAccessResolver({ membership, forks });
+  const teamNames = new Map([
+    ["team-red", "Red"],
+    ["team-blue", "Blue"],
+    ["team-green", "Green"],
+  ]);
   catalog = createPoolCatalogResolver({
     forks,
     access,
     isAgentRunnable: () => true,
+    getTeamName: (teamId) => teamNames.get(teamId) ?? null,
   });
 
   // scribe → red, sage → blue, scout → green; orphan is forked but teamless;
@@ -108,6 +114,8 @@ describe("resolvePoolAction — chat", () => {
       forked: true,
       chatAgentId: forkId("scribe"),
       action: "chat",
+      reason: null,
+      teamName: null,
     });
     // alice also shares blue → sage chattable.
     expect(catalog.resolvePoolAction("sage", member("alice")).action).toBe(
@@ -133,13 +141,16 @@ describe("resolvePoolAction — assign_to_team", () => {
       forked: false,
       chatAgentId: null,
       action: "assign_to_team",
+      reason: null,
+      teamName: null,
     });
   });
 
   it("does NOT offer assign_to_team to a non-staff user", () => {
-    expect(catalog.resolvePoolAction("fresh", member("alice")).action).toBe(
-      "none"
-    );
+    const entry = catalog.resolvePoolAction("fresh", member("alice"));
+    expect(entry.action).toBe("none");
+    expect(entry.reason).toBe("unassigned");
+    expect(entry.teamName).toBeNull();
   });
 });
 
@@ -152,16 +163,19 @@ describe("resolvePoolAction — none (visible but not chattable)", () => {
       forked: true,
       chatAgentId: null,
       action: "none",
+      reason: "other_team",
+      teamName: "Green",
     });
   });
 
   it("is none for a teamless fork (member or non-staff)", () => {
-    expect(catalog.resolvePoolAction("orphan", member("alice")).action).toBe(
-      "none"
-    );
-    expect(catalog.resolvePoolAction("orphan", member("bob")).action).toBe(
-      "none"
-    );
+    const aliceEntry = catalog.resolvePoolAction("orphan", member("alice"));
+    expect(aliceEntry.action).toBe("none");
+    expect(aliceEntry.reason).toBe("unassigned");
+    expect(aliceEntry.teamName).toBeNull();
+    const bobEntry = catalog.resolvePoolAction("orphan", member("bob"));
+    expect(bobEntry.action).toBe("none");
+    expect(bobEntry.reason).toBe("unassigned");
   });
 
   it("is none for a teamless user across every fork", () => {
@@ -170,12 +184,21 @@ describe("resolvePoolAction — none (visible but not chattable)", () => {
         "none"
       );
     }
+    // Teamless (loner) sees other_team + the fork's team name for a
+    // team-linked fork they don't belong to...
+    const scribeEntry = catalog.resolvePoolAction("scribe", member("loner"));
+    expect(scribeEntry.reason).toBe("other_team");
+    expect(scribeEntry.teamName).toBe("Red");
+    // ...but unassigned for the teamless fork.
+    expect(
+      catalog.resolvePoolAction("orphan", member("loner")).reason
+    ).toBe("unassigned");
   });
 
   it("is none for a not-yet-forked pool agent when the user is not staff", () => {
-    expect(catalog.resolvePoolAction("fresh", member("loner")).action).toBe(
-      "none"
-    );
+    const entry = catalog.resolvePoolAction("fresh", member("loner"));
+    expect(entry.action).toBe("none");
+    expect(entry.reason).toBe("unassigned");
   });
 });
 
@@ -203,6 +226,7 @@ describe("resolvePoolAction — orphaned fork (agent not discoverable)", () => {
       forks,
       access,
       isAgentRunnable: (agentId) => agentId !== forkId("scribe"),
+      getTeamName: (teamId) => (teamId === "team-red" ? "Red" : null),
     });
     const entry = orphanedCatalog.resolvePoolAction("scribe", member("alice"));
     expect(entry).toEqual({
@@ -210,6 +234,8 @@ describe("resolvePoolAction — orphaned fork (agent not discoverable)", () => {
       forked: true,
       chatAgentId: null,
       action: "none",
+      reason: "no_workspace",
+      teamName: "Red",
     });
   });
 
@@ -219,6 +245,7 @@ describe("resolvePoolAction — orphaned fork (agent not discoverable)", () => {
       forks,
       access,
       isAgentRunnable: (agentId) => agentId !== forkId("scribe"),
+      getTeamName: (teamId) => (teamId === "team-red" ? "Red" : null),
     });
     const entry = orphanedCatalog.resolvePoolAction("scribe", staff("admin-1"));
     expect(entry).toEqual({
@@ -226,6 +253,8 @@ describe("resolvePoolAction — orphaned fork (agent not discoverable)", () => {
       forked: true,
       chatAgentId: null,
       action: "none",
+      reason: "no_workspace",
+      teamName: "Red",
     });
   });
 });

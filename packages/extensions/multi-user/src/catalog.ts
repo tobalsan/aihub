@@ -24,8 +24,18 @@ import type { ForkStore } from "./forks.js";
  * Staff (admin / superadmin) always get a usable `chat` for any existing fork
  * regardless of team membership; the staff bypass is layered here because this
  * module (unlike the pure `AccessResolver`) is handed the caller's role.
+ *
+ * Every entry also carries a `reason` (non-null only when `action === "none"`)
+ * so the web card can render a specific message instead of a generic
+ * "Not available": `no_workspace` (the fork's agent folder isn't discoverable
+ * on disk), `unassigned` (no fork, or a teamless fork), or `other_team` (a
+ * non-member viewing a fork assigned to a different team). `teamName` carries
+ * the fork's team display name for the `other_team` (and, for an admin
+ * viewer, `no_workspace`) cases.
  */
 export type PoolCatalogAction = "chat" | "assign_to_team" | "none";
+
+export type PoolCatalogNoneReason = "no_workspace" | "unassigned" | "other_team";
 
 export type PoolCatalogEntry = {
   /** The source pool agent id (the catalog card key). */
@@ -40,6 +50,10 @@ export type PoolCatalogEntry = {
   chatAgentId: string | null;
   /** The single action the card should offer for this user. */
   action: PoolCatalogAction;
+  /** Why `action` is "none"; null whenever `action !== "none"`. */
+  reason: PoolCatalogNoneReason | null;
+  /** The fork's team display name, when known; null otherwise. */
+  teamName: string | null;
 };
 
 export type PoolCatalogResolver = {
@@ -69,12 +83,14 @@ export type PoolCatalogResolverDeps = {
    * (renamed/removed) doesn't offer a dead Chat action.
    */
   isAgentRunnable(agentId: string): boolean;
+  /** Resolves a team id to its display name, or null if the team is gone. */
+  getTeamName(teamId: string): string | null;
 };
 
 export function createPoolCatalogResolver(
   deps: PoolCatalogResolverDeps
 ): PoolCatalogResolver {
-  const { forks, access, isAgentRunnable } = deps;
+  const { forks, access, isAgentRunnable, getTeamName } = deps;
 
   function resolvePoolAction(
     poolId: string,
@@ -90,8 +106,12 @@ export function createPoolCatalogResolver(
         forked: false,
         chatAgentId: null,
         action: user.isStaff ? "assign_to_team" : "none",
+        reason: user.isStaff ? null : "unassigned",
+        teamName: null,
       };
     }
+
+    const teamName = fork.teamId ? getTeamName(fork.teamId) : null;
 
     // The fork row exists, but its agent may not: an operator can rename or
     // remove the agent's on-disk folder (or, for legacy-migrated forks where
@@ -100,7 +120,14 @@ export function createPoolCatalogResolver(
     // discover the agent, nobody — not even staff — can chat it, so this
     // check precedes the staff bypass below.
     if (!isAgentRunnable(fork.forkAgentId)) {
-      return { poolId, forked: true, chatAgentId: null, action: "none" };
+      return {
+        poolId,
+        forked: true,
+        chatAgentId: null,
+        action: "none",
+        reason: "no_workspace",
+        teamName,
+      };
     }
 
     // A fork exists. Staff always chat it; other users chat it only when they
@@ -116,10 +143,30 @@ export function createPoolCatalogResolver(
         forked: true,
         chatAgentId: fork.forkAgentId,
         action: "chat",
+        reason: null,
+        teamName: null,
       };
     }
 
-    return { poolId, forked: true, chatAgentId: null, action: "none" };
+    if (!fork.teamId) {
+      return {
+        poolId,
+        forked: true,
+        chatAgentId: null,
+        action: "none",
+        reason: "unassigned",
+        teamName: null,
+      };
+    }
+
+    return {
+      poolId,
+      forked: true,
+      chatAgentId: null,
+      action: "none",
+      reason: "other_team",
+      teamName,
+    };
   }
 
   function resolvePoolActions(

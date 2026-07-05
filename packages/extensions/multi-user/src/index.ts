@@ -193,6 +193,7 @@ export const multiUserExtension: Extension = {
       forks,
       access,
       isAgentRunnable: (agentId) => Boolean(ctx.getAgent(agentId)),
+      getTeamName: (teamId) => teams.getTeam(teamId)?.name ?? null,
     });
     runtime = {
       auth,

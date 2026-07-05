@@ -13,6 +13,26 @@ function isEmoji(str: string): boolean {
 
 const STAFF_ROLES = ["admin", "superadmin"];
 
+const UNASSIGNED_MESSAGE = "This agent has not been assigned to a team.";
+
+// Reason-specific copy for a "none" action card. Never mentions forking.
+function unavailableMessage(entry: PoolCatalogEntry | undefined, isAdmin: boolean): string {
+  switch (entry?.reason) {
+    case "unassigned":
+      return UNASSIGNED_MESSAGE;
+    case "no_workspace":
+      return isAdmin
+        ? "This agent has no workspace."
+        : entry.teamName
+          ? `${entry.teamName} Team`
+          : UNASSIGNED_MESSAGE;
+    case "other_team":
+      return entry.teamName ? `${entry.teamName} Team` : UNASSIGNED_MESSAGE;
+    default:
+      return UNASSIGNED_MESSAGE;
+  }
+}
+
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
   if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
   return typeof role === "string" && STAFF_ROLES.includes(role);
@@ -109,7 +129,7 @@ export function AgentCatalog() {
                           fallback={null}
                         >
                           <span class="catalog-unavailable">
-                            Not available
+                            {unavailableMessage(entry, isAdmin())}
                           </span>
                         </Show>
                       }

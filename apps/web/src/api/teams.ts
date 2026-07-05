@@ -38,6 +38,9 @@ export type AgentFork = {
 // assign_to_team (staff, no fork yet), or none (visible-but-inert).
 export type PoolCatalogAction = "chat" | "assign_to_team" | "none";
 
+// Why action is "none"; null whenever action isn't "none".
+export type PoolCatalogNoneReason = "no_workspace" | "unassigned" | "other_team";
+
 export type PoolCatalogEntry = {
   poolId: string;
   forked: boolean;
@@ -45,6 +48,9 @@ export type PoolCatalogEntry = {
   // "chat".
   chatAgentId: string | null;
   action: PoolCatalogAction;
+  reason: PoolCatalogNoneReason | null;
+  // The fork's team display name, when known; null otherwise.
+  teamName: string | null;
 };
 
 async function request<T>(path: string, init?: RequestInit): Promise<T> {

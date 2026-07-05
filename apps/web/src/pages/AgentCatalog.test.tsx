@@ -45,9 +45,17 @@ function agent(id: string): Agent {
 function entry(
   poolId: string,
   action: PoolCatalogEntry["action"],
-  chatAgentId: string | null = action === "chat" ? `fork__${poolId}` : null
+  chatAgentId: string | null = action === "chat" ? `fork__${poolId}` : null,
+  overrides: Partial<Pick<PoolCatalogEntry, "reason" | "teamName">> = {}
 ): PoolCatalogEntry {
-  return { poolId, forked: action !== "assign_to_team", chatAgentId, action };
+  return {
+    poolId,
+    forked: action !== "assign_to_team",
+    chatAgentId,
+    action,
+    reason: overrides.reason ?? (action === "none" ? "unassigned" : null),
+    teamName: overrides.teamName ?? null,
+  };
 }
 
 function setSession(role: string | null) {
@@ -95,7 +103,7 @@ describe("AgentCatalog action states", () => {
     expect(chat?.getAttribute("href")).toBe("/chat/fork__scribe");
   });
 
-  it("shows 'Not available' and no Chat link when action is none", async () => {
+  it("shows the unassigned message and no Chat link when action is none", async () => {
     setSession("user");
     fetchPoolMock.mockResolvedValue([agent("scout")]);
     fetchPoolActionsMock.mockResolvedValue([entry("scout", "none")]);
@@ -103,7 +111,32 @@ describe("AgentCatalog action states", () => {
 
     expect(container.querySelector(".catalog-chat-link")).toBeNull();
     expect(container.querySelector(".catalog-unavailable")).not.toBeNull();
-    expect(container.textContent).toContain("Not available");
+    expect(container.textContent).toContain(
+      "This agent has not been assigned to a team."
+    );
+  });
+
+  it("shows '<team name> Team' for a non-admin viewing another team's agent", async () => {
+    setSession("user");
+    fetchPoolMock.mockResolvedValue([agent("scout")]);
+    fetchPoolActionsMock.mockResolvedValue([
+      entry("scout", "none", null, { reason: "other_team", teamName: "Green" }),
+    ]);
+    await mountCatalog();
+
+    expect(container.querySelector(".catalog-chat-link")).toBeNull();
+    expect(container.textContent).toContain("Green Team");
+  });
+
+  it("shows the no-workspace message for an admin on a broken fork", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent("scribe")]);
+    fetchPoolActionsMock.mockResolvedValue([
+      entry("scribe", "none", null, { reason: "no_workspace", teamName: "Red" }),
+    ]);
+    await mountCatalog();
+
+    expect(container.textContent).toContain("This agent has no workspace.");
   });
 
   it("no longer renders inline team assign/move controls", async () => {

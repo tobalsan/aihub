@@ -111,6 +111,7 @@ function buildRuntime() {
     forks,
     access,
     isAgentRunnable: () => true,
+    getTeamName: (teamId) => teams.getTeam(teamId)?.name ?? null,
   });
   return {
     auth: { api: { getSession } },
@@ -222,9 +223,15 @@ describe("GET /pool-actions", () => {
     expect(map.get("scout")).toMatchObject({
       action: "none",
       chatAgentId: null,
+      reason: "other_team",
+      teamName: "Green",
     });
     // orphan is teamless → none.
-    expect(map.get("orphan")?.action).toBe("none");
+    expect(map.get("orphan")).toMatchObject({
+      action: "none",
+      reason: "unassigned",
+      teamName: null,
+    });
   });
 
   it("returns none for every agent to a teamless non-staff user", async () => {
@@ -235,6 +242,7 @@ describe("GET /pool-actions", () => {
   it("does not offer assign_to_team to a non-staff user", async () => {
     const { map } = await actionsFor("alice", "user");
     expect(map.get("fresh")?.action).toBe("none");
+    expect(map.get("fresh")?.reason).toBe("unassigned");
   });
 
   it("gives an admin chat for every fork and assign_to_team for unforked", async () => {
