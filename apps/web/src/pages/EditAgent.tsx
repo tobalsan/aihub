@@ -544,7 +544,9 @@ export function EditAgent() {
           width: 44px;
           height: 44px;
           border-radius: 8px;
-          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+          background: #fff;
+          padding: 6px;
+          border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
           color: var(--text-tertiary);
           display: flex;
           align-items: center;
@@ -560,7 +562,7 @@ export function EditAgent() {
         .edit-agent-ext-icon-img {
           width: 100%;
           height: 100%;
-          object-fit: cover;
+          object-fit: contain;
         }
 
         .edit-agent-ext-body {
