@@ -11,6 +11,7 @@ export type ExtensionCatalogEntry = {
   description: string;
   builtIn: boolean;
   enabled: boolean;
+  configurable: boolean;
   configJsonSchema: Record<string, unknown> | null;
   requiredSecrets: string[];
   advancedConfigFields: string[];

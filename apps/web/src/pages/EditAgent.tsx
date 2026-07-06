@@ -30,6 +30,8 @@ function isEmoji(str: string): boolean {
 }
 
 const STAFF_ROLES = ["admin", "superadmin"];
+const ASSIGN_TO_ENABLE_MESSAGE =
+  "The agent must be assigned to a team to enable this extension";
 
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
   if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
@@ -186,6 +188,7 @@ export function EditAgent() {
   // surface off never redirects into it.
   const toggleExtension = async (ext: ExtensionCatalogEntry) => {
     if (pending()) return;
+    if (!ext.enabled && ext.configurable === false) return;
     setPending(ext.id);
     setExtError(null);
     try {
@@ -325,7 +328,15 @@ export function EditAgent() {
                       role="switch"
                       class="edit-agent-ext-state"
                       classList={{ "is-on": ext.enabled }}
-                      disabled={pending() !== null}
+                      disabled={
+                        pending() !== null ||
+                        (!ext.enabled && ext.configurable === false)
+                      }
+                      title={
+                        !ext.enabled && ext.configurable === false
+                          ? ASSIGN_TO_ENABLE_MESSAGE
+                          : undefined
+                      }
                       aria-checked={ext.enabled}
                       aria-label={`Enable ${ext.displayName}`}
                       onClick={() => void toggleExtension(ext)}

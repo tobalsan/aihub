@@ -520,7 +520,8 @@ describe("api core session resolution", () => {
       });
       expect(buildExtensionCatalog).toHaveBeenCalledWith(
         loadConfigValue,
-        expect.objectContaining({ id: "alpha" })
+        expect.objectContaining({ id: "alpha" }),
+        { configurable: true }
       );
     });
 
@@ -545,7 +546,8 @@ describe("api core session resolution", () => {
       expect(response.status).toBe(200);
       expect(buildExtensionCatalog).toHaveBeenCalledWith(
         loadConfigValue,
-        expect.not.objectContaining({ extensions: expect.anything() })
+        expect.not.objectContaining({ extensions: expect.anything() }),
+        { configurable: false }
       );
     });
 
@@ -579,7 +581,8 @@ describe("api core session resolution", () => {
         expect.objectContaining({
           id: "fork__poolie",
           extensions: { acme: { enabled: false, region: "fork" } },
-        })
+        }),
+        { configurable: true }
       );
     });
 

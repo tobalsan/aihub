@@ -98,6 +98,8 @@ export type ExtensionCatalogEntry = {
   builtIn: boolean;
   /** Enabled for this specific agent (agent-scoped config). */
   enabled: boolean;
+  /** True when writes can persist to a real agent fork. */
+  configurable: boolean;
   /** Config JSON-schema when the extension exposes one, else null. */
   configJsonSchema: Record<string, unknown> | null;
   /** Field names a UI must mask. */
@@ -183,7 +185,8 @@ function toCatalogEntry(
   extension: Extension,
   builtIn: boolean,
   agent: AgentConfig,
-  dir: string | undefined
+  dir: string | undefined,
+  configurable: boolean
 ): ExtensionCatalogEntry {
   const configJsonSchema = extension.configJsonSchema ?? null;
   const configRoutePath =
@@ -194,6 +197,7 @@ function toCatalogEntry(
     description: extension.description,
     builtIn,
     enabled: isEnabledForAgent(agent, extension.id),
+    configurable,
     configJsonSchema,
     requiredSecrets: extension.requiredSecrets ?? [],
     advancedConfigFields: extension.advancedConfigFields ?? [],
@@ -217,10 +221,12 @@ function toCatalogEntry(
  */
 export async function buildExtensionCatalog(
   config: GatewayConfig,
-  agent: AgentConfig
+  agent: AgentConfig,
+  options: { configurable?: boolean } = {}
 ): Promise<ExtensionCatalogEntry[]> {
   const entries: ExtensionCatalogEntry[] = [];
   const seen = new Set<string>();
+  const configurable = options.configurable ?? true;
 
   for (const registration of getBuiltInExtensionRegistrations()) {
     let extension: Extension;
@@ -237,7 +243,7 @@ export async function buildExtensionCatalog(
     // agent-edit UI, still enable-able manually in agent.yaml.
     if (extension.factory === true) continue;
     const dir = resolveBuiltInExtensionDir(registration.packageName);
-    entries.push(toCatalogEntry(extension, true, agent, dir));
+    entries.push(toCatalogEntry(extension, true, agent, dir, configurable));
   }
 
   const external = await discoverExternalExtensions(
@@ -247,7 +253,9 @@ export async function buildExtensionCatalog(
     if (seen.has(extension.id)) continue;
     seen.add(extension.id);
     if (extension.factory === true) continue;
-    entries.push(toCatalogEntry(extension, false, agent, extensionDir));
+    entries.push(
+      toCatalogEntry(extension, false, agent, extensionDir, configurable)
+    );
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));

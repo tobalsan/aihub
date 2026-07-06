@@ -370,6 +370,40 @@ describe("EditAgent", () => {
     expect(after.getAttribute("aria-checked")).toBe("true");
   });
 
+  it("disables extension enable toggles until a fork exists", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: false,
+        configurable: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        advancedConfigFields: [],
+        configValues: {},
+        configRoutePath: null,
+        tier: "toggle-only",
+      },
+    ]);
+    await mountEdit("scribe");
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".edit-agent-ext-item button.edit-agent-ext-state"
+    )!;
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.title).toBe(
+      "The agent must be assigned to a team to enable this extension"
+    );
+
+    toggle.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    expect(patchAgentExtensionMock).not.toHaveBeenCalled();
+  });
+
   it("redirects to the bespoke config route when enabling a bespoke-route extension", async () => {
     setSession("admin");
     fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);

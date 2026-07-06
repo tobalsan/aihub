@@ -129,20 +129,20 @@ async function canViewAgentPrivateMeta(c: Context): Promise<boolean> {
 function findExtensionCatalogAgent(
   config: GatewayConfig,
   agentId: string
-): AgentConfig | undefined {
+): { agent: AgentConfig; configurable: boolean } | undefined {
   const directAgent = config.agents.find((candidate) => candidate.id === agentId);
-  if (directAgent) return directAgent;
+  if (directAgent) return { agent: directAgent, configurable: true };
 
   const forkAgent = config.agents.find(
     (candidate) => candidate.id === `fork__${agentId}`
   );
-  if (forkAgent) return forkAgent;
+  if (forkAgent) return { agent: forkAgent, configurable: true };
 
   const poolAgent = config.pool?.find((candidate) => candidate.id === agentId);
   if (!poolAgent) return undefined;
   const agentWithoutTemplateExtensions = { ...poolAgent };
   delete (agentWithoutTemplateExtensions as { extensions?: unknown }).extensions;
-  return agentWithoutTemplateExtensions;
+  return { agent: agentWithoutTemplateExtensions, configurable: false };
 }
 
 function findWritableExtensionAgent(
@@ -595,11 +595,13 @@ api.get("/agents/:id/extensions", async (c) => {
   }
   const agentId = c.req.param("id");
   const config = loadConfig();
-  const agent = findExtensionCatalogAgent(config, agentId);
-  if (!agent) {
+  const resolved = findExtensionCatalogAgent(config, agentId);
+  if (!resolved) {
     return c.json({ error: "Agent not found" }, 404);
   }
-  const extensions = await buildExtensionCatalog(config, agent);
+  const extensions = await buildExtensionCatalog(config, resolved.agent, {
+    configurable: resolved.configurable,
+  });
   return c.json({ agentId, extensions });
 });
 

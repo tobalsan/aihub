@@ -165,6 +165,18 @@ describe("buildExtensionCatalog", () => {
     expect(byId["absent-ext"].enabled).toBe(false);
   });
 
+  it("marks entries not configurable when no writable fork backs them", async () => {
+    await writeExternalExtension(root, "acme-tool");
+    const agent = makeAgent();
+    const catalog = await buildExtensionCatalog(configWith(agent, root), agent, {
+      configurable: false,
+    });
+
+    expect(catalog.find((entry) => entry.id === "acme-tool")?.configurable).toBe(
+      false
+    );
+  });
+
   it("treats a present-but-empty agent config as enabled (enabled defaults true)", async () => {
     await writeExternalExtension(root, "bare-ext");
     const agent = makeAgent({ "bare-ext": {} });
