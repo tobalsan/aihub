@@ -1054,11 +1054,13 @@ export interface Extension {
    * extension hub). `configJsonSchema` is the JSON-schema rendering of the
    * extension's real config shape (populated by `defineToolExtension` from its
    * Zod `configSchema`); `requiredSecrets` names the fields a UI must mask.
+   * `advancedConfigFields` names fields a UI should collapse by default.
    * Both are optional: extensions that have not yet migrated simply omit them,
    * and the catalog marks their tier accordingly.
    */
   configJsonSchema?: Record<string, unknown>;
   requiredSecrets?: string[];
+  advancedConfigFields?: string[];
   /**
    * Optional self-registered, agent-keyed config route. When present, the hub
    * treats this extension as the `bespoke-route` tier: enabling it redirects to
@@ -1106,6 +1108,7 @@ export const ExtensionDefinitionSchema = z.object({
   routePrefixes: z.array(z.string()),
   configJsonSchema: z.record(z.string(), z.unknown()).optional(),
   requiredSecrets: z.array(z.string()).optional(),
+  advancedConfigFields: z.array(z.string()).optional(),
   configRoute: z
     .object({
       path: z

@@ -36,6 +36,8 @@ export interface ToolExtensionDefinition {
   configSchema: z.ZodTypeAny;
   agentConfigSchema?: z.ZodTypeAny;
   requiredSecrets: string[];
+  /** Config field names the generic UI should collapse under advanced settings. */
+  advancedConfigFields?: string[];
   /**
    * Optional self-registered, agent-keyed config route. Declare this to own a
    * bespoke config UI instead of the schema-driven auto-form. The path must
@@ -196,6 +198,7 @@ export function defineToolExtension(
       $refStrategy: "none",
     }) as Record<string, unknown>,
     requiredSecrets: definition.requiredSecrets,
+    advancedConfigFields: definition.advancedConfigFields,
     configRoute: definition.configRoute,
     routePrefixes: [],
     validateConfig(raw) {

@@ -20,6 +20,7 @@ describe("tool extensions", () => {
         region: z.string(),
       }),
       requiredSecrets: ["token"],
+      advancedConfigFields: ["region"],
       createTools(config) {
         receivedConfig = config;
         return [
@@ -65,6 +66,7 @@ describe("tool extensions", () => {
     });
     expect(tools?.[0]?.name).toBe("sample_ping");
     expect(tools?.[0]?.parameters).toMatchObject({ type: "object" });
+    expect(extension.advancedConfigFields).toEqual(["region"]);
     expect(prompt).toEqual([
       "Use Sample when needed.",
       [

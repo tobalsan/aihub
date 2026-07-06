@@ -15,6 +15,8 @@ export type AutoFormField = {
   required: boolean;
   /** True when the field is a secret (masked input + written to .env). */
   secret: boolean;
+  /** True when the extension wants this field hidden under advanced settings. */
+  advanced: boolean;
 };
 
 type JsonSchema = {
@@ -78,13 +80,15 @@ function humanizeName(name: string): string {
  */
 export function buildAutoFormFields(
   configJsonSchema: Record<string, unknown> | null | undefined,
-  requiredSecrets: string[] = []
+  requiredSecrets: string[] = [],
+  advancedConfigFields: string[] = []
 ): AutoFormField[] {
   const schema = (configJsonSchema ?? {}) as JsonSchema;
   const properties = asRecord(schema.properties);
   if (!properties) return [];
 
   const secretSet = new Set(requiredSecrets);
+  const advancedSet = new Set(advancedConfigFields);
   const requiredList = Array.isArray(schema.required)
     ? (schema.required.filter((v) => typeof v === "string") as string[])
     : [];
@@ -106,6 +110,7 @@ export function buildAutoFormFields(
       type: fieldType(prop, secret),
       required: requiredSet.has(name) || secret,
       secret,
+      advanced: advancedSet.has(name),
     });
   }
   return fields;

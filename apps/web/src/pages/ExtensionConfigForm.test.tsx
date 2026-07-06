@@ -59,6 +59,7 @@ function exaEntry(
       required: ["apiKey"],
     },
     requiredSecrets: ["apiKey"],
+    advancedConfigFields: [],
     configRoutePath: null,
     tier: "auto-form",
     ...partial,
@@ -195,6 +196,39 @@ describe("ExtensionConfigForm", () => {
       config: { baseUrl: "https://api.exa.ai" },
       secrets: { apiKey: "sk-1" },
     });
+  });
+
+  it("collapses advanced fields behind a uniform disclosure", async () => {
+    setSession("admin");
+    fetchAgentExtensionMock.mockResolvedValue(
+      exaEntry({
+        configJsonSchema: {
+          type: "object",
+          properties: {
+            apiKey: { type: "string" },
+            timeoutMs: { type: "integer" },
+          },
+          required: ["apiKey"],
+        },
+        advancedConfigFields: ["timeoutMs"],
+      })
+    );
+    await mount("scribe", "exa");
+
+    expect(container.querySelector("#ext-field-apiKey")).not.toBeNull();
+    expect(container.querySelector("#ext-field-timeoutMs")).toBeNull();
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".ext-config-advanced-toggle"
+    )!;
+    expect(toggle.textContent).toContain("See advanced settings");
+    toggle.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(container.querySelector(".ext-config-advanced-note")?.textContent).toContain(
+      "only be edited if you know exactly what you're doing"
+    );
+    expect(container.querySelector("#ext-field-timeoutMs")).not.toBeNull();
   });
 
   it("shows an error when the save fails", async () => {

@@ -25,6 +25,7 @@ async function writeExternalExtension(
     configSchema?: string;
     configJsonSchema?: string;
     requiredSecrets?: string;
+    advancedConfigFields?: string;
     configRoute?: string;
     factory?: boolean;
   } = {}
@@ -49,6 +50,9 @@ async function writeExternalExtension(
         ? `  configJsonSchema: ${body.configJsonSchema},`
         : "",
       body.requiredSecrets ? `  requiredSecrets: ${body.requiredSecrets},` : "",
+      body.advancedConfigFields
+        ? `  advancedConfigFields: ${body.advancedConfigFields},`
+        : "",
       body.configRoute ? `  configRoute: ${body.configRoute},` : "",
       body.factory !== undefined ? `  factory: ${body.factory},` : "",
       `  routePrefixes: ${body.routePrefixes ?? "[]"},`,
@@ -229,12 +233,14 @@ describe("buildExtensionCatalog", () => {
       configJsonSchema:
         '{ type: "object", properties: { token: { type: "string" } } }',
       requiredSecrets: '["token"]',
+      advancedConfigFields: '["timeoutMs"]',
     });
     const agent = makeAgent();
     const catalog = await buildExtensionCatalog(configWith(agent, root), agent);
     const entry = catalog.find((e) => e.id === "secretful");
 
     expect(entry?.requiredSecrets).toEqual(["token"]);
+    expect(entry?.advancedConfigFields).toEqual(["timeoutMs"]);
     expect(entry?.configJsonSchema).toMatchObject({
       properties: { token: { type: "string" } },
     });

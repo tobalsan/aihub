@@ -102,6 +102,8 @@ export type ExtensionCatalogEntry = {
   configJsonSchema: Record<string, unknown> | null;
   /** Field names a UI must mask. */
   requiredSecrets: string[];
+  /** Field names a UI should collapse under advanced settings. */
+  advancedConfigFields: string[];
   /**
    * Agent-resolved bespoke config route (`:agentId` substituted) when the
    * extension self-registers one, else null. The hub redirects here on enable
@@ -175,6 +177,7 @@ function toCatalogEntry(
     enabled: isEnabledForAgent(agent, extension.id),
     configJsonSchema,
     requiredSecrets: extension.requiredSecrets ?? [],
+    advancedConfigFields: extension.advancedConfigFields ?? [],
     configRoutePath,
     tier: resolveTier(configRoutePath, configJsonSchema),
     iconDataUri: resolveIconDataUri(dir),

@@ -14,6 +14,7 @@ import {
 import {
   buildAutoFormFields,
   splitAutoFormValues,
+  type AutoFormField,
   type AutoFormValues,
 } from "../lib/auto-form-schema";
 import { useSession } from "../auth/client";
@@ -61,11 +62,19 @@ export function ExtensionConfigForm() {
     if (!current) return [];
     return buildAutoFormFields(
       current.configJsonSchema,
-      current.requiredSecrets
+      current.requiredSecrets,
+      current.advancedConfigFields
     );
   });
+  const baseFields = createMemo(() =>
+    fields().filter((field) => !field.advanced)
+  );
+  const advancedFields = createMemo(() =>
+    fields().filter((field) => field.advanced)
+  );
 
   const [values, setValues] = createSignal<AutoFormValues>({});
+  const [advancedOpen, setAdvancedOpen] = createSignal(false);
   const [saving, setSaving] = createSignal(false);
   const [error, setError] = createSignal<string | null>(null);
   const [saved, setSaved] = createSignal(false);
@@ -77,6 +86,66 @@ export function ExtensionConfigForm() {
 
   const backHref = createMemo(
     () => `/agents/${encodeURIComponent(params.agentId)}/edit`
+  );
+
+  const renderField = (field: AutoFormField) => (
+    <div class="ext-config-field">
+      <Show when={field.type !== "boolean"}>
+        <label class="ext-config-label" for={`ext-field-${field.name}`}>
+          {field.label}
+          <Show when={field.required}>
+            <span class="ext-config-req"> *</span>
+          </Show>
+        </label>
+      </Show>
+      <Show when={field.type === "boolean"}>
+        <label class="ext-config-checkbox-label">
+          <input
+            id={`ext-field-${field.name}`}
+            type="checkbox"
+            checked={Boolean(values()[field.name])}
+            onChange={(e) => setValue(field.name, e.currentTarget.checked)}
+          />
+          {field.label}
+        </label>
+      </Show>
+      <Show when={field.type === "secret"}>
+        <input
+          id={`ext-field-${field.name}`}
+          class="ext-config-input"
+          type="password"
+          autocomplete="off"
+          value={String(values()[field.name] ?? "")}
+          onInput={(e) => setValue(field.name, e.currentTarget.value)}
+        />
+      </Show>
+      <Show when={field.type === "number"}>
+        <input
+          id={`ext-field-${field.name}`}
+          class="ext-config-input"
+          type="number"
+          value={String(values()[field.name] ?? "")}
+          onInput={(e) => setValue(field.name, e.currentTarget.value)}
+        />
+      </Show>
+      <Show when={field.type === "text"}>
+        <input
+          id={`ext-field-${field.name}`}
+          class="ext-config-input"
+          type="text"
+          value={String(values()[field.name] ?? "")}
+          onInput={(e) => setValue(field.name, e.currentTarget.value)}
+        />
+      </Show>
+      <Show when={field.secret}>
+        <span class="ext-config-hint">
+          Stored as a secret in the agent's env file.
+        </span>
+      </Show>
+      <Show when={field.description}>
+        {(text) => <span class="ext-config-hint">{text()}</span>}
+      </Show>
+    </div>
   );
 
   const handleSubmit = async (event: Event) => {
@@ -155,80 +224,30 @@ export function ExtensionConfigForm() {
                 }
               >
                 <form class="ext-config-form" onSubmit={handleSubmit}>
-                  <For each={fields()}>
-                    {(field) => (
-                      <div class="ext-config-field">
-                        <Show when={field.type !== "boolean"}>
-                          <label
-                            class="ext-config-label"
-                            for={`ext-field-${field.name}`}
-                          >
-                            {field.label}
-                            <Show when={field.required}>
-                              <span class="ext-config-req"> *</span>
-                            </Show>
-                          </label>
-                        </Show>
-                        <Show when={field.type === "boolean"}>
-                          <label class="ext-config-checkbox-label">
-                            <input
-                              id={`ext-field-${field.name}`}
-                              type="checkbox"
-                              checked={Boolean(values()[field.name])}
-                              onChange={(e) =>
-                                setValue(field.name, e.currentTarget.checked)
-                              }
-                            />
-                            {field.label}
-                          </label>
-                        </Show>
-                        <Show when={field.type === "secret"}>
-                          <input
-                            id={`ext-field-${field.name}`}
-                            class="ext-config-input"
-                            type="password"
-                            autocomplete="off"
-                            value={String(values()[field.name] ?? "")}
-                            onInput={(e) =>
-                              setValue(field.name, e.currentTarget.value)
-                            }
-                          />
-                        </Show>
-                        <Show when={field.type === "number"}>
-                          <input
-                            id={`ext-field-${field.name}`}
-                            class="ext-config-input"
-                            type="number"
-                            value={String(values()[field.name] ?? "")}
-                            onInput={(e) =>
-                              setValue(field.name, e.currentTarget.value)
-                            }
-                          />
-                        </Show>
-                        <Show when={field.type === "text"}>
-                          <input
-                            id={`ext-field-${field.name}`}
-                            class="ext-config-input"
-                            type="text"
-                            value={String(values()[field.name] ?? "")}
-                            onInput={(e) =>
-                              setValue(field.name, e.currentTarget.value)
-                            }
-                          />
-                        </Show>
-                        <Show when={field.secret}>
-                          <span class="ext-config-hint">
-                            Stored as a secret in the agent's env file.
-                          </span>
-                        </Show>
-                        <Show when={field.description}>
-                          {(text) => (
-                            <span class="ext-config-hint">{text()}</span>
-                          )}
-                        </Show>
-                      </div>
-                    )}
-                  </For>
+                  <For each={baseFields()}>{renderField}</For>
+
+                  <Show when={advancedFields().length > 0}>
+                    <div class="ext-config-advanced">
+                      <button
+                        type="button"
+                        class="ext-config-advanced-toggle"
+                        onClick={() => setAdvancedOpen((open) => !open)}
+                      >
+                        {advancedOpen()
+                          ? "Hide advanced settings"
+                          : "See advanced settings"}
+                      </button>
+                      <Show when={advancedOpen()}>
+                        <div class="ext-config-advanced-fields">
+                          <p class="ext-config-advanced-note">
+                            These are advanced settings and should only be
+                            edited if you know exactly what you're doing.
+                          </p>
+                          <For each={advancedFields()}>{renderField}</For>
+                        </div>
+                      </Show>
+                    </div>
+                  </Show>
 
                   <div class="ext-config-actions">
                     <button
@@ -325,6 +344,31 @@ export function ExtensionConfigForm() {
         .ext-config-hint {
           font-size: 12px;
           color: var(--text-tertiary);
+        }
+        .ext-config-advanced {
+          display: flex;
+          flex-direction: column;
+          gap: 12px;
+        }
+        .ext-config-advanced-toggle {
+          align-self: flex-start;
+          padding: 0;
+          border: 0;
+          background: transparent;
+          color: var(--accent, #3b82f6);
+          font-size: 13px;
+          font-weight: 600;
+          cursor: pointer;
+        }
+        .ext-config-advanced-fields {
+          display: flex;
+          flex-direction: column;
+          gap: 16px;
+        }
+        .ext-config-advanced-note {
+          margin: 0;
+          font-size: 13px;
+          color: #e55;
         }
         .ext-config-actions {
           display: flex;

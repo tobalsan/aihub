@@ -28,6 +28,7 @@ describe("buildAutoFormFields", () => {
         type: "secret",
         required: true,
         secret: true,
+        advanced: false,
       },
     ]);
   });
@@ -65,6 +66,7 @@ describe("buildAutoFormFields", () => {
         type: "text",
         required: true,
         secret: false,
+        advanced: false,
       },
       {
         name: "port",
@@ -73,6 +75,7 @@ describe("buildAutoFormFields", () => {
         type: "number",
         required: false,
         secret: false,
+        advanced: false,
       },
       {
         name: "verbose",
@@ -81,6 +84,7 @@ describe("buildAutoFormFields", () => {
         type: "boolean",
         required: false,
         secret: false,
+        advanced: false,
       },
     ]);
   });
@@ -143,6 +147,23 @@ describe("buildAutoFormFields", () => {
     expect(fields[0].type).toBe("secret");
     expect(fields[0].secret).toBe(true);
     expect(fields[0].required).toBe(true);
+  });
+
+  it("marks fields listed by the extension as advanced", () => {
+    const fields = buildAutoFormFields(
+      {
+        properties: {
+          apiKey: { type: "string" },
+          timeoutMs: { type: "integer" },
+        },
+      },
+      ["apiKey"],
+      ["timeoutMs"]
+    );
+    expect(fields.map((field) => ({ name: field.name, advanced: field.advanced }))).toEqual([
+      { name: "apiKey", advanced: false },
+      { name: "timeoutMs", advanced: true },
+    ]);
   });
 });
 

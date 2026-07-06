@@ -382,6 +382,7 @@ describe("EditAgent", () => {
         enabled: false,
         configJsonSchema: null,
         requiredSecrets: [],
+        advancedConfigFields: [],
         configRoutePath: "/agents/scribe/extensions/mcp",
         tier: "bespoke-route",
       },
@@ -395,6 +396,7 @@ describe("EditAgent", () => {
         enabled: true,
         configJsonSchema: null,
         requiredSecrets: [],
+        advancedConfigFields: [],
         configRoutePath: "/agents/scribe/extensions/mcp",
         tier: "bespoke-route",
       },
@@ -427,6 +429,7 @@ describe("EditAgent", () => {
         properties: { apiKey: { type: "string" } },
       },
       requiredSecrets: ["apiKey"],
+      advancedConfigFields: [],
       configRoutePath: null,
       tier: "auto-form" as const,
     };
@@ -459,6 +462,7 @@ describe("EditAgent", () => {
       builtIn: false,
       configJsonSchema: null,
       requiredSecrets: [],
+      advancedConfigFields: [],
       configRoutePath: null,
       tier: "toggle-only" as const,
     };
@@ -490,6 +494,7 @@ describe("EditAgent", () => {
       builtIn: false,
       configJsonSchema: null,
       requiredSecrets: [],
+      advancedConfigFields: [],
       configRoutePath: "/agents/scribe/extensions/mcp",
       tier: "bespoke-route" as const,
     };
