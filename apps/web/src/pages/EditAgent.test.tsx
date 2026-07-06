@@ -198,6 +198,74 @@ describe("EditAgent", () => {
     expect(reassignForkMock).not.toHaveBeenCalled();
   });
 
+  it("refetches extensions after assigning an agent to a team", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchForksMock
+      .mockResolvedValueOnce([])
+      .mockResolvedValueOnce([fork({ sourcePoolId: "scribe", teamId: "t1" })]);
+    fetchTeamsMock.mockResolvedValue([{ id: "t1", name: "Red" } as Team]);
+    fetchAgentExtensionsMock
+      .mockResolvedValueOnce([
+        {
+          id: "crm",
+          displayName: "CRM",
+          description: "CRM tools",
+          builtIn: false,
+          enabled: false,
+          configurable: false,
+          configJsonSchema: null,
+          requiredSecrets: [],
+          advancedConfigFields: [],
+          configValues: {},
+          configRoutePath: null,
+          tier: "toggle-only",
+        },
+      ])
+      .mockResolvedValueOnce([
+        {
+          id: "crm",
+          displayName: "CRM",
+          description: "CRM tools",
+          builtIn: false,
+          enabled: false,
+          configurable: true,
+          configJsonSchema: null,
+          requiredSecrets: [],
+          advancedConfigFields: [],
+          configValues: {},
+          configRoutePath: null,
+          tier: "toggle-only",
+        },
+      ]);
+    assignPoolToTeamMock.mockResolvedValue(
+      fork({ sourcePoolId: "scribe", teamId: "t1" })
+    );
+    await mountEdit("scribe");
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".edit-agent-ext-item button.edit-agent-ext-state"
+    )!;
+    expect(toggle.disabled).toBe(true);
+
+    const select = container.querySelector<HTMLSelectElement>(
+      ".edit-agent-team-select"
+    )!;
+    select.value = "t1";
+    select.dispatchEvent(new Event("change"));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    container.querySelector<HTMLButtonElement>(".edit-agent-team-button")!.click();
+    await new Promise((resolve) => setTimeout(resolve, 0));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(fetchAgentExtensionsMock).toHaveBeenCalledTimes(2);
+    expect(
+      container.querySelector<HTMLButtonElement>(
+        ".edit-agent-ext-item button.edit-agent-ext-state"
+      )?.disabled
+    ).toBe(false);
+  });
+
   it("moves an already-forked agent to another team via reassignFork", async () => {
     setSession("admin");
     fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
@@ -402,6 +470,37 @@ describe("EditAgent", () => {
     toggle.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
     expect(patchAgentExtensionMock).not.toHaveBeenCalled();
+  });
+
+  it("shows a missing-folder tooltip when a fork row exists without an agent", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchForksMock.mockResolvedValue([
+      fork({ sourcePoolId: "scribe", teamId: "t1" }),
+    ]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: false,
+        configurable: false,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        advancedConfigFields: [],
+        configValues: {},
+        configRoutePath: null,
+        tier: "toggle-only",
+      },
+    ]);
+    await mountEdit("scribe");
+
+    const toggle = container.querySelector<HTMLButtonElement>(
+      ".edit-agent-ext-item button.edit-agent-ext-state"
+    )!;
+    expect(toggle.disabled).toBe(true);
+    expect(toggle.title).toBe("Agent folder missing");
   });
 
   it("redirects to the bespoke config route when enabling a bespoke-route extension", async () => {

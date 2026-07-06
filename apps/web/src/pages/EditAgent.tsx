@@ -32,6 +32,7 @@ function isEmoji(str: string): boolean {
 const STAFF_ROLES = ["admin", "superadmin"];
 const ASSIGN_TO_ENABLE_MESSAGE =
   "The agent must be assigned to a team to enable this extension";
+const AGENT_FOLDER_MISSING_MESSAGE = "Agent folder missing";
 
 function hasAdminRole(role: string | string[] | null | undefined): boolean {
   if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
@@ -169,13 +170,17 @@ export function EditAgent() {
     (forks() ?? []).find((entry) => entry.sourcePoolId === params.agentId)
   );
 
-  const [extensions, { mutate: mutateExtensions }] = createResource(() =>
+  const [extensions, { mutate: mutateExtensions, refetch: refetchExtensions }] =
+    createResource(() =>
     isAdmin()
       ? fetchAgentExtensions(params.agentId)
       : Promise.resolve([] as ExtensionCatalogEntry[])
   );
   const [pending, setPending] = createSignal<string | null>(null);
   const [extError, setExtError] = createSignal<string | null>(null);
+  const disabledEnableMessage = createMemo(() =>
+    fork() ? AGENT_FOLDER_MISSING_MESSAGE : ASSIGN_TO_ENABLE_MESSAGE
+  );
 
   // Route an extension enable to its config surface per the 3-tier contract
   // (catalog `tier`):
@@ -259,7 +264,10 @@ export function EditAgent() {
             poolId={params.agentId}
             teams={teams() ?? []}
             fork={fork()}
-            onChanged={() => void refetchForks()}
+            onChanged={() => {
+              void refetchForks();
+              void refetchExtensions();
+            }}
           />
         </Show>
 
@@ -334,7 +342,7 @@ export function EditAgent() {
                       }
                       title={
                         !ext.enabled && ext.configurable === false
-                          ? ASSIGN_TO_ENABLE_MESSAGE
+                          ? disabledEnableMessage()
                           : undefined
                       }
                       aria-checked={ext.enabled}
