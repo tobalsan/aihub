@@ -134,7 +134,9 @@ export function ExtensionDetails() {
           width: 64px;
           height: 64px;
           border-radius: 12px;
-          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+          background: #fff;
+          padding: 10px;
+          border: 1px solid var(--border-subtle, rgba(0, 0, 0, 0.06));
           color: var(--text-tertiary);
           display: flex;
           align-items: center;
@@ -151,7 +153,7 @@ export function ExtensionDetails() {
         .ext-details-icon-img {
           width: 100%;
           height: 100%;
-          object-fit: cover;
+          object-fit: contain;
         }
 
         .ext-details-name {
