@@ -1864,6 +1864,7 @@ export {
 const projectsExtension: Extension = {
   id: "projects",
   displayName: "Projects",
+  factory: true,
   description: "Project planning, taskboard, and subagent orchestration APIs",
   dependencies: [],
   configSchema: ProjectsExtensionConfigSchema,

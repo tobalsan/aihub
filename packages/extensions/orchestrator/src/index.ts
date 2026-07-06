@@ -323,6 +323,7 @@ function register(app: Hono) {
 export const orchestratorExtension: Extension = {
   id: "orchestrator",
   displayName: "Orchestrator",
+  factory: true,
   description: "Linear-backed issue orchestrator",
   dependencies: [],
   configSchema: OrchestratorExtensionConfigSchema,

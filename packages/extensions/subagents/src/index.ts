@@ -382,6 +382,7 @@ function registerSubagentRoutes(app: Hono): void {
 const subagentsExtension: Extension = {
   id: "subagents",
   displayName: "Subagents",
+  factory: true,
   description: "Project-agnostic runtime for CLI-backed subagent runs.",
   dependencies: [],
   configSchema: SubagentsExtensionConfigSchema,

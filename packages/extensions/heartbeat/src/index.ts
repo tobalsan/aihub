@@ -36,6 +36,7 @@ function getContext(): ExtensionContext {
 const heartbeatExtension: Extension = {
   id: "heartbeat",
   displayName: "Heartbeat",
+  factory: true,
   description: "Periodic heartbeat checks and alert runs",
   dependencies: [],
   configSchema: HeartbeatExtensionConfigSchema,

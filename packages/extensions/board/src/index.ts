@@ -632,6 +632,7 @@ function registerBoardRoutes(app: Hono): void {
 const boardExtension: Extension = {
   id: "board",
   displayName: "Board",
+  factory: true,
   description:
     "Two-pane workspace: agent chat + reactive canvas. Simplified project tracking for solo operators.",
   dependencies: ["projects", "subagents"],

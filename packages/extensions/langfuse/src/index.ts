@@ -28,6 +28,7 @@ export function resolveLangfuseEnvironment(config: {
 const langfuseExtension: Extension = {
   id: "langfuse",
   displayName: "Langfuse",
+  factory: true,
   description: "Langfuse tracing for agent runs",
   dependencies: [],
   configSchema: LangfuseExtensionConfigSchema,

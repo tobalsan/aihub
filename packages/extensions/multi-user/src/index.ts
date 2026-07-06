@@ -134,6 +134,7 @@ export type { ForkStore, AgentFork } from "./forks.js";
 export const multiUserExtension: Extension = {
   id: "multiUser",
   displayName: "Multi-User Auth",
+  factory: true,
   description: "OAuth authentication, sessions, and per-user agent access control",
   dependencies: [],
   configSchema: MultiUserConfigSchema,

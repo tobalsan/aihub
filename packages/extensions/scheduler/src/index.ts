@@ -222,6 +222,7 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
 const schedulerExtension: Extension = {
   id: "scheduler",
   displayName: "Scheduler",
+  factory: true,
   description: "Cron-like scheduled agent execution",
   dependencies: [],
   configSchema: SchedulerExtensionConfigSchema,
