@@ -37,6 +37,8 @@ vi.mock("../api/extensions", () => ({
   patchAgentExtension: patchAgentExtensionMock,
   autoFormPath: (agentId: string, extensionId: string) =>
     `/agents/${agentId}/extensions/${extensionId}/config`,
+  detailsPath: (agentId: string, extensionId: string) =>
+    `/agents/${agentId}/extensions/${extensionId}`,
 }));
 
 vi.mock("../api/teams", () => ({
@@ -48,12 +50,25 @@ vi.mock("../api/teams", () => ({
 
 vi.mock("../auth/client", () => ({ useSession: useSessionMock }));
 
+function appendChildren(el: HTMLElement, children: unknown): void {
+  if (children == null) return;
+  if (Array.isArray(children)) {
+    children.forEach((child) => appendChildren(el, child));
+    return;
+  }
+  if (children instanceof Node) {
+    el.appendChild(children);
+    return;
+  }
+  el.appendChild(document.createTextNode(String(children)));
+}
+
 vi.mock("@solidjs/router", () => ({
   A: (props: { href: string; class?: string; children: unknown }) => {
     const a = document.createElement("a");
     a.setAttribute("href", props.href);
     if (props.class) a.className = props.class;
-    a.textContent = String(props.children ?? "");
+    appendChildren(a, props.children);
     return a;
   },
   useParams: () => useParamsMock(),
@@ -274,6 +289,38 @@ describe("EditAgent", () => {
     expect(toggles[0].getAttribute("aria-label")).toBe("Enable CRM");
     expect(toggles[1].getAttribute("aria-checked")).toBe("false");
     expect(toggles[1].getAttribute("aria-label")).toBe("Enable Mailer");
+  });
+
+  it("links the card body to the extension details page", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([
+      {
+        id: "crm",
+        displayName: "CRM",
+        description: "CRM tools",
+        builtIn: false,
+        enabled: true,
+        configJsonSchema: null,
+        requiredSecrets: [],
+        tier: "toggle-only",
+      },
+    ]);
+    await mountEdit("scribe");
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      ".edit-agent-ext-open"
+    )!;
+    expect(link).not.toBeNull();
+    expect(link.getAttribute("href")).toBe("/agents/scribe/extensions/crm");
+    // The name/desc still render inside the link, and the toggle stays a
+    // separate sibling so clicking it never navigates.
+    expect(link.querySelector(".edit-agent-ext-name")?.textContent).toBe(
+      "CRM"
+    );
+    expect(link.contains(container.querySelector(".edit-agent-ext-state"))).toBe(
+      false
+    );
   });
 
   it("toggles an extension and persists via patchAgentExtension", async () => {

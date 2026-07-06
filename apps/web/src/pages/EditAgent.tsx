@@ -10,6 +10,7 @@ import { A, useNavigate, useParams } from "@solidjs/router";
 import { fetchPool } from "../api";
 import {
   autoFormPath,
+  detailsPath,
   fetchAgentExtensions,
   patchAgentExtension,
   type ExtensionCatalogEntry,
@@ -281,39 +282,44 @@ export function EditAgent() {
               <For each={extensions() ?? []}>
                 {(ext) => (
                   <li class="edit-agent-ext-item">
-                    <div class="edit-agent-ext-icon">
-                      <Show
-                        when={ext.iconDataUri}
-                        fallback={
-                          <svg
-                            viewBox="0 0 24 24"
-                            fill="none"
-                            stroke="currentColor"
-                            stroke-width="1.6"
-                            aria-hidden="true"
-                          >
-                            <path
-                              d="M9 3.5a1.5 1.5 0 0 1 3 0V4h1.5A1.5 1.5 0 0 1 15 5.5V7h-1v2a2 2 0 1 1 0 4v2h1v1.5a1.5 1.5 0 0 1-1.5 1.5H13v-1a2 2 0 1 0-4 0v1H7.5A1.5 1.5 0 0 1 6 16.5V15h1v-2a2 2 0 1 0 0-4V7h1V5.5A1.5 1.5 0 0 1 9.5 4H9v-.5Z"
-                              stroke-linejoin="round"
-                            />
-                          </svg>
-                        }
-                      >
-                        {(src) => (
-                          <img src={src()} alt="" class="edit-agent-ext-icon-img" />
-                        )}
-                      </Show>
-                    </div>
-                    <div class="edit-agent-ext-body">
-                      <div class="edit-agent-ext-main">
-                        <span class="edit-agent-ext-name">
-                          {ext.displayName}
-                        </span>
-                        <span class="edit-agent-ext-desc">
-                          {ext.description}
-                        </span>
+                    <A
+                      href={detailsPath(params.agentId, ext.id)}
+                      class="edit-agent-ext-open"
+                    >
+                      <div class="edit-agent-ext-icon">
+                        <Show
+                          when={ext.iconDataUri}
+                          fallback={
+                            <svg
+                              viewBox="0 0 24 24"
+                              fill="none"
+                              stroke="currentColor"
+                              stroke-width="1.6"
+                              aria-hidden="true"
+                            >
+                              <path
+                                d="M9 3.5a1.5 1.5 0 0 1 3 0V4h1.5A1.5 1.5 0 0 1 15 5.5V7h-1v2a2 2 0 1 1 0 4v2h1v1.5a1.5 1.5 0 0 1-1.5 1.5H13v-1a2 2 0 1 0-4 0v1H7.5A1.5 1.5 0 0 1 6 16.5V15h1v-2a2 2 0 1 0 0-4V7h1V5.5A1.5 1.5 0 0 1 9.5 4H9v-.5Z"
+                                stroke-linejoin="round"
+                              />
+                            </svg>
+                          }
+                        >
+                          {(src) => (
+                            <img src={src()} alt="" class="edit-agent-ext-icon-img" />
+                          )}
+                        </Show>
                       </div>
-                    </div>
+                      <div class="edit-agent-ext-body">
+                        <div class="edit-agent-ext-main">
+                          <span class="edit-agent-ext-name">
+                            {ext.displayName}
+                          </span>
+                          <span class="edit-agent-ext-desc">
+                            {ext.description}
+                          </span>
+                        </div>
+                      </div>
+                    </A>
                     <button
                       type="button"
                       role="switch"
@@ -512,6 +518,25 @@ export function EditAgent() {
           border-radius: 10px;
           border: 1px solid var(--border-default);
           background: var(--bg-raised);
+        }
+
+        .edit-agent-ext-open {
+          display: flex;
+          align-items: flex-start;
+          gap: 10px;
+          flex: 1;
+          min-width: 0;
+          margin: -4px;
+          padding: 4px;
+          border-radius: 8px;
+          color: inherit;
+          text-decoration: none;
+          cursor: pointer;
+          transition: background-color 0.15s ease;
+        }
+
+        .edit-agent-ext-open:hover {
+          background: var(--bg-hover, rgba(120, 120, 120, 0.08));
         }
 
         .edit-agent-ext-icon {

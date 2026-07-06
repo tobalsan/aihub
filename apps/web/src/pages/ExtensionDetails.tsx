@@ -1,0 +1,181 @@
+import { createEffect, createMemo, createResource, Show } from "solid-js";
+import { A, useNavigate, useParams } from "@solidjs/router";
+import { fetchAgentExtensions } from "../api/extensions";
+import { useSession } from "../auth/client";
+
+const STAFF_ROLES = ["admin", "superadmin"];
+
+function hasAdminRole(role: string | string[] | null | undefined): boolean {
+  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
+  return typeof role === "string" && STAFF_ROLES.includes(role);
+}
+
+/**
+ * Read-only details page for one extension on one agent, reached by clicking
+ * an extension card on the Edit-Agent hub (`/agents/:agentId/extensions/:extensionId`,
+ * distinct from the auto-form's `.../config` route). Settings are placeholder
+ * only until an extension adopts the configuration contract.
+ */
+export function ExtensionDetails() {
+  const params = useParams<{ agentId: string; extensionId: string }>();
+  const navigate = useNavigate();
+  const session = useSession();
+  const isAdmin = createMemo(() =>
+    hasAdminRole(
+      (session().data?.user as { role?: string | string[] } | undefined)?.role
+    )
+  );
+
+  // Admin-gated page: bounce non-admins home once the session has resolved.
+  createEffect(() => {
+    if (session().isPending) return;
+    if (!isAdmin()) void navigate("/", { replace: true });
+  });
+
+  const [extensions] = createResource(() =>
+    isAdmin() ? fetchAgentExtensions(params.agentId) : Promise.resolve([])
+  );
+  const entry = createMemo(() =>
+    (extensions() ?? []).find((candidate) => candidate.id === params.extensionId)
+  );
+
+  const backHref = createMemo(
+    () => `/agents/${encodeURIComponent(params.agentId)}/edit`
+  );
+
+  return (
+    <Show when={isAdmin()}>
+      <div class="ext-details">
+        <A href={backHref()} class="ext-details-back">
+          ← Back to agent
+        </A>
+
+        <Show when={extensions.loading}>
+          <div class="ext-details-status">Loading extension…</div>
+        </Show>
+        <Show when={extensions.error}>
+          <div class="ext-details-status ext-details-error">
+            Failed to load extension.
+          </div>
+        </Show>
+        <Show when={!extensions.loading && !extensions.error && !entry()}>
+          <div class="ext-details-status ext-details-error">
+            Extension not found.
+          </div>
+        </Show>
+
+        <Show when={entry()}>
+          {(ext) => (
+            <>
+              <div class="ext-details-icon">
+                <Show
+                  when={ext().iconDataUri}
+                  fallback={
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      stroke-width="1.6"
+                      aria-hidden="true"
+                    >
+                      <path
+                        d="M9 3.5a1.5 1.5 0 0 1 3 0V4h1.5A1.5 1.5 0 0 1 15 5.5V7h-1v2a2 2 0 1 1 0 4v2h1v1.5a1.5 1.5 0 0 1-1.5 1.5H13v-1a2 2 0 1 0-4 0v1H7.5A1.5 1.5 0 0 1 6 16.5V15h1v-2a2 2 0 1 0 0-4V7h1V5.5A1.5 1.5 0 0 1 9.5 4H9v-.5Z"
+                        stroke-linejoin="round"
+                      />
+                    </svg>
+                  }
+                >
+                  {(src) => (
+                    <img src={src()} alt="" class="ext-details-icon-img" />
+                  )}
+                </Show>
+              </div>
+              <h1 class="ext-details-name">{ext().displayName}</h1>
+              <p class="ext-details-desc">{ext().description}</p>
+
+              <div class="ext-details-settings">
+                Settings for this extension aren't available yet — this
+                extension hasn't adopted the configuration contract.
+              </div>
+            </>
+          )}
+        </Show>
+      </div>
+
+      <style>{`
+        .ext-details {
+          padding: 24px;
+          max-width: 520px;
+        }
+
+        .ext-details-back {
+          display: inline-block;
+          margin-bottom: 20px;
+          font-size: 14px;
+          color: var(--text-secondary);
+          text-decoration: none;
+        }
+
+        .ext-details-back:hover {
+          color: var(--text-primary);
+        }
+
+        .ext-details-status {
+          padding: 12px 0;
+          font-size: 14px;
+          color: var(--text-tertiary);
+        }
+
+        .ext-details-error {
+          color: #e55;
+        }
+
+        .ext-details-icon {
+          width: 64px;
+          height: 64px;
+          border-radius: 12px;
+          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+          color: var(--text-tertiary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+          margin-bottom: 16px;
+        }
+
+        .ext-details-icon svg {
+          width: 32px;
+          height: 32px;
+        }
+
+        .ext-details-icon-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .ext-details-name {
+          margin: 0;
+          font-size: 22px;
+          font-weight: 700;
+          color: var(--text-primary);
+        }
+
+        .ext-details-desc {
+          margin: 6px 0 20px;
+          font-size: 14px;
+          color: var(--text-tertiary);
+        }
+
+        .ext-details-settings {
+          padding: 16px;
+          border-radius: 8px;
+          border: 1px dashed var(--border-default);
+          background: var(--bg-sunken, rgba(120, 120, 120, 0.06));
+          color: var(--text-tertiary);
+          font-size: 13px;
+        }
+      `}</style>
+    </Show>
+  );
+}

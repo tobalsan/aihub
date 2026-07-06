@@ -35,6 +35,17 @@ export function autoFormPath(agentId: string, extensionId: string): string {
   )}/config`;
 }
 
+/**
+ * Client route to an extension's read-only details page for one agent.
+ * Distinct from `autoFormPath` (no `/config` suffix) — this is where clicking
+ * an extension card on the Edit-Agent hub navigates.
+ */
+export function detailsPath(agentId: string, extensionId: string): string {
+  return `/agents/${encodeURIComponent(agentId)}/extensions/${encodeURIComponent(
+    extensionId
+  )}`;
+}
+
 // Admin-only: the full extension catalog for one agent (built-in + runtime
 // scanned), each with its per-agent enabled state and config metadata.
 export async function fetchAgentExtensions(

@@ -21,6 +21,7 @@ import { ConsoleShell } from "./components/ConsoleShell";
 import { AgentCatalog } from "./pages/AgentCatalog";
 import { EditAgent } from "./pages/EditAgent";
 import { ExtensionConfigForm } from "./pages/ExtensionConfigForm";
+import { ExtensionDetails } from "./pages/ExtensionDetails";
 import { Teams } from "./pages/Teams";
 import {
   ImpersonationBanner,
@@ -320,6 +321,14 @@ function ExtensionConfigRouteShell() {
   );
 }
 
+function ExtensionDetailsRouteShell() {
+  return (
+    <ConsoleShell>
+      <ExtensionDetails />
+    </ConsoleShell>
+  );
+}
+
 
 function ChatRouteShell() {
   return (
@@ -399,6 +408,14 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <ExtensionConfigRouteShell />
+          </GuardedRoute>
+        )}
+      />
+      <Route
+        path="/agents/:agentId/extensions/:extensionId"
+        component={() => (
+          <GuardedRoute>
+            <ExtensionDetailsRouteShell />
           </GuardedRoute>
         )}
       />
