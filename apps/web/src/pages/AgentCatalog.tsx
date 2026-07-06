@@ -125,7 +125,10 @@ export function AgentCatalog() {
                       when={entry?.action === "chat"}
                       fallback={
                         <Show
-                          when={entry?.action === "none"}
+                          when={
+                            entry?.action === "none" ||
+                            entry?.action === "assign_to_team"
+                          }
                           fallback={null}
                         >
                           <span class="catalog-unavailable">

@@ -151,6 +151,18 @@ describe("AgentCatalog action states", () => {
     expect(container.textContent).not.toContain("Move to team");
   });
 
+  it("shows the unassigned message for an admin's assign_to_team card", async () => {
+    setSession("admin");
+    fetchPoolMock.mockResolvedValue([agent("fresh")]);
+    fetchPoolActionsMock.mockResolvedValue([entry("fresh", "assign_to_team")]);
+    await mountCatalog();
+
+    expect(container.querySelector(".catalog-unavailable")).not.toBeNull();
+    expect(container.textContent).toContain(
+      "This agent has not been assigned to a team."
+    );
+  });
+
   it("shows an admin an edit icon linking to the agent's edit route", async () => {
     setSession("admin");
     fetchPoolMock.mockResolvedValue([agent("scribe")]);
