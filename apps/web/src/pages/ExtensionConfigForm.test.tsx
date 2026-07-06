@@ -60,6 +60,7 @@ function exaEntry(
     },
     requiredSecrets: ["apiKey"],
     advancedConfigFields: [],
+    configValues: {},
     configRoutePath: null,
     tier: "auto-form",
     ...partial,
@@ -141,6 +142,41 @@ describe("ExtensionConfigForm", () => {
     expect(container.querySelector(".ext-config-saved")?.textContent).toBe(
       "Saved ✓"
     );
+  });
+
+  it("prefills existing config values and redacts existing secrets", async () => {
+    setSession("admin");
+    fetchAgentExtensionMock.mockResolvedValue(
+      exaEntry({
+        configJsonSchema: {
+          type: "object",
+          properties: {
+            apiKey: { type: "string" },
+            baseUrl: { type: "string" },
+          },
+          required: ["apiKey"],
+        },
+        configValues: { apiKey: "********", baseUrl: "https://api.exa.ai" },
+      })
+    );
+    patchAgentExtensionMock.mockResolvedValue([exaEntry({ enabled: true })]);
+    await mount("scribe", "exa");
+
+    expect(container.querySelector<HTMLInputElement>("#ext-field-apiKey")?.value).toBe(
+      "********"
+    );
+    expect(container.querySelector<HTMLInputElement>("#ext-field-baseUrl")?.value).toBe(
+      "https://api.exa.ai"
+    );
+
+    container.querySelector("form")!.dispatchEvent(new Event("submit", { bubbles: true, cancelable: true }));
+    await new Promise((resolve) => setTimeout(resolve, 0));
+
+    expect(patchAgentExtensionMock).toHaveBeenCalledWith("scribe", "exa", {
+      enabled: true,
+      config: { baseUrl: "https://api.exa.ai" },
+      secrets: {},
+    });
   });
 
   it("blocks submit and warns when a required field is blank", async () => {

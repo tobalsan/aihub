@@ -14,6 +14,7 @@ export type ExtensionCatalogEntry = {
   configJsonSchema: Record<string, unknown> | null;
   requiredSecrets: string[];
   advancedConfigFields: string[];
+  configValues: Record<string, unknown>;
   /**
    * Agent-resolved bespoke config route (`:agentId` substituted) when the
    * extension self-registers one, else null. The hub redirects here on enable

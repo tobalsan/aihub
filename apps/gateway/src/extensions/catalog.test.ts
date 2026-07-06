@@ -247,6 +247,28 @@ describe("buildExtensionCatalog", () => {
     expect(entry?.tier).toBe("auto-form");
   });
 
+  it("surfaces current config values with secrets redacted", async () => {
+    await writeExternalExtension(root, "configured", {
+      configJsonSchema:
+        '{ type: "object", properties: { apiKey: { type: "string" }, region: { type: "string" } } }',
+      requiredSecrets: '["apiKey"]',
+    });
+    const agent = makeAgent({
+      configured: {
+        enabled: true,
+        apiKey: "$env:CONFIGURED_API_KEY",
+        region: "eu",
+      },
+    });
+    const catalog = await buildExtensionCatalog(configWith(agent, root), agent);
+    const entry = catalog.find((e) => e.id === "configured");
+
+    expect(entry?.configValues).toEqual({
+      apiKey: "********",
+      region: "eu",
+    });
+  });
+
   it("produces no external entries when the scan dir does not exist (no ghosts)", async () => {
     const missing = path.join(root, "does-not-exist");
     const agent = makeAgent();

@@ -1,6 +1,7 @@
 import { describe, expect, it } from "vitest";
 import {
   buildAutoFormFields,
+  REDACTED_SECRET_VALUE,
   splitAutoFormValues,
 } from "./auto-form-schema";
 
@@ -200,6 +201,13 @@ describe("splitAutoFormValues", () => {
     });
     expect(secrets).toEqual({});
     expect(config).toEqual({ verbose: false });
+  });
+
+  it("omits unchanged redacted secrets", () => {
+    const { secrets } = splitAutoFormValues(fields, {
+      apiKey: REDACTED_SECRET_VALUE,
+    });
+    expect(secrets).toEqual({});
   });
 
   it("drops non-numeric number input", () => {

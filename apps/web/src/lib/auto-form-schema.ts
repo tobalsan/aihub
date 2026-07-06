@@ -4,6 +4,8 @@
 
 export type AutoFormFieldType = "text" | "number" | "boolean" | "secret";
 
+export const REDACTED_SECRET_VALUE = "********";
+
 export type AutoFormField = {
   /** Property name — the config/secret key written back to agent.yaml/.env. */
   name: string;
@@ -141,7 +143,9 @@ export function splitAutoFormValues(
     const value = values[field.name];
     if (field.secret) {
       const text = typeof value === "string" ? value : "";
-      if (text.length > 0) secrets[field.name] = text;
+      if (text.length > 0 && text !== REDACTED_SECRET_VALUE) {
+        secrets[field.name] = text;
+      }
       continue;
     }
     if (field.type === "boolean") {

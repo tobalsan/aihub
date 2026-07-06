@@ -13,6 +13,7 @@ import {
 } from "../api/extensions";
 import {
   buildAutoFormFields,
+  REDACTED_SECRET_VALUE,
   splitAutoFormValues,
   type AutoFormField,
   type AutoFormValues,
@@ -83,6 +84,29 @@ export function ExtensionConfigForm() {
     setValues((prev) => ({ ...prev, [name]: value }));
     setSaved(false);
   };
+
+  createEffect(() => {
+    const current = entry();
+    if (!current) return;
+    const next: AutoFormValues = {};
+    for (const field of fields()) {
+      const value = current.configValues[field.name];
+      if (field.secret) {
+        if (value !== undefined && value !== null) {
+          next[field.name] = REDACTED_SECRET_VALUE;
+        }
+        continue;
+      }
+      if (
+        typeof value === "string" ||
+        typeof value === "number" ||
+        typeof value === "boolean"
+      ) {
+        next[field.name] = value;
+      }
+    }
+    setValues(next);
+  });
 
   const backHref = createMemo(
     () => `/agents/${encodeURIComponent(params.agentId)}/edit`

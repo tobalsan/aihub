@@ -104,6 +104,8 @@ export type ExtensionCatalogEntry = {
   requiredSecrets: string[];
   /** Field names a UI should collapse under advanced settings. */
   advancedConfigFields: string[];
+  /** Existing per-agent config values, with secret fields redacted. */
+  configValues: Record<string, unknown>;
   /**
    * Agent-resolved bespoke config route (`:agentId` substituted) when the
    * extension self-registers one, else null. The hub redirects here on enable
@@ -160,6 +162,23 @@ function isEnabledForAgent(agent: AgentConfig, extensionId: string): boolean {
   return (value as { enabled?: unknown }).enabled !== false;
 }
 
+function configValuesForAgent(
+  agent: AgentConfig,
+  extension: Extension
+): Record<string, unknown> {
+  const extensions = agent.extensions as Record<string, unknown> | undefined;
+  const value = extensions?.[extension.id];
+  if (typeof value !== "object" || value === null || Array.isArray(value)) {
+    return {};
+  }
+  const config = { ...(value as Record<string, unknown>) };
+  delete config.enabled;
+  for (const field of extension.requiredSecrets ?? []) {
+    if (field in config) config[field] = "********";
+  }
+  return config;
+}
+
 function toCatalogEntry(
   extension: Extension,
   builtIn: boolean,
@@ -178,6 +197,7 @@ function toCatalogEntry(
     configJsonSchema,
     requiredSecrets: extension.requiredSecrets ?? [],
     advancedConfigFields: extension.advancedConfigFields ?? [],
+    configValues: configValuesForAgent(agent, extension),
     configRoutePath,
     tier: resolveTier(configRoutePath, configJsonSchema),
     iconDataUri: resolveIconDataUri(dir),

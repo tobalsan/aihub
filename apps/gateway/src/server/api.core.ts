@@ -36,6 +36,7 @@ import {
   isStreaming,
 } from "../agents/index.js";
 import type { HistoryViewMode } from "@aihub/shared";
+import type { AgentConfig, GatewayConfig } from "@aihub/shared";
 import {
   clearSessionEntry,
   getSessionEntry,
@@ -123,6 +124,35 @@ async function canViewAgentPrivateMeta(c: Context): Promise<boolean> {
   if (!isExtensionLoaded("multiUser")) return true;
   const authContext = await getRequestAuthContext(c);
   return hasAdminRole(authContext?.user.role);
+}
+
+function findExtensionCatalogAgent(
+  config: GatewayConfig,
+  agentId: string
+): AgentConfig | undefined {
+  const directAgent = config.agents.find((candidate) => candidate.id === agentId);
+  if (directAgent) return directAgent;
+
+  const forkAgent = config.agents.find(
+    (candidate) => candidate.id === `fork__${agentId}`
+  );
+  if (forkAgent) return forkAgent;
+
+  const poolAgent = config.pool?.find((candidate) => candidate.id === agentId);
+  if (!poolAgent) return undefined;
+  const agentWithoutTemplateExtensions = { ...poolAgent };
+  delete (agentWithoutTemplateExtensions as { extensions?: unknown }).extensions;
+  return agentWithoutTemplateExtensions;
+}
+
+function findWritableExtensionAgent(
+  config: GatewayConfig,
+  agentId: string
+): AgentConfig | undefined {
+  return (
+    config.agents.find((candidate) => candidate.id === agentId) ??
+    config.agents.find((candidate) => candidate.id === `fork__${agentId}`)
+  );
 }
 
 async function getVisibleAgents(c: Context) {
@@ -273,13 +303,17 @@ function parseSessionFileName(
 }
 
 function isSafeSessionId(sessionId: string): boolean {
+  const hasControlCharacter = [...sessionId].some((char) => {
+    const code = char.charCodeAt(0);
+    return code <= 0x1f || code === 0x7f;
+  });
   return (
     sessionId.length > 0 &&
     sessionId.length <= 200 &&
     !sessionId.includes("/") &&
     !sessionId.includes("\\") &&
     !/(^|[._:-])\.\.($|[._:-])/.test(sessionId) &&
-    !/[\u0000-\u001f\u007f]/.test(sessionId)
+    !hasControlCharacter
   );
 }
 
@@ -561,9 +595,7 @@ api.get("/agents/:id/extensions", async (c) => {
   }
   const agentId = c.req.param("id");
   const config = loadConfig();
-  const agent =
-    config.pool?.find((candidate) => candidate.id === agentId) ??
-    config.agents.find((candidate) => candidate.id === agentId);
+  const agent = findExtensionCatalogAgent(config, agentId);
   if (!agent) {
     return c.json({ error: "Agent not found" }, 404);
   }
@@ -587,9 +619,7 @@ api.patch("/agents/:id/extensions/:extensionId", async (c) => {
   const agentId = c.req.param("id");
   const extensionId = c.req.param("extensionId");
   const config = loadConfig();
-  const agent =
-    config.pool?.find((candidate) => candidate.id === agentId) ??
-    config.agents.find((candidate) => candidate.id === agentId);
+  const agent = findWritableExtensionAgent(config, agentId);
   if (!agent) {
     return c.json({ error: "Agent not found" }, 404);
   }
@@ -674,9 +704,7 @@ api.patch("/agents/:id/extensions/:extensionId", async (c) => {
   // Invalidate the config cache so the next run (and the next catalog read)
   // observes the change rather than the stale in-memory config.
   const reloaded = reloadConfig();
-  const updatedAgent =
-    reloaded.pool?.find((candidate) => candidate.id === agentId) ??
-    reloaded.agents.find((candidate) => candidate.id === agentId);
+  const updatedAgent = findWritableExtensionAgent(reloaded, agentId);
   const extensions = updatedAgent
     ? await buildExtensionCatalog(reloaded, updatedAgent)
     : [];

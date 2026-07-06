@@ -527,7 +527,13 @@ describe("api core session resolution", () => {
     it("resolves the agent from the pool when not an active agent", async () => {
       loadConfigValue = {
         agents: [],
-        pool: [{ id: "poolie", name: "Poolie" }],
+        pool: [
+          {
+            id: "poolie",
+            name: "Poolie",
+            extensions: { acme: { enabled: true, region: "pool" } },
+          },
+        ],
       };
       buildExtensionCatalog.mockResolvedValue(catalog);
       const { api } = await import("./api.core.js");
@@ -539,7 +545,41 @@ describe("api core session resolution", () => {
       expect(response.status).toBe(200);
       expect(buildExtensionCatalog).toHaveBeenCalledWith(
         loadConfigValue,
-        expect.objectContaining({ id: "poolie" })
+        expect.not.objectContaining({ extensions: expect.anything() })
+      );
+    });
+
+    it("uses an existing fork config instead of pool template config", async () => {
+      loadConfigValue = {
+        agents: [
+          {
+            id: "fork__poolie",
+            name: "Fork",
+            extensions: { acme: { enabled: false, region: "fork" } },
+          },
+        ],
+        pool: [
+          {
+            id: "poolie",
+            name: "Poolie",
+            extensions: { acme: { enabled: true, region: "pool" } },
+          },
+        ],
+      };
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/poolie/extensions")
+      );
+
+      expect(response.status).toBe(200);
+      expect(buildExtensionCatalog).toHaveBeenCalledWith(
+        loadConfigValue,
+        expect.objectContaining({
+          id: "fork__poolie",
+          extensions: { acme: { enabled: false, region: "fork" } },
+        })
       );
     });
 
@@ -677,9 +717,30 @@ describe("api core session resolution", () => {
       );
     });
 
-    it("resolves the agent from the pool", async () => {
+    it("rejects writes when no fork exists for a pool agent", async () => {
       loadConfigValue = {
         agents: [],
+        pool: [{ id: "poolie", name: "Poolie", workspace: "/ws/poolie" }],
+      };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/poolie/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: false }),
+        })
+      );
+
+      expect(response.status).toBe(404);
+      expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
+    });
+
+    it("writes to an existing fork instead of the pool template", async () => {
+      loadConfigValue = {
+        agents: [
+          { id: "fork__poolie", name: "Fork", workspace: "/ws/fork-poolie" },
+        ],
         pool: [{ id: "poolie", name: "Poolie", workspace: "/ws/poolie" }],
       };
       updateAgentExtensionConfig.mockResolvedValue({});
@@ -696,7 +757,7 @@ describe("api core session resolution", () => {
 
       expect(response.status).toBe(200);
       expect(updateAgentExtensionConfig).toHaveBeenCalledWith(
-        "/ws/poolie",
+        "/ws/fork-poolie",
         "acme",
         { enabled: false }
       );
