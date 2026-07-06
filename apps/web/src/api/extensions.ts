@@ -20,6 +20,8 @@ export type ExtensionCatalogEntry = {
    */
   configRoutePath: string | null;
   tier: ExtensionConfigTier;
+  /** Optional data: URI for the extension's icon, when the catalog provides one. */
+  iconDataUri?: string;
 };
 
 /**

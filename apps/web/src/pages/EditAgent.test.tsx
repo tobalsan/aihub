@@ -264,19 +264,16 @@ describe("EditAgent", () => {
     ).map((el) => el.textContent);
     expect(names).toEqual(["CRM", "Mailer"]);
 
-    const states = Array.from(
-      container.querySelectorAll(".edit-agent-ext-state")
-    ).map((el) => el.textContent);
-    expect(states).toEqual(["On", "Off"]);
-
-    // The state is a clickable toggle button reflecting enabled via
-    // aria-pressed.
+    // The state is a clickable switch reflecting enabled via aria-checked.
     const toggles = container.querySelectorAll<HTMLButtonElement>(
       ".edit-agent-ext-item button.edit-agent-ext-state"
     );
     expect(toggles.length).toBe(2);
-    expect(toggles[0].getAttribute("aria-pressed")).toBe("true");
-    expect(toggles[1].getAttribute("aria-pressed")).toBe("false");
+    expect(toggles[0].getAttribute("role")).toBe("switch");
+    expect(toggles[0].getAttribute("aria-checked")).toBe("true");
+    expect(toggles[0].getAttribute("aria-label")).toBe("Enable CRM");
+    expect(toggles[1].getAttribute("aria-checked")).toBe("false");
+    expect(toggles[1].getAttribute("aria-label")).toBe("Enable Mailer");
   });
 
   it("toggles an extension and persists via patchAgentExtension", async () => {
@@ -312,7 +309,7 @@ describe("EditAgent", () => {
     const toggle = container.querySelector<HTMLButtonElement>(
       ".edit-agent-ext-item button.edit-agent-ext-state"
     )!;
-    expect(toggle.textContent).toBe("Off");
+    expect(toggle.getAttribute("aria-checked")).toBe("false");
     toggle.click();
     await new Promise((resolve) => setTimeout(resolve, 0));
 
@@ -323,8 +320,7 @@ describe("EditAgent", () => {
     const after = container.querySelector<HTMLButtonElement>(
       ".edit-agent-ext-item button.edit-agent-ext-state"
     )!;
-    expect(after.textContent).toBe("On");
-    expect(after.getAttribute("aria-pressed")).toBe("true");
+    expect(after.getAttribute("aria-checked")).toBe("true");
   });
 
   it("redirects to the bespoke config route when enabling a bespoke-route extension", async () => {
@@ -496,11 +492,12 @@ describe("EditAgent", () => {
     expect(container.querySelector(".edit-agent-ext-error")?.textContent).toBe(
       "nope"
     );
-    // State stays Off since the write failed.
+    // State stays off since the write failed.
     expect(
-      container.querySelector(".edit-agent-ext-item button.edit-agent-ext-state")
-        ?.textContent
-    ).toBe("Off");
+      container
+        .querySelector(".edit-agent-ext-item button.edit-agent-ext-state")
+        ?.getAttribute("aria-checked")
+    ).toBe("false");
   });
 
   it("does not fetch extensions for a non-admin", async () => {

@@ -91,23 +91,33 @@ function TeamAssignment(props: {
           </div>
         )}
       </Show>
-      <select
-        class="edit-agent-team-select"
-        value={selected()}
-        disabled={busy() || props.teams.length === 0}
-        onChange={(event) => setSelected(event.currentTarget.value)}
-      >
-        <option value="">
-          {props.fork ? "Move to team…" : "Assign to team…"}
-        </option>
-        <For each={props.teams}>
-          {(team) => (
-            <Show when={team.id !== props.fork?.teamId}>
-              <option value={team.id}>{team.name}</option>
-            </Show>
-          )}
-        </For>
-      </select>
+      <div class="edit-agent-team-row">
+        <select
+          class="edit-agent-team-select"
+          value={selected()}
+          disabled={busy() || props.teams.length === 0}
+          onChange={(event) => setSelected(event.currentTarget.value)}
+        >
+          <option value="">
+            {props.fork ? "Move to team…" : "Assign to team…"}
+          </option>
+          <For each={props.teams}>
+            {(team) => (
+              <Show when={team.id !== props.fork?.teamId}>
+                <option value={team.id}>{team.name}</option>
+              </Show>
+            )}
+          </For>
+        </select>
+        <button
+          type="button"
+          class="edit-agent-team-button"
+          disabled={busy() || !selected()}
+          onClick={() => void handleAssign()}
+        >
+          {props.fork ? "Move" : "Assign"}
+        </button>
+      </div>
       {/* Reassigning an already-forked agent moves its single fork away from
           the previous team — warn before the move. */}
       <Show when={props.fork && props.fork.teamId && selected()}>
@@ -116,14 +126,6 @@ function TeamAssignment(props: {
           <strong>{currentTeam()?.name ?? "its current team"}</strong>.
         </p>
       </Show>
-      <button
-        type="button"
-        class="edit-agent-team-button"
-        disabled={busy() || !selected()}
-        onClick={() => void handleAssign()}
-      >
-        {props.fork ? "Move" : "Assign"}
-      </button>
       <Show when={error()}>
         {(message) => <p class="edit-agent-team-error">{message()}</p>}
       </Show>
@@ -279,30 +281,53 @@ export function EditAgent() {
               <For each={extensions() ?? []}>
                 {(ext) => (
                   <li class="edit-agent-ext-item">
-                    <div class="edit-agent-ext-main">
-                      <span class="edit-agent-ext-name">
-                        {ext.displayName}
-                      </span>
-                      <span class="edit-agent-ext-desc">
-                        {ext.description}
-                      </span>
+                    <div class="edit-agent-ext-icon">
+                      <Show
+                        when={ext.iconDataUri}
+                        fallback={
+                          <svg
+                            viewBox="0 0 24 24"
+                            fill="none"
+                            stroke="currentColor"
+                            stroke-width="1.6"
+                            aria-hidden="true"
+                          >
+                            <path
+                              d="M9 3.5a1.5 1.5 0 0 1 3 0V4h1.5A1.5 1.5 0 0 1 15 5.5V7h-1v2a2 2 0 1 1 0 4v2h1v1.5a1.5 1.5 0 0 1-1.5 1.5H13v-1a2 2 0 1 0-4 0v1H7.5A1.5 1.5 0 0 1 6 16.5V15h1v-2a2 2 0 1 0 0-4V7h1V5.5A1.5 1.5 0 0 1 9.5 4H9v-.5Z"
+                              stroke-linejoin="round"
+                            />
+                          </svg>
+                        }
+                      >
+                        {(src) => (
+                          <img src={src()} alt="" class="edit-agent-ext-icon-img" />
+                        )}
+                      </Show>
+                    </div>
+                    <div class="edit-agent-ext-body">
+                      <div class="edit-agent-ext-main">
+                        <span class="edit-agent-ext-name">
+                          {ext.displayName}
+                        </span>
+                        <span class="edit-agent-ext-desc">
+                          {ext.description}
+                        </span>
+                      </div>
                     </div>
                     <button
                       type="button"
+                      role="switch"
                       class="edit-agent-ext-state"
-                      classList={{
-                        "is-on": ext.enabled,
-                        "is-off": !ext.enabled,
-                      }}
+                      classList={{ "is-on": ext.enabled }}
                       disabled={pending() !== null}
-                      aria-pressed={ext.enabled}
+                      aria-checked={ext.enabled}
+                      aria-label={`Enable ${ext.displayName}`}
                       onClick={() => void toggleExtension(ext)}
                     >
-                      {pending() === ext.id
-                        ? "…"
-                        : ext.enabled
-                          ? "On"
-                          : "Off"}
+                      <span
+                        class="edit-agent-ext-state-knob"
+                        aria-hidden="true"
+                      />
                     </button>
                   </li>
                 )}
@@ -409,8 +434,16 @@ export function EditAgent() {
           color: var(--text-tertiary);
         }
 
+        .edit-agent-team-row {
+          display: flex;
+          align-items: center;
+          gap: 8px;
+          flex-wrap: wrap;
+        }
+
         .edit-agent-team-select {
-          width: 100%;
+          flex: 1 1 200px;
+          min-width: 0;
           padding: 8px 10px;
           border-radius: 6px;
           border: 1px solid var(--border-default);
@@ -426,6 +459,7 @@ export function EditAgent() {
         }
 
         .edit-agent-team-button {
+          flex-shrink: 0;
           padding: 8px 16px;
           border-radius: 6px;
           border: none;
@@ -434,7 +468,6 @@ export function EditAgent() {
           font-size: 14px;
           font-weight: 500;
           cursor: pointer;
-          align-self: flex-start;
         }
 
         .edit-agent-team-button:disabled {
@@ -450,7 +483,7 @@ export function EditAgent() {
 
         .edit-agent-extensions {
           margin-top: 28px;
-          max-width: 520px;
+          max-width: 900px;
           display: flex;
           flex-direction: column;
           gap: 8px;
@@ -465,20 +498,52 @@ export function EditAgent() {
           list-style: none;
           margin: 0;
           padding: 0;
-          display: flex;
-          flex-direction: column;
-          gap: 6px;
+          display: grid;
+          grid-template-columns: repeat(auto-fill, minmax(260px, 1fr));
+          gap: 12px;
         }
 
         .edit-agent-ext-item {
           display: flex;
-          align-items: center;
-          justify-content: space-between;
-          gap: 12px;
-          padding: 10px 12px;
-          border-radius: 8px;
+          align-items: flex-start;
+          gap: 10px;
+          padding: 14px;
+          min-height: 120px;
+          border-radius: 10px;
           border: 1px solid var(--border-default);
           background: var(--bg-raised);
+        }
+
+        .edit-agent-ext-icon {
+          flex-shrink: 0;
+          width: 44px;
+          height: 44px;
+          border-radius: 8px;
+          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+          color: var(--text-tertiary);
+          display: flex;
+          align-items: center;
+          justify-content: center;
+          overflow: hidden;
+        }
+
+        .edit-agent-ext-icon svg {
+          width: 24px;
+          height: 24px;
+        }
+
+        .edit-agent-ext-icon-img {
+          width: 100%;
+          height: 100%;
+          object-fit: cover;
+        }
+
+        .edit-agent-ext-body {
+          display: flex;
+          flex-direction: column;
+          gap: 8px;
+          min-width: 0;
+          flex: 1;
         }
 
         .edit-agent-ext-main {
@@ -498,19 +563,23 @@ export function EditAgent() {
           font-size: 12px;
           color: var(--text-tertiary);
           overflow: hidden;
-          text-overflow: ellipsis;
-          white-space: nowrap;
+          display: -webkit-box;
+          -webkit-line-clamp: 3;
+          -webkit-box-orient: vertical;
         }
 
         .edit-agent-ext-state {
+          align-self: center;
           flex-shrink: 0;
-          font-size: 12px;
-          font-weight: 600;
-          padding: 2px 10px;
+          position: relative;
+          width: 40px;
+          height: 22px;
+          padding: 0;
           border-radius: 999px;
           border: none;
           cursor: pointer;
-          min-width: 40px;
+          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+          transition: background-color 0.2s ease;
         }
 
         .edit-agent-ext-state:disabled {
@@ -519,13 +588,23 @@ export function EditAgent() {
         }
 
         .edit-agent-ext-state.is-on {
-          color: #16a34a;
-          background: color-mix(in srgb, #16a34a 14%, transparent);
+          background: #16a34a;
         }
 
-        .edit-agent-ext-state.is-off {
-          color: var(--text-tertiary);
-          background: var(--bg-sunken, rgba(120, 120, 120, 0.12));
+        .edit-agent-ext-state-knob {
+          position: absolute;
+          top: 2px;
+          left: 2px;
+          width: 18px;
+          height: 18px;
+          border-radius: 50%;
+          background: #fff;
+          box-shadow: 0 1px 2px rgba(0, 0, 0, 0.25);
+          transition: transform 0.2s ease;
+        }
+
+        .edit-agent-ext-state.is-on .edit-agent-ext-state-knob {
+          transform: translateX(18px);
         }
 
         .edit-agent-ext-error {
