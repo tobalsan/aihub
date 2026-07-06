@@ -64,9 +64,11 @@ vi.mock("@aihub/extension-multi-user", () => ({
 }));
 
 const buildExtensionCatalog = vi.fn();
+const resolveExtensionDefinition = vi.fn();
 
 vi.mock("../extensions/catalog.js", () => ({
   buildExtensionCatalog,
+  resolveExtensionDefinition,
 }));
 
 const updateAgentExtensionConfig = vi.fn();
@@ -608,6 +610,9 @@ describe("api core session resolution", () => {
 
     beforeEach(() => {
       reloadConfig.mockImplementation(() => loadConfigValue);
+      // Default: not a factory extension, so the guard doesn't interfere with
+      // tests that aren't specifically exercising it.
+      resolveExtensionDefinition.mockResolvedValue(undefined);
     });
 
     it("updates an extension and returns the refreshed catalog", async () => {
@@ -710,6 +715,29 @@ describe("api core session resolution", () => {
       );
 
       expect(response.status).toBe(404);
+      expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
+    });
+
+    it("rejects toggling a factory extension", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      resolveExtensionDefinition.mockResolvedValue({
+        id: "cloudifi_admin",
+        factory: true,
+      });
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/cloudifi_admin", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(403);
       expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
     });
 

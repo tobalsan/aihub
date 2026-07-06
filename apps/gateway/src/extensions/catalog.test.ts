@@ -5,7 +5,10 @@ import path from "node:path";
 import { pathToFileURL } from "node:url";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import { GatewayConfigSchema, type AgentConfig } from "@aihub/shared";
-import { buildExtensionCatalog } from "./catalog.js";
+import {
+  buildExtensionCatalog,
+  resolveExtensionDefinition,
+} from "./catalog.js";
 import { getBuiltInExtensionRegistrations } from "./registry.js";
 
 const require = createRequire(import.meta.url);
@@ -21,6 +24,7 @@ async function writeExternalExtension(
     configJsonSchema?: string;
     requiredSecrets?: string;
     configRoute?: string;
+    factory?: boolean;
   } = {}
 ): Promise<void> {
   const dir = path.join(root, id);
@@ -46,6 +50,7 @@ async function writeExternalExtension(
         ? `  requiredSecrets: ${body.requiredSecrets},`
         : "",
       body.configRoute ? `  configRoute: ${body.configRoute},` : "",
+      body.factory !== undefined ? `  factory: ${body.factory},` : "",
       `  routePrefixes: ${body.routePrefixes ?? "[]"},`,
       "  validateConfig: () => ({ valid: true, errors: [] }),",
       "  registerRoutes: () => undefined,",
@@ -106,13 +111,14 @@ describe("buildExtensionCatalog", () => {
       .map((entry) => entry.id)
       .sort();
 
-    // Every built-in that loads in this deployment must appear exactly once.
+    // Every built-in that loads in this deployment must appear exactly once,
+    // except factory extensions, which the catalog builder deliberately hides.
     const registrations = getBuiltInExtensionRegistrations();
     const loadable: string[] = [];
     for (const registration of registrations) {
       try {
         const ext = await registration.load();
-        loadable.push(ext.id);
+        if (!ext.factory) loadable.push(ext.id);
       } catch {
         // package not installed here — must NOT be in the catalog
       }
@@ -243,5 +249,52 @@ describe("buildExtensionCatalog", () => {
       agent
     );
     expect(catalog.every((entry) => entry.builtIn)).toBe(true);
+  });
+
+  it("hides factory extensions from the catalog", async () => {
+    await writeExternalExtension(root, "internal-tool", { factory: true });
+    await writeExternalExtension(root, "visible-tool");
+    const agent = makeAgent();
+    const catalog = await buildExtensionCatalog(configWith(agent, root), agent);
+
+    expect(catalog.find((e) => e.id === "internal-tool")).toBeUndefined();
+    expect(catalog.find((e) => e.id === "visible-tool")).toBeDefined();
+  });
+
+  it("still resolves a factory extension's definition directly (for the PATCH guard)", async () => {
+    await writeExternalExtension(root, "internal-tool", { factory: true });
+    const config = configWith(makeAgent(), root);
+
+    const resolved = await resolveExtensionDefinition(config, "internal-tool");
+    expect(resolved?.factory).toBe(true);
+
+    const missing = await resolveExtensionDefinition(config, "nope");
+    expect(missing).toBeUndefined();
+  });
+
+  it("inlines an external extension's icon.svg as a data URI", async () => {
+    await writeExternalExtension(root, "iconic");
+    await writeFile(
+      path.join(root, "iconic", "icon.svg"),
+      "<svg><circle/></svg>"
+    );
+    const agent = makeAgent();
+    const catalog = await buildExtensionCatalog(configWith(agent, root), agent);
+    const entry = catalog.find((e) => e.id === "iconic");
+
+    expect(entry?.iconDataUri).toBe(
+      `data:image/svg+xml;base64,${Buffer.from(
+        "<svg><circle/></svg>"
+      ).toString("base64")}`
+    );
+  });
+
+  it("leaves iconDataUri undefined when no icon file is present", async () => {
+    await writeExternalExtension(root, "no-icon");
+    const agent = makeAgent();
+    const catalog = await buildExtensionCatalog(configWith(agent, root), agent);
+    const entry = catalog.find((e) => e.id === "no-icon");
+
+    expect(entry?.iconDataUri).toBeUndefined();
   });
 });

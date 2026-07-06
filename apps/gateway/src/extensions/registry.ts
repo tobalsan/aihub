@@ -281,11 +281,13 @@ export function getBuiltInExtensionRegistrations(): Array<{
   id: string;
   routePrefixes: string[];
   load: () => Promise<Extension>;
+  packageName?: string;
 }> {
   return Object.entries(EXTENSION_REGISTRY).map(([id, registration]) => ({
     id,
     routePrefixes: registration.routePrefixes,
     load: registration.load,
+    packageName: registration.packageName,
   }));
 }
 

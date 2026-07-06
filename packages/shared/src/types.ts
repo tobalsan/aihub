@@ -1066,6 +1066,11 @@ export interface Extension {
    * The escape hatch for custom config UI (e.g. a file-based config editor).
    */
   configRoute?: AgentConfigRoute;
+  /**
+   * Internal/factory extension: hidden from the agent-edit UI, still
+   * enable-able via agent.yaml.
+   */
+  factory?: boolean;
   validateConfig(raw: unknown): ValidationResult;
   registerRoutes(app: Hono): void;
   start(ctx: ExtensionContext): Promise<void>;
@@ -1110,6 +1115,7 @@ export const ExtensionDefinitionSchema = z.object({
         }),
     })
     .optional(),
+  factory: z.boolean().optional(),
   validateConfig: z
     .function()
     .args(z.unknown())

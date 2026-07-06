@@ -18,7 +18,10 @@ import {
   getHomeExtension,
   getLoadedExtensions,
 } from "../extensions/registry.js";
-import { buildExtensionCatalog } from "../extensions/catalog.js";
+import {
+  buildExtensionCatalog,
+  resolveExtensionDefinition,
+} from "../extensions/catalog.js";
 import {
   updateAgentExtensionConfig,
   type ExtensionConfigPatch,
@@ -589,6 +592,20 @@ api.patch("/agents/:id/extensions/:extensionId", async (c) => {
     config.agents.find((candidate) => candidate.id === agentId);
   if (!agent) {
     return c.json({ error: "Agent not found" }, 404);
+  }
+
+  // Factory extensions are internal/non-user-facing: they're hidden from the
+  // catalog entirely, so must also be rejected here rather than silently
+  // reconfigured through a direct API call.
+  const targetExtension = await resolveExtensionDefinition(
+    config,
+    extensionId
+  );
+  if (targetExtension?.factory === true) {
+    return c.json(
+      { error: "Factory extensions cannot be configured from the UI" },
+      403
+    );
   }
 
   let body: unknown;

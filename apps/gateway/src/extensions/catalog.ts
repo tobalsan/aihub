@@ -1,3 +1,6 @@
+import { createRequire } from "node:module";
+import { readFileSync, statSync } from "node:fs";
+import path from "node:path";
 import type { AgentConfig, Extension, GatewayConfig } from "@aihub/shared";
 import {
   discoverExternalExtensions,
@@ -7,6 +10,57 @@ import {
   getBuiltInExtensionRegistrations,
   getExternalExtensionsPath,
 } from "./registry.js";
+
+const require = createRequire(import.meta.url);
+
+/** Icon files above this size are skipped rather than inlined as a data URI. */
+const MAX_ICON_BYTES = 256 * 1024;
+
+/**
+ * Best-effort resolution of a built-in extension's package directory, used
+ * only for icon lookup. Package entry points resolve to `<pkgRoot>/dist/...`,
+ * so stripping a trailing `dist` segment recovers the package root. Anything
+ * that doesn't fit this convention (or can't be resolved at all — e.g. the
+ * package isn't installed) is left unresolved; icon lookup is best-effort and
+ * must never throw or block the catalog.
+ */
+function resolveBuiltInExtensionDir(
+  packageName: string | undefined
+): string | undefined {
+  if (!packageName) return undefined;
+  try {
+    const resolved = require.resolve(packageName);
+    const dir = path.dirname(resolved);
+    return path.basename(dir) === "dist" ? path.dirname(dir) : dir;
+  } catch {
+    return undefined;
+  }
+}
+
+/**
+ * Look for `icon.svg` (preferred) or `icon.png` at the root of an extension's
+ * directory and inline it as a data URI. Missing/unreadable/oversized files
+ * all fall back to `undefined` — the web UI shows a placeholder.
+ */
+function resolveIconDataUri(dir: string | undefined): string | undefined {
+  if (!dir) return undefined;
+  const candidates: Array<[file: string, mime: string]> = [
+    ["icon.svg", "image/svg+xml"],
+    ["icon.png", "image/png"],
+  ];
+  for (const [file, mime] of candidates) {
+    try {
+      const filePath = path.join(dir, file);
+      const stats = statSync(filePath);
+      if (!stats.isFile() || stats.size > MAX_ICON_BYTES) continue;
+      const data = readFileSync(filePath);
+      return `data:${mime};base64,${data.toString("base64")}`;
+    } catch {
+      continue;
+    }
+  }
+  return undefined;
+}
 
 /**
  * Where an extension's config surface lives, so the hub UI knows how to render
@@ -45,6 +99,12 @@ export type ExtensionCatalogEntry = {
    */
   configRoutePath: string | null;
   tier: ExtensionConfigTier;
+  /**
+   * Auto-detected `icon.svg`/`icon.png` from the extension's root directory,
+   * inlined as a data URI. Undefined when no icon file was found or it
+   * couldn't be resolved/read; the UI shows a placeholder in that case.
+   */
+  iconDataUri?: string;
 };
 
 /**
@@ -91,7 +151,8 @@ function isEnabledForAgent(agent: AgentConfig, extensionId: string): boolean {
 function toCatalogEntry(
   extension: Extension,
   builtIn: boolean,
-  agent: AgentConfig
+  agent: AgentConfig,
+  dir: string | undefined
 ): ExtensionCatalogEntry {
   const configJsonSchema = extension.configJsonSchema ?? null;
   const configRoutePath =
@@ -106,6 +167,7 @@ function toCatalogEntry(
     requiredSecrets: extension.requiredSecrets ?? [],
     configRoutePath,
     tier: resolveTier(configRoutePath, configJsonSchema),
+    iconDataUri: resolveIconDataUri(dir),
   };
 }
 
@@ -138,18 +200,48 @@ export async function buildExtensionCatalog(
     }
     if (seen.has(extension.id)) continue;
     seen.add(extension.id);
-    entries.push(toCatalogEntry(extension, true, agent));
+    // Factory extensions are internal/non-user-facing: hidden from the
+    // agent-edit UI, still enable-able manually in agent.yaml.
+    if (extension.factory === true) continue;
+    const dir = resolveBuiltInExtensionDir(registration.packageName);
+    entries.push(toCatalogEntry(extension, true, agent, dir));
   }
 
   const external = await discoverExternalExtensions(
     getExternalExtensionsPath(config)
   );
-  for (const { extension } of external) {
+  for (const { extension, path: extensionDir } of external) {
     if (seen.has(extension.id)) continue;
     seen.add(extension.id);
-    entries.push(toCatalogEntry(extension, false, agent));
+    if (extension.factory === true) continue;
+    entries.push(toCatalogEntry(extension, false, agent, extensionDir));
   }
 
   entries.sort((a, b) => a.id.localeCompare(b.id));
   return entries;
+}
+
+/**
+ * Resolve a single extension's definition by id (built-in or external),
+ * regardless of its `factory` flag. Factory extensions are intentionally
+ * omitted from `buildExtensionCatalog`'s output, so the PATCH endpoint needs
+ * this separate lookup to check the flag before allowing a config write.
+ */
+export async function resolveExtensionDefinition(
+  config: GatewayConfig,
+  extensionId: string
+): Promise<Extension | undefined> {
+  for (const registration of getBuiltInExtensionRegistrations()) {
+    if (registration.id !== extensionId) continue;
+    try {
+      return await registration.load();
+    } catch {
+      return undefined;
+    }
+  }
+
+  const external = await discoverExternalExtensions(
+    getExternalExtensionsPath(config)
+  );
+  return external.find(({ id }) => id === extensionId)?.extension;
 }
