@@ -182,7 +182,7 @@ describe("team store deleteTeam teamlessAgents", () => {
 
     const result = teamStore.deleteTeam(team.id);
     expect(result.deleted).toBe(true);
-    expect(result.teamlessAgents).toEqual(["fork__scribe"]);
+    expect(result.teamlessAgents).toEqual(["scribe"]);
     // The fork row persists (teamId set to null by the FK), not deleted.
     expect(forks.getForkByPool("scribe")?.teamId).toBeNull();
   });

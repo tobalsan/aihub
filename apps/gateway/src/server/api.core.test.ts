@@ -555,7 +555,7 @@ describe("api core session resolution", () => {
       loadConfigValue = {
         agents: [
           {
-            id: "fork__poolie",
+            id: "poolie",
             name: "Fork",
             extensions: { acme: { enabled: false, region: "fork" } },
           },
@@ -579,7 +579,7 @@ describe("api core session resolution", () => {
       expect(buildExtensionCatalog).toHaveBeenCalledWith(
         loadConfigValue,
         expect.objectContaining({
-          id: "fork__poolie",
+          id: "poolie",
           extensions: { acme: { enabled: false, region: "fork" } },
         }),
         { configurable: true }
@@ -741,9 +741,7 @@ describe("api core session resolution", () => {
 
     it("writes to an existing fork instead of the pool template", async () => {
       loadConfigValue = {
-        agents: [
-          { id: "fork__poolie", name: "Fork", workspace: "/ws/fork-poolie" },
-        ],
+        agents: [{ id: "poolie", name: "Fork", workspace: "/ws/poolie-fork" }],
         pool: [{ id: "poolie", name: "Poolie", workspace: "/ws/poolie" }],
       };
       updateAgentExtensionConfig.mockResolvedValue({});
@@ -760,7 +758,7 @@ describe("api core session resolution", () => {
 
       expect(response.status).toBe(200);
       expect(updateAgentExtensionConfig).toHaveBeenCalledWith(
-        "/ws/fork-poolie",
+        "/ws/poolie-fork",
         "acme",
         { enabled: false }
       );

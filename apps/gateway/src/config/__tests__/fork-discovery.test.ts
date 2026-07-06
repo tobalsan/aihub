@@ -49,7 +49,7 @@ describe("fork discovery via agents glob", () => {
     expect(initial.pool?.map((a) => a.id)).toEqual(["scribe"]);
 
     // Simulate the fork store: copy the pool workspace with a rewritten id.
-    const forkId = "fork__scribe";
+    const forkId = "scribe";
     await writeAgent(path.join(tmpDir, "agents", forkId), forkId);
 
     const reloaded = reloadConfig();

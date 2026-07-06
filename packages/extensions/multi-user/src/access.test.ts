@@ -89,7 +89,7 @@ afterEach(() => {
   }
 });
 
-const forkId = (poolId: string) => `fork__${poolId}`;
+const forkId = (poolId: string) => poolId;
 
 describe("canUserChatAgent", () => {
   it("allows a user who shares the fork's team", () => {
@@ -118,7 +118,7 @@ describe("canUserChatAgent", () => {
   });
 
   it("denies an unknown agent id", () => {
-    expect(resolver.canUserChatAgent("alice", "fork__does-not-exist")).toBe(
+    expect(resolver.canUserChatAgent("alice", "does-not-exist")).toBe(
       false
     );
   });

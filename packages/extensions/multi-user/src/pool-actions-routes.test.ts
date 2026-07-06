@@ -211,7 +211,7 @@ describe("GET /pool-actions", () => {
     const { map } = await actionsFor("alice", "user");
     expect(map.get("scribe")).toMatchObject({
       action: "chat",
-      chatAgentId: "fork__scribe",
+      chatAgentId: "scribe",
       forked: true,
     });
     expect(map.get("sage")?.action).toBe("chat");

@@ -80,6 +80,7 @@ describe("fork store", () => {
     const fork = store.forkAndAssign("scribe", "team-a", "admin-1");
 
     const forkId = forkIdForPool("scribe");
+    expect(forkId).toBe("scribe");
     expect(fork.forkAgentId).toBe(forkId);
     expect(fork.sourcePoolId).toBe("scribe");
     expect(fork.teamId).toBe("team-a");
@@ -88,17 +89,16 @@ describe("fork store", () => {
 
     const forkFolder = path.join(forksDir, forkId);
     expect(fs.existsSync(forkFolder)).toBe(true);
-    // Copied content (byte-for-byte apart from the id line).
+    // Copied content.
     expect(fs.readFileSync(path.join(forkFolder, "SOUL.md"), "utf8")).toBe(
       "pool soul\n"
     );
-    // agent.yaml id rewritten to match the fork folder basename.
+    // agent.yaml id matches the fork folder basename.
     const yaml = fs.readFileSync(
       path.join(forkFolder, "agent.yaml"),
       "utf8"
     );
     expect(yaml).toContain(`id: ${forkId}`);
-    expect(yaml).not.toContain("id: scribe");
     expect(yaml).toContain("name: scribe");
     // Excluded runtime artifacts are not copied.
     expect(fs.existsSync(path.join(forkFolder, ".env"))).toBe(false);

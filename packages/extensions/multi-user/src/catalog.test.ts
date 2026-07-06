@@ -104,7 +104,7 @@ afterEach(() => {
   }
 });
 
-const forkId = (poolId: string) => `fork__${poolId}`;
+const forkId = (poolId: string) => poolId;
 
 describe("resolvePoolAction — chat", () => {
   it("returns chat with the fork agent id when a member shares the team", () => {

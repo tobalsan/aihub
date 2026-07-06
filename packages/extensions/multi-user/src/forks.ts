@@ -3,7 +3,7 @@ import path from "node:path";
 import type Database from "better-sqlite3";
 
 /**
- * Directory entries excluded when copying a pool workspace into a fork. These
+ * Directory entries excluded when copying a pool workspace into an agent. These
  * are per-instance runtime artifacts (secrets, agent scratch data, uploads),
  * never part of the shared read-only definition, so a fresh fork must start
  * without them. Adapted from the `agent-templates` branch `FORK_EXCLUDES`.
@@ -11,14 +11,13 @@ import type Database from "better-sqlite3";
 export const FORK_EXCLUDES = new Set([".env", "data", "uploads"]);
 
 /**
- * A fork's agent id is a deterministic function of its source pool id, so a
- * pool definition maps to exactly one fork id (fork-once) and the id survives
- * reassignment unchanged (the folder never moves between teams — only the link
- * row's teamId changes). The id doubles as the fork folder basename, which the
- * gateway config loader requires to equal the `agent.yaml` id.
+ * A fork's runnable agent id matches its source pool id. The fork row carries
+ * the provenance link, while the on-disk agent stays simple: `agents/<poolId>`.
+ * The id doubles as the fork folder basename, which the gateway config loader
+ * requires to equal the `agent.yaml` id.
  */
 export function forkIdForPool(poolId: string): string {
-  return `fork__${poolId}`;
+  return poolId;
 }
 
 /**
@@ -110,8 +109,7 @@ type ForkRow = {
 /**
  * Copy `sourceDir` into `destDir`, skipping {@link FORK_EXCLUDES} at the top
  * level. The copy is otherwise byte-for-byte: no per-team customization is
- * applied here — the only mutation is the caller's later `agent.yaml` id
- * rewrite so the copied id matches its new folder basename.
+ * applied here.
  */
 function copyWorkspace(sourceDir: string, destDir: string): void {
   fs.mkdirSync(destDir, { recursive: true });
@@ -124,10 +122,9 @@ function copyWorkspace(sourceDir: string, destDir: string): void {
 }
 
 /**
- * Rewrite the top-level `id:` value in an `agent.yaml` to `forkId`, leaving the
- * rest of the file untouched. A line-scoped rewrite (rather than a YAML
- * round-trip) keeps the fork byte-for-byte identical to its pool source apart
- * from the one line the folder-basename invariant forces us to change.
+ * Ensure the top-level `id:` value in an `agent.yaml` matches `forkId`, leaving
+ * the rest of the file untouched. A line-scoped rewrite avoids a YAML round-trip
+ * if the copied file ever needs normalization.
  */
 function rewriteAgentYamlId(agentYamlPath: string, forkId: string): void {
   const original = fs.readFileSync(agentYamlPath, "utf8");

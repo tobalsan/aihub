@@ -45,7 +45,7 @@ function agent(id: string): Agent {
 function entry(
   poolId: string,
   action: PoolCatalogEntry["action"],
-  chatAgentId: string | null = action === "chat" ? `fork__${poolId}` : null,
+  chatAgentId: string | null = action === "chat" ? poolId : null,
   overrides: Partial<Pick<PoolCatalogEntry, "reason" | "teamName">> = {}
 ): PoolCatalogEntry {
   return {
@@ -100,7 +100,7 @@ describe("AgentCatalog action states", () => {
       ".catalog-chat-link"
     );
     expect(chat).not.toBeNull();
-    expect(chat?.getAttribute("href")).toBe("/chat/fork__scribe");
+    expect(chat?.getAttribute("href")).toBe("/chat/scribe");
   });
 
   it("shows the unassigned message and no Chat link when action is none", async () => {

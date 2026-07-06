@@ -133,11 +133,6 @@ function findExtensionCatalogAgent(
   const directAgent = config.agents.find((candidate) => candidate.id === agentId);
   if (directAgent) return { agent: directAgent, configurable: true };
 
-  const forkAgent = config.agents.find(
-    (candidate) => candidate.id === `fork__${agentId}`
-  );
-  if (forkAgent) return { agent: forkAgent, configurable: true };
-
   const poolAgent = config.pool?.find((candidate) => candidate.id === agentId);
   if (!poolAgent) return undefined;
   const agentWithoutTemplateExtensions = { ...poolAgent };
@@ -149,10 +144,7 @@ function findWritableExtensionAgent(
   config: GatewayConfig,
   agentId: string
 ): AgentConfig | undefined {
-  return (
-    config.agents.find((candidate) => candidate.id === agentId) ??
-    config.agents.find((candidate) => candidate.id === `fork__${agentId}`)
-  );
+  return config.agents.find((candidate) => candidate.id === agentId);
 }
 
 async function getVisibleAgents(c: Context) {

@@ -175,9 +175,9 @@ describe("admin fork/assignment routes", () => {
     );
     expect(res.status).toBe(201);
     const body = (await res.json()) as { fork: { forkAgentId: string; teamId: string } };
-    expect(body.fork.forkAgentId).toBe("fork__scribe");
+    expect(body.fork.forkAgentId).toBe("scribe");
     expect(body.fork.teamId).toBe(teamId);
-    expect(fs.existsSync(path.join(homeDir, "agents", "fork__scribe"))).toBe(true);
+    expect(fs.existsSync(path.join(homeDir, "agents", "scribe"))).toBe(true);
   });
 
   it("is guarded to admins/superadmins", async () => {
@@ -231,6 +231,6 @@ describe("admin fork/assignment routes", () => {
     );
     expect(res.status).toBe(200);
     const body = (await res.json()) as { forks: Array<{ forkAgentId: string }> };
-    expect(body.forks.map((f) => f.forkAgentId)).toEqual(["fork__scribe"]);
+    expect(body.forks.map((f) => f.forkAgentId)).toEqual(["scribe"]);
   });
 });

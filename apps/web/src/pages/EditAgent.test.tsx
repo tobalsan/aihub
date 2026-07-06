@@ -77,7 +77,7 @@ vi.mock("@solidjs/router", () => ({
 
 function fork(partial: Partial<AgentFork> & { sourcePoolId: string }): AgentFork {
   return {
-    forkAgentId: `fork__${partial.sourcePoolId}`,
+    forkAgentId: partial.sourcePoolId,
     teamId: null,
     createdBy: "admin-1",
     createdAt: "now",

@@ -88,7 +88,7 @@ describe("teams membership api client", () => {
       ok: true,
       json: async () => ({
         teamId: "team-1",
-        forks: [{ sourcePoolId: "scribe", forkAgentId: "fork__scribe" }],
+        forks: [{ sourcePoolId: "scribe", forkAgentId: "scribe" }],
       }),
     });
 
@@ -98,7 +98,7 @@ describe("teams membership api client", () => {
       credentials: "include",
     });
     expect(forks).toEqual([
-      { sourcePoolId: "scribe", forkAgentId: "fork__scribe" },
+      { sourcePoolId: "scribe", forkAgentId: "scribe" },
     ]);
   });
 
