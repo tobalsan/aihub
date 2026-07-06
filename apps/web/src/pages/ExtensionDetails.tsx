@@ -1,6 +1,6 @@
 import { createEffect, createMemo, createResource, Show } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
-import { fetchAgentExtensions } from "../api/extensions";
+import { autoFormPath, fetchAgentExtensions } from "../api/extensions";
 import { useSession } from "../auth/client";
 
 const STAFF_ROLES = ["admin", "superadmin"];
@@ -93,10 +93,27 @@ export function ExtensionDetails() {
               <h1 class="ext-details-name">{ext().displayName}</h1>
               <p class="ext-details-desc">{ext().description}</p>
 
-              <div class="ext-details-settings">
-                Settings for this extension aren't available yet — this
-                extension hasn't adopted the configuration contract.
-              </div>
+              <Show
+                when={
+                  ext().tier === "auto-form"
+                    ? autoFormPath(params.agentId, ext().id)
+                    : ext().tier === "bespoke-route" && ext().configRoutePath
+                      ? ext().configRoutePath
+                      : null
+                }
+                fallback={
+                  <div class="ext-details-settings">
+                    Settings for this extension aren't available yet — this
+                    extension hasn't adopted the configuration contract.
+                  </div>
+                }
+              >
+                {(href) => (
+                  <A href={href()} class="ext-details-configure">
+                    Configure →
+                  </A>
+                )}
+              </Show>
             </>
           )}
         </Show>
@@ -176,6 +193,22 @@ export function ExtensionDetails() {
           background: var(--bg-sunken, rgba(120, 120, 120, 0.06));
           color: var(--text-tertiary);
           font-size: 13px;
+        }
+
+        .ext-details-configure {
+          display: inline-block;
+          padding: 10px 18px;
+          border-radius: 8px;
+          background: var(--bg-raised);
+          color: var(--text-primary);
+          text-decoration: none;
+          font-size: 14px;
+          font-weight: 500;
+          transition: background 0.2s ease;
+        }
+
+        .ext-details-configure:hover {
+          background: var(--border-default);
         }
       `}</style>
     </Show>

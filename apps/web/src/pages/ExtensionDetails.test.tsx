@@ -37,13 +37,11 @@ vi.mock("@solidjs/router", () => ({
 
 import { ExtensionDetails } from "./ExtensionDetails";
 
-function crmEntry(
-  partial: Partial<ExtensionCatalogEntry> = {}
-): ExtensionCatalogEntry {
+function entry(partial: Partial<ExtensionCatalogEntry> = {}): ExtensionCatalogEntry {
   return {
-    id: "crm",
-    displayName: "CRM",
-    description: "CRM tools",
+    id: "exa",
+    displayName: "Exa",
+    description: "Exa web search",
     builtIn: false,
     enabled: true,
     configJsonSchema: null,
@@ -86,26 +84,23 @@ afterEach(() => {
 });
 
 describe("ExtensionDetails", () => {
-  it("renders the extension name, description, and settings placeholder", async () => {
+  it("renders the extension name and description", async () => {
     setSession("admin");
-    fetchAgentExtensionsMock.mockResolvedValue([crmEntry()]);
-    await mount("scribe", "crm");
+    fetchAgentExtensionsMock.mockResolvedValue([entry()]);
+    await mount("scribe", "exa");
 
     expect(fetchAgentExtensionsMock).toHaveBeenCalledWith("scribe");
     expect(container.querySelector(".ext-details-name")?.textContent).toBe(
-      "CRM"
+      "Exa"
     );
     expect(container.querySelector(".ext-details-desc")?.textContent).toBe(
-      "CRM tools"
+      "Exa web search"
     );
-    expect(
-      container.querySelector(".ext-details-settings")?.textContent
-    ).toContain("hasn't adopted the configuration contract");
   });
 
   it("shows a not-found message when the extension id is unknown", async () => {
     setSession("admin");
-    fetchAgentExtensionsMock.mockResolvedValue([crmEntry()]);
+    fetchAgentExtensionsMock.mockResolvedValue([entry()]);
     await mount("scribe", "ghost");
 
     expect(container.textContent).toContain("Extension not found");
@@ -113,10 +108,53 @@ describe("ExtensionDetails", () => {
 
   it("redirects a non-admin away from the page", async () => {
     setSession("user");
-    fetchAgentExtensionsMock.mockResolvedValue([crmEntry()]);
-    await mount("scribe", "crm");
+    fetchAgentExtensionsMock.mockResolvedValue([entry()]);
+    await mount("scribe", "exa");
 
     expect(navigateMock).toHaveBeenCalledWith("/", { replace: true });
     expect(container.querySelector(".ext-details")).toBeNull();
+  });
+
+  it("renders a Configure link to the auto-form route for auto-form tier", async () => {
+    setSession("admin");
+    fetchAgentExtensionsMock.mockResolvedValue([entry({ tier: "auto-form" })]);
+    await mount("scribe", "exa");
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      "a.ext-details-configure"
+    );
+    expect(link?.getAttribute("href")).toBe(
+      "/agents/scribe/extensions/exa/config"
+    );
+    expect(container.querySelector(".ext-details-settings")).toBeNull();
+  });
+
+  it("renders a Configure link to the bespoke route when present", async () => {
+    setSession("admin");
+    fetchAgentExtensionsMock.mockResolvedValue([
+      entry({
+        tier: "bespoke-route",
+        configRoutePath: "/agents/scribe/extensions/slack/setup",
+      }),
+    ]);
+    await mount("scribe", "exa");
+
+    const link = container.querySelector<HTMLAnchorElement>(
+      "a.ext-details-configure"
+    );
+    expect(link?.getAttribute("href")).toBe(
+      "/agents/scribe/extensions/slack/setup"
+    );
+  });
+
+  it("renders the placeholder for toggle-only tier", async () => {
+    setSession("admin");
+    fetchAgentExtensionsMock.mockResolvedValue([entry({ tier: "toggle-only" })]);
+    await mount("scribe", "exa");
+
+    expect(
+      container.querySelector(".ext-details-settings")?.textContent
+    ).toContain("hasn't adopted the configuration contract");
+    expect(container.querySelector(".ext-details-configure")).toBeNull();
   });
 });
