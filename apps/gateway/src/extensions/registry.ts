@@ -106,6 +106,7 @@ const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
 
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
   discord: {
+    packageName: "@aihub/extension-discord",
     load: () =>
       import("@aihub/extension-discord").then(
         (module) => module.discordExtension
@@ -120,6 +121,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     routePrefixes: [],
   },
   slack: {
+    packageName: "@aihub/extension-slack",
     load: () =>
       import("@aihub/extension-slack").then((module) => module.slackExtension),
     getConfig: (config) => {
@@ -132,6 +134,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     routePrefixes: [],
   },
   telegram: {
+    packageName: "@aihub/extension-telegram",
     load: () =>
       import("@aihub/extension-telegram").then(
         (module) => module.telegramExtension
@@ -209,6 +212,7 @@ const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
     routePrefixes: [],
   },
   webhooks: {
+    packageName: "@aihub/extension-webhooks",
     load: () =>
       import("@aihub/extension-webhooks").then(
         (module) => module.webhooksExtension

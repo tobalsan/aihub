@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { describe, expect, it } from "vitest";
 import { GatewayConfigSchema, type Extension } from "@aihub/shared";
 import {
+  getBuiltInExtensionRegistrations,
   getLoadedExtensions,
   getKnownExtensionRouteMetadata,
   isExtensionLoaded,
@@ -303,6 +304,21 @@ describe("extension registry", () => {
     expect(heartbeat?.routePrefixes).toContain("/api/agents/:id/heartbeat");
     expect(multiUser?.routePrefixes).toContain("/api/auth");
     expect(webhooks?.routePrefixes).toContain("/hooks");
+  });
+
+  it("exposes packageName for discord/slack/telegram/webhooks so icon lookup can resolve their package dir", () => {
+    // These registrations are inline objects (not built via builtInExtension()),
+    // so packageName must be set explicitly for the catalog's icon resolution
+    // to find their package directory. Regression test for a bug where these
+    // four extensions never got an iconDataUri because packageName was missing.
+    const byId = Object.fromEntries(
+      getBuiltInExtensionRegistrations().map((r) => [r.id, r])
+    );
+
+    expect(byId.discord?.packageName).toBe("@aihub/extension-discord");
+    expect(byId.slack?.packageName).toBe("@aihub/extension-slack");
+    expect(byId.telegram?.packageName).toBe("@aihub/extension-telegram");
+    expect(byId.webhooks?.packageName).toBe("@aihub/extension-webhooks");
   });
 
   it("loads external extensions from symlinked directories for agent config", async () => {

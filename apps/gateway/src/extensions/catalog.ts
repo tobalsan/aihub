@@ -1,6 +1,6 @@
-import { createRequire } from "node:module";
-import { readFileSync, statSync } from "node:fs";
+import { readFileSync, existsSync, statSync } from "node:fs";
 import path from "node:path";
+import { fileURLToPath } from "node:url";
 import type { AgentConfig, Extension, GatewayConfig } from "@aihub/shared";
 import {
   discoverExternalExtensions,
@@ -11,27 +11,38 @@ import {
   getExternalExtensionsPath,
 } from "./registry.js";
 
-const require = createRequire(import.meta.url);
-
 /** Icon files above this size are skipped rather than inlined as a data URI. */
 const MAX_ICON_BYTES = 256 * 1024;
 
+/** How many parent directories to walk while looking for `package.json`. */
+const MAX_PACKAGE_ROOT_WALK = 8;
+
 /**
  * Best-effort resolution of a built-in extension's package directory, used
- * only for icon lookup. Package entry points resolve to `<pkgRoot>/dist/...`,
- * so stripping a trailing `dist` segment recovers the package root. Anything
- * that doesn't fit this convention (or can't be resolved at all — e.g. the
- * package isn't installed) is left unresolved; icon lookup is best-effort and
+ * only for icon lookup. The `@aihub/extension-*` packages are ESM-only (their
+ * `exports` map has no `require`/`default` condition), so we resolve via
+ * `import.meta.resolve` rather than CJS `require.resolve`. The resolved entry
+ * point can land under `dist/` (default conditions) or `src/` (dev
+ * conditions), so instead of assuming a fixed path shape, we walk up from the
+ * entry point until we find the directory containing `package.json` — that's
+ * the package root, which holds the committed `icon.svg`/`icon.png`. Anything
+ * that doesn't resolve is left unresolved; icon lookup is best-effort and
  * must never throw or block the catalog.
  */
-function resolveBuiltInExtensionDir(
+export function resolveBuiltInExtensionDir(
   packageName: string | undefined
 ): string | undefined {
   if (!packageName) return undefined;
   try {
-    const resolved = require.resolve(packageName);
-    const dir = path.dirname(resolved);
-    return path.basename(dir) === "dist" ? path.dirname(dir) : dir;
+    const entryPath = fileURLToPath(import.meta.resolve(packageName));
+    let dir = path.dirname(entryPath);
+    for (let i = 0; i < MAX_PACKAGE_ROOT_WALK; i++) {
+      if (existsSync(path.join(dir, "package.json"))) return dir;
+      const parent = path.dirname(dir);
+      if (parent === dir) break;
+      dir = parent;
+    }
+    return undefined;
   } catch {
     return undefined;
   }
@@ -42,7 +53,9 @@ function resolveBuiltInExtensionDir(
  * directory and inline it as a data URI. Missing/unreadable/oversized files
  * all fall back to `undefined` — the web UI shows a placeholder.
  */
-function resolveIconDataUri(dir: string | undefined): string | undefined {
+export function resolveIconDataUri(
+  dir: string | undefined
+): string | undefined {
   if (!dir) return undefined;
   const candidates: Array<[file: string, mime: string]> = [
     ["icon.svg", "image/svg+xml"],
@@ -75,10 +88,7 @@ function resolveIconDataUri(dir: string | undefined): string | undefined {
  * Bespoke routes win over auto-form: an extension that declares its own config
  * route owns its config surface even if it also happens to expose a schema.
  */
-export type ExtensionConfigTier =
-  | "auto-form"
-  | "bespoke-route"
-  | "toggle-only";
+export type ExtensionConfigTier = "auto-form" | "bespoke-route" | "toggle-only";
 
 export type ExtensionCatalogEntry = {
   id: string;

@@ -1,3 +1,5 @@
+import { execFileSync } from "node:child_process";
+import { existsSync } from "node:fs";
 import { mkdir, mkdtemp, rm, writeFile } from "node:fs/promises";
 import { createRequire } from "node:module";
 import os from "node:os";
@@ -46,9 +48,7 @@ async function writeExternalExtension(
       body.configJsonSchema
         ? `  configJsonSchema: ${body.configJsonSchema},`
         : "",
-      body.requiredSecrets
-        ? `  requiredSecrets: ${body.requiredSecrets},`
-        : "",
+      body.requiredSecrets ? `  requiredSecrets: ${body.requiredSecrets},` : "",
       body.configRoute ? `  configRoute: ${body.configRoute},` : "",
       body.factory !== undefined ? `  factory: ${body.factory},` : "",
       `  routePrefixes: ${body.routePrefixes ?? "[]"},`,
@@ -283,9 +283,9 @@ describe("buildExtensionCatalog", () => {
     const entry = catalog.find((e) => e.id === "iconic");
 
     expect(entry?.iconDataUri).toBe(
-      `data:image/svg+xml;base64,${Buffer.from(
-        "<svg><circle/></svg>"
-      ).toString("base64")}`
+      `data:image/svg+xml;base64,${Buffer.from("<svg><circle/></svg>").toString(
+        "base64"
+      )}`
     );
   });
 
@@ -296,5 +296,41 @@ describe("buildExtensionCatalog", () => {
     const entry = catalog.find((e) => e.id === "no-icon");
 
     expect(entry?.iconDataUri).toBeUndefined();
+  });
+
+  it("resolves a built-in package's real directory via ESM resolution", () => {
+    // Regression test: the old implementation used `require.resolve`, which
+    // throws ERR_PACKAGE_PATH_NOT_EXPORTED against these packages' ESM-only
+    // `exports` maps (no `require`/`default` condition) — so it always
+    // returned undefined and built-ins never got an icon.
+    //
+    // This must run in a real Node process rather than through vitest's
+    // module runner: vite-node's synthetic `import.meta` only carries
+    // `url`/`env`/`filename`/`dirname` and has no `resolve`, so calling
+    // `resolveBuiltInExtensionDir` in-process would always see
+    // `import.meta.resolve` as undefined regardless of the implementation.
+    const catalogUrl = new URL("./catalog.ts", import.meta.url).href;
+    const script = [
+      `import { resolveBuiltInExtensionDir, resolveIconDataUri } from ${JSON.stringify(catalogUrl)};`,
+      'const dir = resolveBuiltInExtensionDir("@aihub/extension-discord");',
+      "process.stdout.write(JSON.stringify({ dir, iconDataUri: resolveIconDataUri(dir) }));",
+    ].join("\n");
+    const output = execFileSync(
+      process.execPath,
+      ["--import", "tsx", "--input-type=module", "-e", script],
+      { encoding: "utf8" }
+    );
+    const { dir, iconDataUri } = JSON.parse(output) as {
+      dir: string | undefined;
+      iconDataUri: string | undefined;
+    };
+
+    expect(dir).toBeDefined();
+    expect(existsSync(dir as string)).toBe(true);
+    expect(existsSync(path.join(dir as string, "package.json"))).toBe(true);
+
+    // packages/extensions/discord/icon.svg is committed, so the resolved dir
+    // should be the package root, not some nested src/dist subdirectory.
+    expect(iconDataUri).toMatch(/^data:image\/svg\+xml;base64,/);
   });
 });
