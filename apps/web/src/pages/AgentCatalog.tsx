@@ -54,6 +54,8 @@ export function AgentCatalog() {
     for (const entry of actions() ?? []) map.set(entry.poolId, entry);
     return map;
   });
+  const canEditAgent = (entry: PoolCatalogEntry | undefined) =>
+    isAdmin() || entry?.action === "chat";
 
   return (
     <div class="agent-catalog">
@@ -72,10 +74,7 @@ export function AgentCatalog() {
           <For each={agents()}>
             {(agent) => (
               <div class="catalog-card">
-                {/* Admin-only edit affordance: a subtle top-right icon that
-                    reveals on card hover/focus and opens the Edit-Agent page
-                    for this specific agent. Non-admins never see it. */}
-                <Show when={isAdmin()}>
+                <Show when={canEditAgent(actionByPool().get(agent.id))}>
                   <A
                     href={`/agents/${agent.id}/edit`}
                     class="catalog-edit"

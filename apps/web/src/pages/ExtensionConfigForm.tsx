@@ -6,7 +6,7 @@ import {
   For,
   Show,
 } from "solid-js";
-import { A, useNavigate, useParams } from "@solidjs/router";
+import { A, useParams } from "@solidjs/router";
 import {
   fetchAgentExtension,
   patchAgentExtension,
@@ -18,14 +18,6 @@ import {
   type AutoFormField,
   type AutoFormValues,
 } from "../lib/auto-form-schema";
-import { useSession } from "../auth/client";
-
-const STAFF_ROLES = ["admin", "superadmin"];
-
-function hasAdminRole(role: string | string[] | null | undefined): boolean {
-  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
-  return typeof role === "string" && STAFF_ROLES.includes(role);
-}
 
 /**
  * Schema-driven auto-form renderer (ALG-355). Builds a per-agent config form
@@ -38,24 +30,9 @@ function hasAdminRole(role: string | string[] | null | undefined): boolean {
  */
 export function ExtensionConfigForm() {
   const params = useParams<{ agentId: string; extensionId: string }>();
-  const navigate = useNavigate();
-  const session = useSession();
-  const isAdmin = createMemo(() =>
-    hasAdminRole(
-      (session().data?.user as { role?: string | string[] } | undefined)?.role
-    )
-  );
-
-  // Admin-gated page: bounce non-admins home once the session has resolved.
-  createEffect(() => {
-    if (session().isPending) return;
-    if (!isAdmin()) void navigate("/", { replace: true });
-  });
 
   const [entry] = createResource(() =>
-    isAdmin()
-      ? fetchAgentExtension(params.agentId, params.extensionId)
-      : Promise.resolve(null)
+    fetchAgentExtension(params.agentId, params.extensionId)
   );
 
   const fields = createMemo(() => {
@@ -213,7 +190,7 @@ export function ExtensionConfigForm() {
   };
 
   return (
-    <Show when={isAdmin()}>
+    <>
       <div class="ext-config">
         <A href={backHref()} class="ext-config-back">
           ← Back to agent
@@ -425,6 +402,6 @@ export function ExtensionConfigForm() {
           margin: 0;
         }
       `}</style>
-    </Show>
+    </>
   );
 }

@@ -126,6 +126,18 @@ async function canViewAgentPrivateMeta(c: Context): Promise<boolean> {
   return hasAdminRole(authContext?.user.role);
 }
 
+async function canConfigureAgentExtensions(
+  c: Context,
+  agentId: string
+): Promise<boolean> {
+  if (!isExtensionLoaded("multiUser")) return true;
+  const authContext = await getRequestAuthContext(c);
+  if (!authContext) return false;
+  if (hasAdminRole(authContext.user.role)) return true;
+  const { hasAgentAccess } = await loadMultiUserApiDeps();
+  return hasAgentAccess(authContext, agentId);
+}
+
 function findExtensionCatalogAgent(
   config: GatewayConfig,
   agentId: string
@@ -575,17 +587,17 @@ api.get("/agents/:id", async (c) => {
   });
 });
 
-// GET /api/agents/:id/extensions - admin-only extension catalog for one agent.
+// GET /api/agents/:id/extensions - extension catalog for one agent.
 // Lists every available extension (built-in static registry + runtime scan of
 // $AIHUB_HOME/extensions) with its per-agent enabled state, config JSON-schema,
 // required secrets, and config-surface tier. Read-only.
 api.get("/agents/:id/extensions", async (c) => {
-  // Admin-guarded: in single-user mode there is no boundary, otherwise staff
-  // only. Non-admins get 403 without leaking whether the agent exists.
-  if (!(await canViewAgentPrivateMeta(c))) {
+  const agentId = c.req.param("id");
+  // In multi-user mode, staff and same-team members may configure a fork.
+  // Others get 403 without leaking whether the agent exists.
+  if (!(await canConfigureAgentExtensions(c, agentId))) {
     return c.json({ error: "forbidden" }, 403);
   }
-  const agentId = c.req.param("id");
   const config = loadConfig();
   const resolved = findExtensionCatalogAgent(config, agentId);
   if (!resolved) {
@@ -597,20 +609,20 @@ api.get("/agents/:id/extensions", async (c) => {
   return c.json({ agentId, extensions });
 });
 
-// PATCH /api/agents/:id/extensions/:extensionId - admin-only write path that
+// PATCH /api/agents/:id/extensions/:extensionId - write extension config.
 // updates an agent's per-extension config in agent.yaml. Flips enabled and/or
 // merges config fields; secret values are written as $env:NAME sentinels in
 // agent.yaml with the concrete value stored in the agent's .env (never
 // plaintext in yaml). After a successful write the config cache is invalidated
 // so the change takes effect on the agent's next run.
 api.patch("/agents/:id/extensions/:extensionId", async (c) => {
-  // Server-side admin guard (not just UI hiding): non-admins get 403 without
-  // leaking whether the agent exists.
-  if (!(await canViewAgentPrivateMeta(c))) {
+  const agentId = c.req.param("id");
+  // Server-side guard (not just UI hiding): only staff and same-team members
+  // can edit an agent's extension config.
+  if (!(await canConfigureAgentExtensions(c, agentId))) {
     return c.json({ error: "forbidden" }, 403);
   }
 
-  const agentId = c.req.param("id");
   const extensionId = c.req.param("extensionId");
   const config = loadConfig();
   const agent = findWritableExtensionAgent(config, agentId);

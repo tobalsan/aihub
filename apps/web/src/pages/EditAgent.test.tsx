@@ -159,13 +159,15 @@ describe("EditAgent", () => {
     expect(container.textContent).toContain("Agent not found");
   });
 
-  it("redirects a non-admin away from the page", async () => {
+  it("allows a non-admin to open a team agent edit page", async () => {
     setSession("user");
     fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([]);
     await mountEdit("scribe");
 
-    expect(navigateMock).toHaveBeenCalledWith("/", { replace: true });
-    expect(container.querySelector(".edit-agent")).toBeNull();
+    expect(navigateMock).not.toHaveBeenCalledWith("/", { replace: true });
+    expect(container.querySelector(".edit-agent")).not.toBeNull();
+    expect(fetchAgentExtensionsMock).toHaveBeenCalledWith("scribe");
   });
 
   it("assigns a never-forked agent to a team via assignPoolToTeam", async () => {
@@ -685,12 +687,12 @@ describe("EditAgent", () => {
     ).toBe("false");
   });
 
-  it("does not fetch extensions for a non-admin", async () => {
+  it("does not render team controls for a non-admin", async () => {
     setSession("user");
     fetchPoolMock.mockResolvedValue([agent({ id: "scribe" })]);
+    fetchAgentExtensionsMock.mockResolvedValue([]);
     await mountEdit("scribe");
 
-    expect(fetchAgentExtensionsMock).not.toHaveBeenCalled();
-    expect(container.querySelector(".edit-agent-extensions")).toBeNull();
+    expect(container.querySelector(".edit-agent-team")).toBeNull();
   });
 });

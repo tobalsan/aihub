@@ -25,6 +25,7 @@ const isAbortTrigger = vi.fn();
 const getSessionThinkLevel = vi.fn();
 const multiUserState = vi.hoisted(() => ({
   loaded: false,
+  agentAccess: true,
   authContext: null as null | {
     user: { id: string; name?: string; role?: string | string[] | null };
     session: { id: string; userId: string };
@@ -60,7 +61,7 @@ vi.mock("../extensions/registry.js", () => ({
 vi.mock("@aihub/extension-multi-user", () => ({
   getForwardedAuthContext: vi.fn(() => multiUserState.authContext),
   getAgentFilter: vi.fn(() => (agents: unknown[]) => agents),
-  hasAgentAccess: vi.fn(async () => true),
+  hasAgentAccess: vi.fn(async () => multiUserState.agentAccess),
 }));
 
 const buildExtensionCatalog = vi.fn();
@@ -128,6 +129,7 @@ describe("api core session resolution", () => {
     isAgentActive.mockReturnValue(true);
     isAbortTrigger.mockReturnValue(false);
     multiUserState.loaded = false;
+    multiUserState.agentAccess = true;
     multiUserState.authContext = null;
     buildExtensionCatalog.mockResolvedValue([]);
     runAgent.mockResolvedValue({
@@ -598,9 +600,32 @@ describe("api core session resolution", () => {
       expect(buildExtensionCatalog).not.toHaveBeenCalled();
     });
 
-    it("403s for non-admins in multi-user mode", async () => {
+    it("allows same-team members in multi-user mode", async () => {
       loadConfigValue = { agents: [{ id: "alpha", name: "Alpha" }], pool: [] };
       multiUserState.loaded = true;
+      multiUserState.agentAccess = true;
+      multiUserState.authContext = {
+        user: { id: "u1", role: "user" },
+        session: { id: "s1", userId: "u1" },
+      };
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions")
+      );
+
+      expect(response.status).toBe(200);
+      expect(await response.json()).toEqual({
+        agentId: "alpha",
+        extensions: catalog,
+      });
+    });
+
+    it("403s for non-members in multi-user mode", async () => {
+      loadConfigValue = { agents: [{ id: "alpha", name: "Alpha" }], pool: [] };
+      multiUserState.loaded = true;
+      multiUserState.agentAccess = false;
       multiUserState.authContext = {
         user: { id: "u1", role: "user" },
         session: { id: "s1", userId: "u1" },
@@ -764,6 +789,62 @@ describe("api core session resolution", () => {
       );
     });
 
+    it("allows same-team members to write extension config", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      multiUserState.loaded = true;
+      multiUserState.agentAccess = true;
+      multiUserState.authContext = {
+        user: { id: "u1", role: "user" },
+        session: { id: "s1", userId: "u1" },
+      };
+      updateAgentExtensionConfig.mockResolvedValue({});
+      buildExtensionCatalog.mockResolvedValue(catalog);
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(200);
+      expect(updateAgentExtensionConfig).toHaveBeenCalledWith(
+        "/ws/alpha",
+        "acme",
+        { enabled: true }
+      );
+    });
+
+    it("403s when a non-member writes extension config", async () => {
+      loadConfigValue = {
+        agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
+        pool: [],
+      };
+      multiUserState.loaded = true;
+      multiUserState.agentAccess = false;
+      multiUserState.authContext = {
+        user: { id: "u1", role: "user" },
+        session: { id: "s1", userId: "u1" },
+      };
+      const { api } = await import("./api.core.js");
+
+      const response = await api.request(
+        new Request("http://localhost/agents/alpha/extensions/acme", {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ enabled: true }),
+        })
+      );
+
+      expect(response.status).toBe(403);
+      expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
+    });
+
     it("404s for an unknown agent", async () => {
       loadConfigValue = { agents: [], pool: [] };
       const { api } = await import("./api.core.js");
@@ -803,12 +884,13 @@ describe("api core session resolution", () => {
       expect(updateAgentExtensionConfig).not.toHaveBeenCalled();
     });
 
-    it("403s for non-admins in multi-user mode (server-side guard)", async () => {
+    it("403s for non-members in multi-user mode (server-side guard)", async () => {
       loadConfigValue = {
         agents: [{ id: "alpha", name: "Alpha", workspace: "/ws/alpha" }],
         pool: [],
       };
       multiUserState.loaded = true;
+      multiUserState.agentAccess = false;
       multiUserState.authContext = {
         user: { id: "u1", role: "user" },
         session: { id: "s1", userId: "u1" },

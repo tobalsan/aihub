@@ -174,10 +174,23 @@ describe("AgentCatalog action states", () => {
     expect(edit?.getAttribute("href")).toBe("/agents/scribe/edit");
   });
 
-  it("does not show the edit icon to a non-admin", async () => {
+  it("shows a team member an edit icon for a chattable agent", async () => {
     setSession("user");
     fetchPoolMock.mockResolvedValue([agent("scribe")]);
     fetchPoolActionsMock.mockResolvedValue([entry("scribe", "chat")]);
+    await mountCatalog();
+
+    const edit = container.querySelector<HTMLAnchorElement>(".catalog-edit");
+    expect(edit).not.toBeNull();
+    expect(edit?.getAttribute("href")).toBe("/agents/scribe/edit");
+  });
+
+  it("does not show the edit icon to a non-member", async () => {
+    setSession("user");
+    fetchPoolMock.mockResolvedValue([agent("scribe")]);
+    fetchPoolActionsMock.mockResolvedValue([
+      entry("scribe", "none", null, { reason: "other_team" }),
+    ]);
     await mountCatalog();
 
     expect(container.querySelector(".catalog-edit")).toBeNull();

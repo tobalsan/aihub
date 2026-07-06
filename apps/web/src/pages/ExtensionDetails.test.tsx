@@ -107,13 +107,13 @@ describe("ExtensionDetails", () => {
     expect(container.textContent).toContain("Extension not found");
   });
 
-  it("redirects a non-admin away from the page", async () => {
+  it("allows a non-admin to view an accessible team agent extension", async () => {
     setSession("user");
     fetchAgentExtensionsMock.mockResolvedValue([entry()]);
     await mount("scribe", "exa");
 
-    expect(navigateMock).toHaveBeenCalledWith("/", { replace: true });
-    expect(container.querySelector(".ext-details")).toBeNull();
+    expect(navigateMock).not.toHaveBeenCalledWith("/", { replace: true });
+    expect(container.querySelector(".ext-details")).not.toBeNull();
   });
 
   it("renders a Configure link to the auto-form route for auto-form tier", async () => {

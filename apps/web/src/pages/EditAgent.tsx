@@ -1,5 +1,4 @@
 import {
-  createEffect,
   createMemo,
   createResource,
   createSignal,
@@ -147,15 +146,7 @@ export function EditAgent() {
     )
   );
 
-  // Admin-gated page: bounce non-admins home once the session has resolved.
-  createEffect(() => {
-    if (session().isPending) return;
-    if (!isAdmin()) void navigate("/", { replace: true });
-  });
-
-  const [agents] = createResource(() =>
-    isAdmin() ? fetchPool() : Promise.resolve([])
-  );
+  const [agents] = createResource(fetchPool);
   const agent = createMemo(() =>
     (agents() ?? []).find((candidate) => candidate.id === params.agentId)
   );
@@ -171,11 +162,7 @@ export function EditAgent() {
   );
 
   const [extensions, { mutate: mutateExtensions, refetch: refetchExtensions }] =
-    createResource(() =>
-    isAdmin()
-      ? fetchAgentExtensions(params.agentId)
-      : Promise.resolve([] as ExtensionCatalogEntry[])
-  );
+    createResource(() => fetchAgentExtensions(params.agentId));
   const [pending, setPending] = createSignal<string | null>(null);
   const [extError, setExtError] = createSignal<string | null>(null);
   const disabledEnableMessage = createMemo(() =>
@@ -217,7 +204,7 @@ export function EditAgent() {
   };
 
   return (
-    <Show when={isAdmin()}>
+    <Show when={!session().isPending}>
       <div class="edit-agent">
         <A href="/agents" class="edit-agent-back">
           ← Back to agents
@@ -259,7 +246,7 @@ export function EditAgent() {
           )}
         </Show>
 
-        <Show when={agent()}>
+        <Show when={isAdmin() && agent()}>
           <TeamAssignment
             poolId={params.agentId}
             teams={teams() ?? []}

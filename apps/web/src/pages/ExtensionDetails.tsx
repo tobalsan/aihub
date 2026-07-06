@@ -1,14 +1,6 @@
-import { createEffect, createMemo, createResource, Show } from "solid-js";
-import { A, useNavigate, useParams } from "@solidjs/router";
+import { createMemo, createResource, Show } from "solid-js";
+import { A, useParams } from "@solidjs/router";
 import { autoFormPath, fetchAgentExtensions } from "../api/extensions";
-import { useSession } from "../auth/client";
-
-const STAFF_ROLES = ["admin", "superadmin"];
-
-function hasAdminRole(role: string | string[] | null | undefined): boolean {
-  if (Array.isArray(role)) return role.some((r) => STAFF_ROLES.includes(r));
-  return typeof role === "string" && STAFF_ROLES.includes(role);
-}
 
 /**
  * Read-only details page for one extension on one agent, reached by clicking
@@ -18,23 +10,8 @@ function hasAdminRole(role: string | string[] | null | undefined): boolean {
  */
 export function ExtensionDetails() {
   const params = useParams<{ agentId: string; extensionId: string }>();
-  const navigate = useNavigate();
-  const session = useSession();
-  const isAdmin = createMemo(() =>
-    hasAdminRole(
-      (session().data?.user as { role?: string | string[] } | undefined)?.role
-    )
-  );
 
-  // Admin-gated page: bounce non-admins home once the session has resolved.
-  createEffect(() => {
-    if (session().isPending) return;
-    if (!isAdmin()) void navigate("/", { replace: true });
-  });
-
-  const [extensions] = createResource(() =>
-    isAdmin() ? fetchAgentExtensions(params.agentId) : Promise.resolve([])
-  );
+  const [extensions] = createResource(() => fetchAgentExtensions(params.agentId));
   const entry = createMemo(() =>
     (extensions() ?? []).find((candidate) => candidate.id === params.extensionId)
   );
@@ -44,7 +21,7 @@ export function ExtensionDetails() {
   );
 
   return (
-    <Show when={isAdmin()}>
+    <>
       <div class="ext-details">
         <A href={backHref()} class="ext-details-back">
           ← Back to agent
@@ -211,6 +188,6 @@ export function ExtensionDetails() {
           background: var(--border-default);
         }
       `}</style>
-    </Show>
+    </>
   );
 }

@@ -295,12 +295,12 @@ describe("ExtensionConfigForm", () => {
     expect(container.textContent).toContain("Extension not found");
   });
 
-  it("redirects a non-admin away from the page", async () => {
+  it("allows a non-admin to configure an accessible team agent", async () => {
     setSession("user");
     fetchAgentExtensionMock.mockResolvedValue(exaEntry());
     await mount("scribe", "exa");
 
-    expect(navigateMock).toHaveBeenCalledWith("/", { replace: true });
-    expect(container.querySelector(".ext-config-form")).toBeNull();
+    expect(navigateMock).not.toHaveBeenCalledWith("/", { replace: true });
+    expect(container.querySelector(".ext-config-form")).not.toBeNull();
   });
 });
