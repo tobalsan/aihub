@@ -52,6 +52,20 @@ function fieldType(
   return "text";
 }
 
+// Humanize a raw property name into a Title Cased label when the schema has
+// no `title`: split camelCase/PascalCase boundaries plus underscores/hyphens
+// into words, then capitalize each word (e.g. `serviceAccountJson` ->
+// "Service Account Json", `jira_project_keys` -> "Jira Project Keys").
+function humanizeName(name: string): string {
+  const words = name
+    .split(/[_-]+/)
+    .flatMap((part) => part.split(/(?<=[a-z0-9])(?=[A-Z])/))
+    .filter((word) => word.length > 0);
+  return words
+    .map((word) => word.charAt(0).toUpperCase() + word.slice(1))
+    .join(" ");
+}
+
 /**
  * Build the ordered list of form fields from a config JSON-schema.
  *
@@ -81,7 +95,8 @@ export function buildAutoFormFields(
     if (name === "enabled") continue;
     const prop = asRecord(rawProp) ?? {};
     const secret = secretSet.has(name);
-    const title = typeof prop.title === "string" ? prop.title : name;
+    const title =
+      typeof prop.title === "string" ? prop.title : humanizeName(name);
     const description =
       typeof prop.description === "string" ? prop.description : undefined;
     fields.push({

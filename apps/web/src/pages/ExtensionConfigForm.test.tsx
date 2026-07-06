@@ -152,7 +152,7 @@ describe("ExtensionConfigForm", () => {
 
     expect(patchAgentExtensionMock).not.toHaveBeenCalled();
     expect(container.querySelector(".ext-config-form-error")?.textContent).toContain(
-      "apiKey"
+      "Api Key"
     );
   });
 

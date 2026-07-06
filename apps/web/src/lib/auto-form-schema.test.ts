@@ -23,7 +23,7 @@ describe("buildAutoFormFields", () => {
     expect(fields).toEqual([
       {
         name: "apiKey",
-        label: "apiKey",
+        label: "Api Key",
         description: undefined,
         type: "secret",
         required: true,
@@ -68,7 +68,7 @@ describe("buildAutoFormFields", () => {
       },
       {
         name: "port",
-        label: "port",
+        label: "Port",
         description: undefined,
         type: "number",
         required: false,
@@ -76,13 +76,63 @@ describe("buildAutoFormFields", () => {
       },
       {
         name: "verbose",
-        label: "verbose",
+        label: "Verbose",
         description: undefined,
         type: "boolean",
         required: false,
         secret: false,
       },
     ]);
+  });
+
+  it("humanizes camelCase property names when title is absent", () => {
+    const fields = buildAutoFormFields(
+      {
+        properties: {
+          apiToken: { type: "string" },
+          serviceAccountJson: { type: "string" },
+          timeoutMs: { type: "integer" },
+          readOnly: { type: "boolean" },
+          subdomain: { type: "string" },
+        },
+      },
+      []
+    );
+    expect(fields.map((f) => f.label)).toEqual([
+      "Api Token",
+      "Service Account Json",
+      "Timeout Ms",
+      "Read Only",
+      "Subdomain",
+    ]);
+  });
+
+  it("humanizes snake_case and hyphenated property names", () => {
+    const fields = buildAutoFormFields(
+      {
+        properties: {
+          jira_project_keys: { type: "string" },
+          "some-hyphenated-key": { type: "string" },
+        },
+      },
+      []
+    );
+    expect(fields.map((f) => f.label)).toEqual([
+      "Jira Project Keys",
+      "Some Hyphenated Key",
+    ]);
+  });
+
+  it("uses the explicit title verbatim instead of humanizing", () => {
+    const fields = buildAutoFormFields(
+      {
+        properties: {
+          apiToken: { type: "string", title: "apiToken (legacy)" },
+        },
+      },
+      []
+    );
+    expect(fields[0].label).toBe("apiToken (legacy)");
   });
 
   it("treats a secret field as secret even when its schema type is not string", () => {
