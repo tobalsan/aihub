@@ -60,6 +60,7 @@ import { CONFIG_DIR } from "../config/index.js";
 import { getUserHistoryDir } from "@aihub/extension-multi-user/isolation";
 import { invalidateResolvedHistoryFile } from "../history/store.js";
 import { resolveSessionDataFile } from "../sessions/files.js";
+import { createOAuthRoutes } from "../oauth/routes.js";
 
 const api = new Hono();
 const UUID_RE =
@@ -175,6 +176,9 @@ async function getVisibleAgents(c: Context) {
 function contentDispositionFilename(filename: string): string {
   return filename.replace(/["\\\r\n]/g, "_");
 }
+
+// OAuth connect framework (authorize + callback + status/disconnect).
+api.route("/", createOAuthRoutes());
 
 api.get("/theme.css", async (c) => {
   const themePath = path.join(resolveHomeDir(), "theme.css");

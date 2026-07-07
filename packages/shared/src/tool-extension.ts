@@ -7,15 +7,23 @@ import {
   type Extension,
   type ExtensionAgentToolContext,
   type ExtensionAgentTool,
+  type ExtensionHookContext,
   type GatewayConfig,
   type ValidationResult,
 } from "./types.js";
+import type { OAuthRequirement, ResolvedOAuth } from "./oauth/types.js";
 
 export interface ResolvedToolExtensionConfig {
   global: Record<string, unknown>;
   root: Record<string, unknown>;
   agent: Record<string, unknown>;
   merged: Record<string, unknown>;
+  /**
+   * Present only when the extension declared an `oauth` requirement. Carries a
+   * fresh access token when connected, or a structured not-connected signal —
+   * never a raw secret.
+   */
+  oauth?: ResolvedOAuth;
 }
 
 export interface ToolExtensionTool {
@@ -44,6 +52,12 @@ export interface ToolExtensionDefinition {
    * include the `:agentId` param (e.g. `"/agents/:agentId/extensions/mcp"`).
    */
   configRoute?: AgentConfigRoute;
+  /**
+   * Declares that this extension needs an OAuth token. When set, `createTools`
+   * receives `config.oauth` with a fresh access token (or a not-connected
+   * signal) resolved at tool-build time by the host.
+   */
+  oauth?: OAuthRequirement;
   createTools(config: ResolvedToolExtensionConfig): ToolExtensionTool[];
 }
 
@@ -138,6 +152,23 @@ function resolveToolExtensionConfig(
   return resolved;
 }
 
+async function resolveOAuthForDefinition(
+  definition: ToolExtensionDefinition,
+  agent: AgentConfig,
+  context: ExtensionHookContext
+): Promise<ResolvedOAuth | undefined> {
+  if (!definition.oauth) return undefined;
+  if (!context.resolveOAuth) {
+    return {
+      connected: false,
+      provider: definition.oauth.provider,
+      reason: "provider_not_configured",
+      message: `OAuth provider "${definition.oauth.provider}" is not configured on this host.`,
+    };
+  }
+  return context.resolveOAuth(agent, definition.oauth);
+}
+
 function validateToolExtensionAgentConfigs(
   definition: ToolExtensionDefinition,
   config: GatewayConfig
@@ -225,7 +256,7 @@ export function defineToolExtension(
     capabilities() {
       return [];
     },
-    getSystemPromptContributions(agent, context) {
+    async getSystemPromptContributions(agent, context) {
       if (!context) return undefined;
       const resolved = resolveToolExtensionConfig(
         definition,
@@ -233,12 +264,17 @@ export function defineToolExtension(
         agent
       );
       if (!resolved) return undefined;
+      resolved.oauth = await resolveOAuthForDefinition(
+        definition,
+        agent,
+        context
+      );
       return [
         definition.systemPrompt?.trim() || undefined,
         renderMountedToolNames(definition, resolved),
       ].filter((prompt): prompt is string => Boolean(prompt));
     },
-    getAgentTools(agent, context): ExtensionAgentTool[] {
+    async getAgentTools(agent, context): Promise<ExtensionAgentTool[]> {
       if (!context) return [];
       const resolved = resolveToolExtensionConfig(
         definition,
@@ -246,6 +282,11 @@ export function defineToolExtension(
         agent
       );
       if (!resolved) return [];
+      resolved.oauth = await resolveOAuthForDefinition(
+        definition,
+        agent,
+        context
+      );
       return definition.createTools(resolved).map((tool) => ({
         name: getMountedToolName(definition, tool.name),
         description: tool.description,

@@ -16,3 +16,4 @@ export * from "./container-protocol.js";
 export * from "./default-project-manager.js";
 export * from "./extensions/index.js";
 export * from "./lead-sessions/types.js";
+export * from "./oauth/index.js";
