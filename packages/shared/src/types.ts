@@ -328,6 +328,31 @@ export const GatewayServerConfigSchema = z.object({
 });
 export type GatewayServerConfig = z.infer<typeof GatewayServerConfigSchema>;
 
+// OAuth (per-agent connect framework). BYO = operator supplies their own
+// OAuth client id/secret per provider. `$env:` refs are resolved by the host.
+export const OAuthProviderClientConfigSchema = z.object({
+  clientId: z.string(),
+  clientSecret: z.string(),
+});
+export type OAuthProviderClientConfig = z.infer<
+  typeof OAuthProviderClientConfigSchema
+>;
+
+export const OAuthConfigSchema = z.object({
+  /**
+   * Public base URL of the gateway used to build the redirect URI, e.g.
+   * "http://localhost:4000". The callback route is
+   * `<redirectBaseUrl>/api/oauth/<provider>/callback`.
+   */
+  redirectBaseUrl: z.string().optional(),
+  /** BYO client credentials keyed by provider id (e.g. "google"). */
+  providers: z
+    .record(z.string(), OAuthProviderClientConfigSchema)
+    .optional()
+    .default({}),
+});
+export type OAuthConfig = z.infer<typeof OAuthConfigSchema>;
+
 // Sessions config
 export const SessionsConfigSchema = z.object({
   idleMinutes: z.number().int().min(1).default(360),
@@ -789,6 +814,7 @@ export const GatewayRootConfigSchema = z.object({
   defaultProjectManager: z.string().optional(),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
+  oauth: OAuthConfigSchema.optional(),
   extensions: ExtensionsConfigSchema,
   extensionsPath: z.string().optional(),
   branding: z
@@ -829,6 +855,7 @@ export const GatewayConfigSchema = z.object({
   defaultProjectManager: z.string().optional(),
   sandbox: GlobalSandboxConfigSchema.optional(),
   onecli: OnecliConfigSchema.optional(),
+  oauth: OAuthConfigSchema.optional(),
   extensions: ExtensionsConfigSchema,
   extensionsPath: z.string().optional(),
   branding: z
@@ -1002,8 +1029,19 @@ export type ExtensionAgentTool = {
   ): unknown | Promise<unknown>;
 };
 
+/**
+ * Resolves an extension's declared OAuth requirement into a fresh access token
+ * (or a structured not-connected signal). The host injects this into the
+ * extension hook context; extensions never touch the token store directly.
+ */
+export type OAuthTokenResolver = (
+  agent: AgentConfig,
+  requirement: import("./oauth/types.js").OAuthRequirement
+) => Promise<import("./oauth/types.js").ResolvedOAuth>;
+
 export type ExtensionHookContext = {
   config: GatewayConfig;
+  resolveOAuth?: OAuthTokenResolver;
 };
 
 /**

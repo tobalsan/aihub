@@ -2,9 +2,21 @@ import type {
   AgentConfig,
   Extension,
   ExtensionAgentTool,
+  ExtensionHookContext,
   GatewayConfig,
+  OAuthRequirement,
+  ResolvedOAuth,
 } from "@aihub/shared";
 import { resolveAgentEnv } from "../config/index.js";
+import { getOAuthService } from "../oauth/service.js";
+
+function buildHookContext(config: GatewayConfig): ExtensionHookContext {
+  return {
+    config,
+    resolveOAuth: (agent: AgentConfig, requirement: OAuthRequirement): Promise<ResolvedOAuth> =>
+      getOAuthService().resolveToken(agent.id, requirement),
+  };
+}
 
 export type LoadedExtensionAgentTool = ExtensionAgentTool & {
   extensionId: string;
@@ -138,10 +150,11 @@ export class ExtensionRuntime {
     agent: AgentConfig,
     config: GatewayConfig
   ): Promise<LoadedExtensionAgentTool[]> {
+    const hookContext = buildHookContext(config);
     const groups = await Promise.all(
       this.#extensions.map(async (extension) => {
         const tools =
-          (await extension.getAgentTools?.(agent, { config })) ?? [];
+          (await extension.getAgentTools?.(agent, hookContext)) ?? [];
         return tools.map((tool) => ({ ...tool, extensionId: extension.id }));
       })
     );
@@ -186,11 +199,12 @@ export class ExtensionRuntime {
     agent: AgentConfig,
     config: GatewayConfig
   ): Promise<string[]> {
+    const hookContext = buildHookContext(config);
     const contributions = await Promise.all(
       this.#extensions.map(async (extension) => {
         const contribution = await extension.getSystemPromptContributions?.(
           agent,
-          { config }
+          hookContext
         );
         if (!contribution) return [];
         return Array.isArray(contribution) ? contribution : [contribution];

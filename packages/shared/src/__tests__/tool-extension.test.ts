@@ -107,9 +107,9 @@ describe("tool extensions", () => {
       extensions: { sample: {} },
     });
 
-    expect(extension.getAgentTools?.(config.agents[0]!, { config })).toEqual(
-      []
-    );
+    await expect(
+      extension.getAgentTools?.(config.agents[0]!, { config })
+    ).resolves.toEqual([]);
   });
 
   it("forwards extension tool context env to tool implementations", async () => {
