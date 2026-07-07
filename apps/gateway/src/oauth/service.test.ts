@@ -5,6 +5,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import type { GatewayConfig } from "@aihub/shared";
 import { OAuthService } from "./service.js";
 import { OAuthConnectionStore } from "./store.js";
+import { TokenCipher } from "./crypto.js";
 
 function makeConfig(overrides: Partial<GatewayConfig["oauth"]> = {}): GatewayConfig {
   return {
@@ -26,7 +27,9 @@ describe("OAuthService", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oauth-test-"));
-    store = new OAuthConnectionStore(tmpDir);
+    // The store fails closed without a cipher; give it one so these service
+    // tests exercise persistence (encryption itself is covered in store.test).
+    store = new OAuthConnectionStore(tmpDir, new TokenCipher("service-test-key"));
   });
 
   afterEach(() => {
