@@ -5,20 +5,37 @@ import {
   type OAuthConnection,
 } from "@aihub/shared";
 import { CONFIG_DIR } from "../config/index.js";
+import { TokenCipher } from "./crypto.js";
+import { resolveTokenCipher } from "./encryption.js";
 
 /**
  * File-backed store for OAuth connections. Connections are scoped to a single
  * (agent, provider) pair — one connection per pair, not per user. Persisted as
  * one JSON file per pair under `$AIHUB_HOME/oauth/`.
  *
- * NOTE: tokens are stored in plaintext in this slice. Encryption at rest is a
- * follow-up (ALG-359).
+ * Token fields (access + refresh) are encrypted at rest with AES-256-GCM when an
+ * encryption secret is configured (`oauth.encryptionKey`); a leaked token file
+ * then yields ciphertext, not a live Google grant. Tokens are only decrypted in
+ * memory on read. When no secret is configured the store falls back to plaintext
+ * (a warning is logged once at startup) so local/dev setups keep working.
  */
 export class OAuthConnectionStore {
   #dir: string;
+  #cipher: TokenCipher | undefined;
 
-  constructor(dir: string = path.join(CONFIG_DIR, "oauth")) {
+  /**
+   * @param cipher token cipher, or `null` to force plaintext (local/dev, tests).
+   *   When omitted entirely, the cipher is resolved from instance config
+   *   (`oauth.encryptionKey`) via {@link resolveTokenCipher}.
+   */
+  constructor(
+    dir: string = path.join(CONFIG_DIR, "oauth"),
+    cipher: TokenCipher | null | undefined = undefined
+  ) {
     this.#dir = dir;
+    // `undefined` => resolve from config; `null` => explicitly no cipher
+    // (plaintext) without touching config, keeping tests isolated.
+    this.#cipher = cipher === undefined ? resolveTokenCipher() : cipher ?? undefined;
   }
 
   #fileFor(agentId: string, provider: string): string {
@@ -36,18 +53,46 @@ export class OAuthConnectionStore {
       throw error;
     }
     const parsed = OAuthConnectionSchema.safeParse(JSON.parse(raw));
-    return parsed.success ? parsed.data : undefined;
+    if (!parsed.success) return undefined;
+    return this.#decryptTokens(parsed.data);
   }
 
   save(connection: OAuthConnection): OAuthConnection {
     const validated = OAuthConnectionSchema.parse(connection);
     fs.mkdirSync(this.#dir, { recursive: true });
     const file = this.#fileFor(validated.agentId, validated.provider);
-    fs.writeFileSync(file, JSON.stringify(validated, null, 2), { mode: 0o600 });
+    const onDisk = this.#encryptTokens(validated);
+    fs.writeFileSync(file, JSON.stringify(onDisk, null, 2), { mode: 0o600 });
     // `mode` is only honored on create; enforce 0600 on overwrite too so a
     // pre-existing looser file is tightened.
     fs.chmodSync(file, 0o600);
     return validated;
+  }
+
+  /** Encrypt token fields for persistence; no-op when no cipher is configured. */
+  #encryptTokens(connection: OAuthConnection): OAuthConnection {
+    if (!this.#cipher) return connection;
+    return {
+      ...connection,
+      accessToken: this.#cipher.encrypt(connection.accessToken),
+      refreshToken:
+        connection.refreshToken !== undefined
+          ? this.#cipher.encrypt(connection.refreshToken)
+          : undefined,
+    };
+  }
+
+  /** Decrypt token fields read from disk; passes plaintext through untouched. */
+  #decryptTokens(connection: OAuthConnection): OAuthConnection {
+    if (!this.#cipher) return connection;
+    return {
+      ...connection,
+      accessToken: this.#cipher.decrypt(connection.accessToken),
+      refreshToken:
+        connection.refreshToken !== undefined
+          ? this.#cipher.decrypt(connection.refreshToken)
+          : undefined,
+    };
   }
 
   /**

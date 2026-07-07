@@ -350,6 +350,14 @@ export const OAuthConfigSchema = z.object({
     .record(z.string(), OAuthProviderClientConfigSchema)
     .optional()
     .default({}),
+  /**
+   * Secret used to encrypt stored OAuth tokens (access + refresh) at rest, so a
+   * leaked token file / DB row cannot be replayed against the provider. A
+   * `$env:` ref (resolved by the host) or a literal; supply 32+ bytes of
+   * entropy (e.g. `openssl rand -base64 32`). When unset, tokens are stored in
+   * plaintext and the gateway logs a warning at startup.
+   */
+  encryptionKey: z.string().optional(),
 });
 export type OAuthConfig = z.infer<typeof OAuthConfigSchema>;
 

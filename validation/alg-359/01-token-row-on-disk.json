@@ -1,0 +1,14 @@
+{
+  "agentId": "main",
+  "provider": "google",
+  "accessToken": "enc:v2:19LNlNqqi3g6svApu3kb4mExuwkqRSKiiuj0RPIabcbnyBGkKzPdBIon1pf36Al3Tkp/KkO2b7dvqyI=",
+  "refreshToken": "enc:v2:sgXlJ7G1waTh9CEzPyipGFbLwaSO0o/levOpIasg4Ssa0pMTGLKxGXUSvYvqaPUvQWqHukg0VodZ6w==",
+  "expiresAt": 1783436443612,
+  "scopes": [
+    "https://www.googleapis.com/auth/drive.readonly"
+  ],
+  "account": "e2e-user@example.com",
+  "tokenType": "Bearer",
+  "connectedAt": 1783432843612,
+  "updatedAt": 1783432843612
+}
