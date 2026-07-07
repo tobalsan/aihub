@@ -96,9 +96,72 @@ describe("oauth routes", () => {
     );
     const res = await app.request("/oauth/google/status?agent=a1");
     expect(res.status).toBe(200);
-    const body = (await res.json()) as { connected: boolean; account?: string };
+    const body = (await res.json()) as {
+      state: string;
+      connected: boolean;
+      account?: string;
+    };
+    expect(body.state).toBe("connected");
     expect(body.connected).toBe(true);
     expect(body.account).toBe("alice@example.com");
+  });
+
+  it("status surfaces a first-class needs_reconnect state", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "A1",
+      account: "alice@example.com",
+      scopes: [],
+      status: "needs_reconnect",
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const app = createOAuthRoutes(
+      new OAuthService({ store, loadConfig: makeConfig })
+    );
+    const res = await app.request("/oauth/google/status?agent=a1");
+    const body = (await res.json()) as { state: string; connected: boolean };
+    // needs_reconnect is distinct from connected: the account is retained but
+    // `connected` is false so the agent gets the clean not-connected signal.
+    expect(body.state).toBe("needs_reconnect");
+    expect(body.connected).toBe(false);
+  });
+
+  it("status reports disconnected when nothing is stored", async () => {
+    const app = createOAuthRoutes(
+      new OAuthService({ store, loadConfig: makeConfig })
+    );
+    const res = await app.request("/oauth/google/status?agent=a1");
+    const body = (await res.json()) as { state: string; connected: boolean };
+    expect(body.state).toBe("disconnected");
+    expect(body.connected).toBe(false);
+  });
+
+  it("disconnect clears the connection and returns disconnected", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "A1",
+      scopes: [],
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const fetchImpl = vi.fn(async () => new Response(null, { status: 200 }));
+    const app = createOAuthRoutes(
+      new OAuthService({
+        store,
+        fetchImpl: fetchImpl as unknown as typeof fetch,
+        loadConfig: makeConfig,
+      })
+    );
+    const res = await app.request("/oauth/google/disconnect?agent=a1", {
+      method: "POST",
+    });
+    expect(res.status).toBe(200);
+    const body = (await res.json()) as { state: string; connected: boolean };
+    expect(body.state).toBe("disconnected");
+    expect(store.get("a1", "google")).toBeUndefined();
   });
 
   it("callback surfaces a provider error page without throwing", async () => {

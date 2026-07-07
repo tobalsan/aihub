@@ -10,6 +10,7 @@ export const googleProvider: OAuthProviderDescriptor = {
   displayName: "Google",
   authorizeUrl: "https://accounts.google.com/o/oauth2/v2/auth",
   tokenUrl: "https://oauth2.googleapis.com/token",
+  revokeUrl: "https://oauth2.googleapis.com/revoke",
   userInfoUrl: "https://www.googleapis.com/oauth2/v2/userinfo",
   defaultScopes: [
     "https://www.googleapis.com/auth/drive.readonly",

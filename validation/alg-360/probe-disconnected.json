@@ -1,0 +1,10 @@
+{
+  "state": "disconnected",
+  "badgeText": "Not connected",
+  "badgeClass": "oauth-badge oauth-badge-off",
+  "buttons": [
+    "Connect Google Drive"
+  ],
+  "warnShown": false,
+  "accountShown": null
+}

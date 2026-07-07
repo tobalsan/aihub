@@ -6,7 +6,7 @@ import { getOAuthService, type OAuthService } from "./service.js";
  * Host OAuth routes (provider-agnostic):
  *   GET /api/oauth/:provider/authorize?agent=<id>[&scopes=a,b]
  *   GET /api/oauth/:provider/callback?code=&state=
- *   GET /api/oauth/:provider/status?agent=<id>
+ *   GET /api/oauth/:provider/status?agent=<id>   -> { state, connected, ... }
  *   POST /api/oauth/:provider/disconnect?agent=<id>
  *
  * Note: these are registered on the core `api` router, which is mounted under
@@ -84,12 +84,16 @@ export function createOAuthRoutes(
     if (!agentId) {
       return c.json({ error: "missing_agent" }, 400);
     }
+    const state = service.getConnectionState(agentId, provider);
     const connection = service.getConnection(agentId, provider);
     if (!connection) {
-      return c.json({ connected: false, provider });
+      return c.json({ state, connected: false, provider });
     }
+    // `connected` stays true only for a usable grant; `needs_reconnect` is a
+    // first-class state that the UI renders distinctly from "not connected".
     return c.json({
-      connected: true,
+      state,
+      connected: state === "connected",
       provider,
       account: connection.account,
       scopes: connection.scopes,
@@ -98,14 +102,14 @@ export function createOAuthRoutes(
     });
   });
 
-  router.post("/oauth/:provider/disconnect", (c) => {
+  router.post("/oauth/:provider/disconnect", async (c) => {
     const provider = c.req.param("provider");
     const agentId = c.req.query("agent");
     if (!agentId) {
       return c.json({ error: "missing_agent" }, 400);
     }
-    service.disconnect(agentId, provider);
-    return c.json({ connected: false, provider });
+    await service.disconnect(agentId, provider);
+    return c.json({ state: "disconnected", connected: false, provider });
   });
 
   return router;

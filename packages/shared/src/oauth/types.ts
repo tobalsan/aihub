@@ -16,6 +16,12 @@ export interface OAuthProviderDescriptor {
   /** OAuth 2.0 token endpoint. */
   tokenUrl: string;
   /**
+   * OAuth 2.0 token revocation endpoint (RFC 7009). When present, disconnect
+   * best-effort revokes the grant at the provider before clearing the local
+   * record, so the agent's access is actually withdrawn and not just forgotten.
+   */
+  revokeUrl?: string;
+  /**
    * Endpoint used to fetch the connected account identity after token
    * exchange (so the UI can show "Connected as alice@example.com").
    */
@@ -36,6 +42,27 @@ export interface OAuthProviderDescriptor {
 }
 
 /**
+ * The lifecycle state of a stored connection.
+ *
+ * - `connected`: a usable grant. While the refresh token works, access tokens
+ *   are refreshed silently and the connection stays here — agents never see an
+ *   expired token.
+ * - `needs_reconnect`: the grant is unrecoverable (refresh token revoked or
+ *   expired-beyond-refresh). The connection is retained so the UI can surface a
+ *   first-class "reconnect" prompt, but it yields a clean not-connected signal
+ *   to agents instead of a cryptic error.
+ *
+ * A fully removed connection has no stored record; callers treat the absence as
+ * `disconnected`.
+ */
+export const ConnectionStateSchema = z.enum([
+  "connected",
+  "needs_reconnect",
+  "disconnected",
+]);
+export type ConnectionState = z.infer<typeof ConnectionStateSchema>;
+
+/**
  * A stored connection, scoped to a single (agent, provider) pair. There is no
  * per-user dimension in this slice: one workspace/agent has at most one
  * connection per provider.
@@ -51,6 +78,13 @@ export const OAuthConnectionSchema = z.object({
   /** Human-readable connected account, e.g. the Google email. */
   account: z.string().optional(),
   tokenType: z.string().optional(),
+  /**
+   * Lifecycle state. A stored record is either `connected` (usable, refreshing
+   * silently) or `needs_reconnect` (grant lost, awaiting a one-click reconnect).
+   * Absent for legacy records written before the state machine — treated as
+   * `connected` by all readers.
+   */
+  status: z.enum(["connected", "needs_reconnect"]).optional(),
   connectedAt: z.number(),
   updatedAt: z.number(),
 });
@@ -82,7 +116,7 @@ export type ResolvedOAuth =
 export type OAuthNotConnectedReason =
   | "not_connected"
   | "provider_not_configured"
-  | "expired";
+  | "needs_reconnect";
 
 /**
  * Declared by a tool extension: "I need a token for this provider/scopes".
