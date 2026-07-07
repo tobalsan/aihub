@@ -6,7 +6,12 @@ import {
   generatePkce,
   generateState,
   getOAuthProvider,
+  OAuthRefreshError,
+  refreshAccessToken,
+  revokeToken,
+  type ConnectionState,
   type GatewayConfig,
+  type OAuthClientCredentials,
   type OAuthConnection,
   type OAuthCredentialSource,
   type OAuthFetch,
@@ -225,8 +230,100 @@ export class OAuthService {
     return this.#store.get(agentId, provider);
   }
 
-  disconnect(agentId: string, provider: string): void {
+  /**
+   * Disconnect a (agent, provider) pair: best-effort revoke the grant at the
+   * provider so the agent's access is actually withdrawn upstream, then clear
+   * the local record. The resulting state is `disconnected` (no stored record).
+   */
+  async disconnect(agentId: string, provider: string): Promise<void> {
+    const connection = this.#store.get(agentId, provider);
+    if (connection) {
+      const descriptor = getOAuthProvider(provider);
+      if (descriptor) {
+        // Revoke the refresh token when present (revoking it invalidates the
+        // whole grant on Google), else the access token. Best-effort.
+        const token = connection.refreshToken ?? connection.accessToken;
+        await revokeToken(descriptor, token, this.#fetch);
+      }
+    }
     this.#store.delete(agentId, provider);
+  }
+
+  /**
+   * The lifecycle state of a (agent, provider) connection for the state machine
+   * / UI: `disconnected` when nothing is stored, `needs_reconnect` when the
+   * stored grant is unrecoverable, else `connected`.
+   */
+  getConnectionState(agentId: string, provider: string): ConnectionState {
+    const connection = this.#store.get(agentId, provider);
+    if (!connection) return "disconnected";
+    return connection.status === "needs_reconnect"
+      ? "needs_reconnect"
+      : "connected";
+  }
+
+  /** Skew before expiry at which we proactively refresh the access token. */
+  static readonly REFRESH_SKEW_MS = 60_000;
+
+  /**
+   * Ensure the stored connection carries a fresh, usable access token,
+   * refreshing silently while the refresh token is valid. On an unrecoverable
+   * refresh failure it flips the connection to `needs_reconnect` and returns
+   * undefined; on a transient failure it keeps the (still-usable) grant.
+   */
+  async #ensureFreshToken(
+    connection: OAuthConnection,
+    provider: OAuthProviderDescriptor,
+    credentials: OAuthClientCredentials
+  ): Promise<OAuthConnection | undefined> {
+    const expiringSoon =
+      typeof connection.expiresAt === "number" &&
+      connection.expiresAt - OAuthService.REFRESH_SKEW_MS <= Date.now();
+    if (!expiringSoon) return connection;
+
+    // Expiring/expired but no refresh token: the grant is unrecoverable.
+    if (!connection.refreshToken) {
+      return this.#markNeedsReconnect(connection);
+    }
+
+    try {
+      const tokens = await refreshAccessToken(
+        { provider, credentials, refreshToken: connection.refreshToken },
+        this.#fetch
+      );
+      return this.#store.update(connection.agentId, provider.id, {
+        accessToken: tokens.accessToken,
+        refreshToken: tokens.refreshToken ?? connection.refreshToken,
+        expiresAt: tokens.expiresAt,
+        scopes: tokens.scopes.length > 0 ? tokens.scopes : connection.scopes,
+        tokenType: tokens.tokenType ?? connection.tokenType,
+        status: "connected",
+      });
+    } catch (error) {
+      if (error instanceof OAuthRefreshError && !error.unrecoverable) {
+        // Transient failure (network / 5xx): keep the grant untouched. If the
+        // token is still within its lifetime, hand it back; otherwise report
+        // needs_reconnect for this call without discarding the connection.
+        if (
+          typeof connection.expiresAt === "number" &&
+          connection.expiresAt <= Date.now()
+        ) {
+          return undefined;
+        }
+        return connection;
+      }
+      // Unrecoverable (revoked / expired-beyond-refresh): flip state.
+      return this.#markNeedsReconnect(connection);
+    }
+  }
+
+  #markNeedsReconnect(connection: OAuthConnection): undefined {
+    if (connection.status !== "needs_reconnect") {
+      this.#store.update(connection.agentId, connection.provider, {
+        status: "needs_reconnect",
+      });
+    }
+    return undefined;
   }
 
   /**
@@ -234,7 +331,9 @@ export class OAuthService {
    * structured not-connected signal instead of throwing when there is no
    * connection or the provider is not configured.
    *
-   * No refresh in this slice: an expired token yields `reason: "expired"`.
+   * Tokens refresh silently while the refresh token is valid; the moment a grant
+   * is unrecoverable the connection flips to `needs_reconnect` and the agent
+   * gets the clean not-connected signal instead of a cryptic error.
    */
   async resolveToken(
     agentId: string,
@@ -269,8 +368,8 @@ export class OAuthService {
       };
     }
 
-    const connection = this.#store.get(agentId, provider.id);
-    if (!connection) {
+    const stored = this.#store.get(agentId, provider.id);
+    if (!stored) {
       return {
         connected: false,
         provider: provider.id,
@@ -280,14 +379,22 @@ export class OAuthService {
       };
     }
 
-    if (connection.expiresAt && connection.expiresAt <= Date.now()) {
-      return {
-        connected: false,
-        provider: provider.id,
-        reason: "expired",
-        message: `${provider.displayName} token expired; reconnect required.`,
-        authorizeUrl,
-      };
+    const needsReconnect = {
+      connected: false as const,
+      provider: provider.id,
+      reason: "needs_reconnect" as const,
+      message: `${provider.displayName} needs to be reconnected for agent "${agentId}".`,
+      authorizeUrl,
+    };
+
+    // Already flagged unrecoverable: don't retry, surface the clean signal.
+    if (stored.status === "needs_reconnect") {
+      return needsReconnect;
+    }
+
+    const connection = await this.#ensureFreshToken(stored, provider, credentials);
+    if (!connection) {
+      return needsReconnect;
     }
 
     return {

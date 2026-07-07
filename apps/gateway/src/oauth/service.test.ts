@@ -217,7 +217,93 @@ describe("OAuthService", () => {
     }
   });
 
-  it("resolveToken reports expired without refreshing (no refresh in this slice)", async () => {
+  it("resolveToken refreshes silently when the access token is expiring (refresh success path)", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "OLD",
+      refreshToken: "REFRESH-1",
+      scopes: ["https://www.googleapis.com/auth/drive.readonly"],
+      expiresAt: Date.now() - 1000, // already expired
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      const urlStr = String(input);
+      if (urlStr.includes("token")) {
+        const body = new URLSearchParams((init?.body as string) ?? "");
+        // Must be a refresh_token grant using the stored refresh token.
+        expect(body.get("grant_type")).toBe("refresh_token");
+        expect(body.get("refresh_token")).toBe("REFRESH-1");
+        return new Response(
+          JSON.stringify({
+            access_token: "NEW-ACCESS",
+            expires_in: 3600,
+            token_type: "Bearer",
+          }),
+          { status: 200, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      throw new Error(`unexpected fetch to ${urlStr}`);
+    });
+
+    const service = new OAuthService({
+      store,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadConfig: () => makeConfig(),
+    });
+    const resolved = await service.resolveToken("a1", { provider: "google" });
+
+    expect(resolved.connected).toBe(true);
+    if (resolved.connected) expect(resolved.accessToken).toBe("NEW-ACCESS");
+    // Refreshed token is persisted and the connection stays `connected`.
+    const stored = store.get("a1", "google");
+    expect(stored?.accessToken).toBe("NEW-ACCESS");
+    expect(stored?.status).toBe("connected");
+    expect(service.getConnectionState("a1", "google")).toBe("connected");
+  });
+
+  it("resolveToken flips to needs_reconnect when the refresh grant is unrecoverable (refresh failure path)", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "OLD",
+      refreshToken: "DEAD-REFRESH",
+      scopes: [],
+      expiresAt: Date.now() - 1000,
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("token")) {
+        return new Response(
+          JSON.stringify({ error: "invalid_grant", error_description: "revoked" }),
+          { status: 400, headers: { "Content-Type": "application/json" } }
+        );
+      }
+      throw new Error("unexpected fetch");
+    });
+
+    const service = new OAuthService({
+      store,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadConfig: () => makeConfig(),
+    });
+    const resolved = await service.resolveToken("a1", { provider: "google" });
+
+    expect(resolved.connected).toBe(false);
+    if (!resolved.connected) {
+      expect(resolved.reason).toBe("needs_reconnect");
+      expect(resolved.authorizeUrl).toContain("/api/oauth/google/authorize");
+    }
+    // Connection is retained but flagged, so the UI can prompt a reconnect.
+    expect(service.getConnectionState("a1", "google")).toBe("needs_reconnect");
+    expect(store.get("a1", "google")?.status).toBe("needs_reconnect");
+  });
+
+  it("resolveToken flips to needs_reconnect when an expired token has no refresh token", async () => {
     store.save({
       agentId: "a1",
       provider: "google",
@@ -230,7 +316,90 @@ describe("OAuthService", () => {
     const service = new OAuthService({ store, loadConfig: () => makeConfig() });
     const resolved = await service.resolveToken("a1", { provider: "google" });
     expect(resolved.connected).toBe(false);
-    if (!resolved.connected) expect(resolved.reason).toBe("expired");
+    if (!resolved.connected) expect(resolved.reason).toBe("needs_reconnect");
+    expect(service.getConnectionState("a1", "google")).toBe("needs_reconnect");
+  });
+
+  it("resolveToken keeps a still-valid grant on a transient (5xx) refresh failure", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "STILL-GOOD",
+      refreshToken: "REFRESH-1",
+      scopes: [],
+      // Within skew window (expiring soon) but not yet expired.
+      expiresAt: Date.now() + 30_000,
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL) => {
+      if (String(input).includes("token")) {
+        return new Response("upstream boom", { status: 503 });
+      }
+      throw new Error("unexpected fetch");
+    });
+    const service = new OAuthService({
+      store,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadConfig: () => makeConfig(),
+    });
+    const resolved = await service.resolveToken("a1", { provider: "google" });
+    expect(resolved.connected).toBe(true);
+    if (resolved.connected) expect(resolved.accessToken).toBe("STILL-GOOD");
+    // Transient failure must not discard the grant.
+    expect(service.getConnectionState("a1", "google")).toBe("connected");
+  });
+
+  it("disconnect revokes the grant at the provider then clears it (state -> disconnected)", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "A1",
+      refreshToken: "REFRESH-1",
+      scopes: [],
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const fetchImpl = vi.fn(async (input: RequestInfo | URL, init?: RequestInit) => {
+      expect(String(input)).toContain("revoke");
+      const body = new URLSearchParams((init?.body as string) ?? "");
+      expect(body.get("token")).toBe("REFRESH-1");
+      return new Response(null, { status: 200 });
+    });
+    const service = new OAuthService({
+      store,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadConfig: () => makeConfig(),
+    });
+
+    expect(service.getConnectionState("a1", "google")).toBe("connected");
+    await service.disconnect("a1", "google");
+
+    expect(fetchImpl).toHaveBeenCalledOnce();
+    expect(store.get("a1", "google")).toBeUndefined();
+    expect(service.getConnectionState("a1", "google")).toBe("disconnected");
+  });
+
+  it("disconnect still clears locally when the provider revoke fails", async () => {
+    store.save({
+      agentId: "a1",
+      provider: "google",
+      accessToken: "A1",
+      scopes: [],
+      connectedAt: Date.now(),
+      updatedAt: Date.now(),
+    });
+    const fetchImpl = vi.fn(async () => {
+      throw new Error("network down");
+    });
+    const service = new OAuthService({
+      store,
+      fetchImpl: fetchImpl as unknown as typeof fetch,
+      loadConfig: () => makeConfig(),
+    });
+    await service.disconnect("a1", "google");
+    expect(store.get("a1", "google")).toBeUndefined();
+    expect(service.getConnectionState("a1", "google")).toBe("disconnected");
   });
 
   it("resolveToken reports provider_not_configured when no client credentials", async () => {

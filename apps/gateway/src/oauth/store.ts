@@ -50,6 +50,20 @@ export class OAuthConnectionStore {
     return validated;
   }
 
+  /**
+   * Apply a partial update to a stored connection and persist it. Returns the
+   * updated connection, or undefined when there is nothing stored for the pair.
+   */
+  update(
+    agentId: string,
+    provider: string,
+    patch: Partial<OAuthConnection>
+  ): OAuthConnection | undefined {
+    const existing = this.get(agentId, provider);
+    if (!existing) return undefined;
+    return this.save({ ...existing, ...patch, updatedAt: Date.now() });
+  }
+
   delete(agentId: string, provider: string): void {
     const file = this.#fileFor(agentId, provider);
     try {

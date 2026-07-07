@@ -1,0 +1,11 @@
+{
+  "state": "connected",
+  "badgeText": "Connected",
+  "badgeClass": "oauth-badge oauth-badge-on",
+  "buttons": [
+    "Refresh",
+    "Disconnect"
+  ],
+  "warnShown": false,
+  "accountShown": "e2e-user@example.com"
+}

@@ -74,6 +74,104 @@ export async function exchangeCodeForTokens(
   };
 }
 
+export interface TokenRefreshInput {
+  provider: OAuthProviderDescriptor;
+  credentials: OAuthClientCredentials;
+  refreshToken: string;
+}
+
+/**
+ * Thrown when the provider explicitly rejects a refresh (revoked / expired
+ * grant). This is the unrecoverable case that flips a connection to
+ * `needs_reconnect` — distinct from a transient network/5xx error, which should
+ * not discard a still-valid grant.
+ */
+export class OAuthRefreshError extends Error {
+  /** True when the grant is unrecoverable and the user must reconnect. */
+  readonly unrecoverable: boolean;
+  constructor(message: string, unrecoverable: boolean) {
+    super(message);
+    this.name = "OAuthRefreshError";
+    this.unrecoverable = unrecoverable;
+  }
+}
+
+/**
+ * Exchange a refresh token for a fresh access token at the provider's token
+ * endpoint. Provider-agnostic.
+ *
+ * Only an explicit OAuth grant error (e.g. `invalid_grant`, `invalid_client`)
+ * means the grant is dead and the caller must transition to `needs_reconnect`;
+ * that surfaces as an `OAuthRefreshError` with `unrecoverable: true`. Everything
+ * else — network errors, `5xx`, and transient `4xx` like `408`/`429` — surfaces
+ * as `unrecoverable: false` so the caller keeps the (possibly still-valid) grant.
+ */
+/** OAuth error codes that mean the refresh grant itself is permanently dead. */
+const UNRECOVERABLE_REFRESH_ERRORS = new Set([
+  "invalid_grant",
+  "invalid_client",
+  "unauthorized_client",
+  "access_denied",
+]);
+export async function refreshAccessToken(
+  input: TokenRefreshInput,
+  fetchImpl: OAuthFetch = fetch
+): Promise<TokenExchangeResult> {
+  const body = new URLSearchParams({
+    grant_type: "refresh_token",
+    refresh_token: input.refreshToken,
+    client_id: input.credentials.clientId,
+    client_secret: input.credentials.clientSecret,
+  });
+
+  let response: Response;
+  try {
+    response = await fetchImpl(input.provider.tokenUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: body.toString(),
+    });
+  } catch (error) {
+    // Network-level failure: transient, keep the grant.
+    throw new OAuthRefreshError(
+      `OAuth token refresh failed: ${
+        error instanceof Error ? error.message : String(error)
+      }`,
+      false
+    );
+  }
+
+  const raw = (await response.json().catch(() => ({}))) as RawTokenResponse;
+  if (!response.ok || raw.error || !raw.access_token) {
+    const detail = raw.error_description || raw.error || `HTTP ${response.status}`;
+    // Only an explicit OAuth grant-error code means the grant is permanently
+    // dead. A transient 4xx (408/429) or a 5xx must NOT discard a valid grant,
+    // so anything without a known-fatal error code is treated as recoverable.
+    const unrecoverable = raw.error
+      ? UNRECOVERABLE_REFRESH_ERRORS.has(raw.error)
+      : false;
+    throw new OAuthRefreshError(
+      `OAuth token refresh failed: ${detail}`,
+      unrecoverable
+    );
+  }
+
+  return {
+    accessToken: raw.access_token,
+    // Google usually omits refresh_token on refresh; keep the existing one.
+    refreshToken: raw.refresh_token,
+    expiresAt:
+      typeof raw.expires_in === "number"
+        ? Date.now() + raw.expires_in * 1000
+        : undefined,
+    scopes: raw.scope ? raw.scope.split(/\s+/).filter(Boolean) : [],
+    tokenType: raw.token_type,
+  };
+}
+
 /**
  * Fetch the connected account identity so the UI can display "Connected as
  * <email>". Best-effort: failure just yields undefined, it does not break the
@@ -94,6 +192,33 @@ export async function fetchAccountLabel(
     return provider.extractAccount(userInfo);
   } catch {
     return undefined;
+  }
+}
+
+/**
+ * Best-effort revoke a token at the provider's revocation endpoint (RFC 7009).
+ * Used on disconnect so the agent's access is actually withdrawn upstream, not
+ * just forgotten locally. Never throws: a failed revoke must not block clearing
+ * the local record. Returns true when the provider acknowledged the revoke.
+ */
+export async function revokeToken(
+  provider: OAuthProviderDescriptor,
+  token: string,
+  fetchImpl: OAuthFetch = fetch
+): Promise<boolean> {
+  if (!provider.revokeUrl) return false;
+  try {
+    const response = await fetchImpl(provider.revokeUrl, {
+      method: "POST",
+      headers: {
+        "Content-Type": "application/x-www-form-urlencoded",
+        Accept: "application/json",
+      },
+      body: new URLSearchParams({ token }).toString(),
+    });
+    return response.ok;
+  } catch {
+    return false;
   }
 }
 

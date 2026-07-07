@@ -1,16 +1,34 @@
-import { createSignal, createEffect, For, Show, onCleanup } from "solid-js";
+import {
+  createSignal,
+  createEffect,
+  For,
+  Match,
+  Show,
+  Switch,
+  onCleanup,
+} from "solid-js";
 import type { Component } from "solid-js";
 import { LeftNavShell } from "../../components/LeftNavShell";
 import { fetchAgents } from "../../api/agents";
 import type { Agent } from "../../api/types";
 
+type ConnectionState = "connected" | "needs_reconnect" | "disconnected";
+
 type OAuthStatus = {
+  state?: ConnectionState;
   connected: boolean;
   provider: string;
   account?: string;
   scopes?: string[];
   connectedAt?: number;
 };
+
+/** Normalize status to a lifecycle state (tolerating older payloads). */
+function stateOf(status: OAuthStatus | undefined): ConnectionState {
+  if (!status) return "disconnected";
+  if (status.state) return status.state;
+  return status.connected ? "connected" : "disconnected";
+}
 
 const PROVIDER = "google";
 const PROVIDER_LABEL = "Google Drive";
@@ -105,6 +123,9 @@ function OAuthConnectPage(): ReturnType<Component> {
     await refreshStatus();
   };
 
+  // Reconnect is the same authorize flow; a fresh grant clears needs_reconnect.
+  const reconnect = connect;
+
   return (
     <LeftNavShell>
       <div class="oauth-root">
@@ -135,36 +156,59 @@ function OAuthConnectPage(): ReturnType<Component> {
           <div class="oauth-card-head">
             <div class="oauth-provider">
               <span class="oauth-provider-name">{PROVIDER_LABEL}</span>
-              <Show
-                when={status()?.connected}
+              <Switch
                 fallback={<span class="oauth-badge oauth-badge-off">Not connected</span>}
               >
-                <span class="oauth-badge oauth-badge-on">Connected</span>
-              </Show>
+                <Match when={stateOf(status()) === "connected"}>
+                  <span class="oauth-badge oauth-badge-on">Connected</span>
+                </Match>
+                <Match when={stateOf(status()) === "needs_reconnect"}>
+                  <span class="oauth-badge oauth-badge-warn">Needs reconnect</span>
+                </Match>
+              </Switch>
             </div>
-            <Show
-              when={status()?.connected}
+            <Switch
               fallback={
                 <button class="oauth-btn oauth-btn-primary" disabled={!selectedAgent()} onClick={connect}>
                   Connect Google Drive
                 </button>
               }
             >
-              <div class="oauth-actions">
-                <button class="oauth-btn" onClick={() => void refreshStatus()}>Refresh</button>
-                <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
-              </div>
-            </Show>
+              <Match when={stateOf(status()) === "connected"}>
+                <div class="oauth-actions">
+                  <button class="oauth-btn" onClick={() => void refreshStatus()}>Refresh</button>
+                  <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
+                </div>
+              </Match>
+              <Match when={stateOf(status()) === "needs_reconnect"}>
+                <div class="oauth-actions">
+                  <button class="oauth-btn oauth-btn-primary" disabled={!selectedAgent()} onClick={reconnect}>
+                    Reconnect
+                  </button>
+                  <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
+                </div>
+              </Match>
+            </Switch>
           </div>
 
-          <Show when={status()?.connected}>
+          <Show when={stateOf(status()) === "needs_reconnect"}>
             <div class="oauth-connected-detail">
-              <Show when={status()?.account}>
-                <div class="oauth-account">
-                  <span class="oauth-account-label">Connected as</span>
-                  <span class="oauth-account-value">{status()!.account}</span>
-                </div>
-              </Show>
+              <p class="oauth-warn-text">
+                This connection can no longer refresh (the grant was revoked or
+                expired). Reconnect to restore access
+                <Show when={status()?.account}>
+                  {" "}for <span class="oauth-account-value">{status()!.account}</span>
+                </Show>.
+              </p>
+            </div>
+          </Show>
+
+          <Show when={stateOf(status()) === "connected" && status()?.account}>
+            <div class="oauth-connected-detail">
+              <div class="oauth-account">
+                <span class="oauth-account-label">Connected as</span>
+                <span class="oauth-account-value">{status()!.account}</span>
+              </div>
             </div>
           </Show>
 
@@ -195,6 +239,8 @@ const OAUTH_STYLES = `
 .oauth-badge { font-size: 11px; font-weight: 600; text-transform: uppercase; letter-spacing: 0.04em; padding: 3px 8px; border-radius: 999px; }
 .oauth-badge-on { color: #137333; background: color-mix(in srgb, #137333 12%, transparent); }
 .oauth-badge-off { color: var(--text-secondary); background: color-mix(in srgb, var(--text-secondary) 12%, transparent); }
+.oauth-badge-warn { color: #b26a00; background: color-mix(in srgb, #f9ab00 18%, transparent); }
+.oauth-warn-text { margin: 0; color: var(--text-secondary); font-size: 13px; line-height: 1.5; }
 .oauth-actions { display: flex; gap: 8px; }
 .oauth-btn { padding: 8px 14px; border-radius: 8px; border: 1px solid var(--border-default);
   background: var(--bg-base); color: var(--text-primary); font-size: 13px; cursor: pointer; }
