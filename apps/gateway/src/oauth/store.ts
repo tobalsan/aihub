@@ -13,28 +13,35 @@ import { resolveTokenCipher } from "./encryption.js";
  * (agent, provider) pair — one connection per pair, not per user. Persisted as
  * one JSON file per pair under `$AIHUB_HOME/oauth/`.
  *
- * Token fields (access + refresh) are encrypted at rest with AES-256-GCM when an
- * encryption secret is configured (`oauth.encryptionKey`); a leaked token file
+ * Token fields (access + refresh) are encrypted at rest with AES-256-GCM using
+ * the configured encryption secret (`oauth.encryptionKey`); a leaked token file
  * then yields ciphertext, not a live Google grant. Tokens are only decrypted in
- * memory on read. When no secret is configured the store falls back to plaintext
- * (a warning is logged once at startup) so local/dev setups keep working.
+ * memory on read.
+ *
+ * The store **fails closed**: if no encryption secret is configured, {@link save}
+ * throws rather than persisting plaintext tokens, so a missing key can never
+ * create a new plaintext token row. Reads remain tolerant of legacy plaintext
+ * rows written before encryption was enabled (they are re-encrypted on next
+ * save).
  */
 export class OAuthConnectionStore {
   #dir: string;
   #cipher: TokenCipher | undefined;
 
   /**
-   * @param cipher token cipher, or `null` to force plaintext (local/dev, tests).
-   *   When omitted entirely, the cipher is resolved from instance config
-   *   (`oauth.encryptionKey`) via {@link resolveTokenCipher}.
+   * @param cipher token cipher. When omitted, it is resolved from instance
+   *   config (`oauth.encryptionKey`) via {@link resolveTokenCipher}; pass `null`
+   *   to force the no-cipher state without touching config (tests). With no
+   *   cipher, {@link save} fails closed, but reads still work (legacy plaintext
+   *   passes through), so the gateway can boot and surface existing connections
+   *   even without a key.
    */
   constructor(
     dir: string = path.join(CONFIG_DIR, "oauth"),
     cipher: TokenCipher | null | undefined = undefined
   ) {
     this.#dir = dir;
-    // `undefined` => resolve from config; `null` => explicitly no cipher
-    // (plaintext) without touching config, keeping tests isolated.
+    // `undefined` => resolve from config; `null` => explicitly no cipher.
     this.#cipher = cipher === undefined ? resolveTokenCipher() : cipher ?? undefined;
   }
 
@@ -69,9 +76,19 @@ export class OAuthConnectionStore {
     return validated;
   }
 
-  /** Encrypt token fields for persistence; no-op when no cipher is configured. */
+  /**
+   * Encrypt token fields for persistence. Fails closed: without a configured
+   * cipher this throws instead of writing plaintext, guaranteeing a token row is
+   * never persisted in the clear.
+   */
   #encryptTokens(connection: OAuthConnection): OAuthConnection {
-    if (!this.#cipher) return connection;
+    if (!this.#cipher) {
+      throw new Error(
+        "Refusing to persist OAuth tokens in plaintext: oauth.encryptionKey is " +
+          "not configured. Set oauth.encryptionKey (e.g. " +
+          "$env:AIHUB_OAUTH_ENCRYPTION_KEY) to encrypt tokens at rest."
+      );
+    }
     return {
       ...connection,
       accessToken: this.#cipher.encrypt(connection.accessToken),

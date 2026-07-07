@@ -132,16 +132,30 @@ describe("OAuthConnectionStore encryption at rest", () => {
   });
 
   it("reads legacy plaintext rows written before encryption was enabled", () => {
-    // A store with `null` cipher writes plaintext (local/dev fallback) without
-    // touching real config.
-    const plainStore = new OAuthConnectionStore(tmpDir, null);
+    // Seed a legacy plaintext row on disk directly (as written by a pre-
+    // encryption build). The store itself never writes plaintext.
     const connection = makeConnection();
-    plainStore.save(connection);
+    fs.writeFileSync(
+      path.join(tmpDir, "main__google.json"),
+      JSON.stringify(connection, null, 2),
+      { mode: 0o600 }
+    );
 
     // A cipher-backed store still reads the legacy plaintext row.
     const encStore = new OAuthConnectionStore(tmpDir, cipher);
     const loaded = encStore.get("main", "google");
     expect(loaded?.accessToken).toBe(connection.accessToken);
     expect(loaded?.refreshToken).toBe(connection.refreshToken);
+  });
+
+  it("fails closed: refuses to persist tokens when no cipher is configured", () => {
+    // `null` forces the no-cipher state (as when oauth.encryptionKey is unset).
+    const store = new OAuthConnectionStore(tmpDir, null);
+
+    expect(() => store.save(makeConnection())).toThrow(
+      /plaintext[\s\S]*oauth\.encryptionKey|oauth\.encryptionKey/i
+    );
+    // Nothing was written to disk: no plaintext token row was created.
+    expect(fs.readdirSync(tmpDir)).toHaveLength(0);
   });
 });

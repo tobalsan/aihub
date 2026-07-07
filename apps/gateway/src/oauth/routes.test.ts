@@ -6,6 +6,7 @@ import type { GatewayConfig } from "@aihub/shared";
 import { createOAuthRoutes } from "./routes.js";
 import { OAuthService } from "./service.js";
 import { OAuthConnectionStore } from "./store.js";
+import { TokenCipher } from "./crypto.js";
 
 function makeConfig(): GatewayConfig {
   return {
@@ -24,7 +25,7 @@ describe("oauth routes", () => {
 
   beforeEach(() => {
     tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), "oauth-routes-"));
-    store = new OAuthConnectionStore(tmpDir);
+    store = new OAuthConnectionStore(tmpDir, new TokenCipher("routes-test-key"));
   });
 
   afterEach(() => {

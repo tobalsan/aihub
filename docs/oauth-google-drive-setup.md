@@ -158,9 +158,12 @@ Notes:
 
 - **Key source.** The secret is read from instance config/env only. AIHub never
   hardcodes or generates a persistent key for you.
-- **No key = plaintext.** If `oauth.encryptionKey` is unset, tokens are stored in
-  **plaintext** and the gateway logs a warning at startup. This is acceptable for
-  local/dev only — **always set a key in production.**
+- **Key required to connect (fail closed).** If `oauth.encryptionKey` is unset,
+  the store **refuses to persist tokens** rather than writing them in plaintext:
+  the gateway logs a warning at startup and any attempt to connect a new account
+  fails with an error telling you to set the key. Plaintext token rows are never
+  created. (Existing legacy plaintext rows from older builds are still read and
+  are re-encrypted on the next save.) **Set a key before connecting any account.**
 - **Rotation.** Changing the key makes previously stored tokens unreadable;
   affected agents simply reconnect (the connect flow re-issues tokens). There is
   no plaintext fallback that would leak the old tokens.
@@ -201,5 +204,6 @@ readable tokens.
 - **No refresh token / re-consent every time** — AIHub requests
   `access_type=offline` and `prompt=consent` for Google, so a refresh token is
   issued on first consent. If you revoked access, disconnect and reconnect.
-- **Warning: "OAuth tokens are stored in PLAINTEXT"** — set
-  `oauth.encryptionKey` (section 5) and restart.
+- **Connect fails / startup warning about `oauth.encryptionKey`** — the key is
+  unset, so the store fails closed and will not persist tokens. Set
+  `oauth.encryptionKey` (section 5) and restart, then connect.

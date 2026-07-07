@@ -9,9 +9,11 @@ import { TokenCipher } from "./crypto.js";
  * `oauth.encryptionKey: "$env:AIHUB_OAUTH_ENCRYPTION_KEY"` resolves the value
  * from the environment (loaded from `$AIHUB_HOME/.env` or the process env).
  *
- * When no secret is configured, returns `undefined` and logs a one-time warning:
- * the store then persists tokens in plaintext. That keeps zero-config local/dev
- * setups working while making the operator's choice explicit for production.
+ * When no secret is configured, returns `undefined` and logs a one-time warning.
+ * The connection store treats a missing cipher as fail-closed: it can still read
+ * existing (including legacy plaintext) rows, but any attempt to persist a new
+ * token throws rather than writing plaintext. Operators must set a key to
+ * connect new accounts.
  */
 
 let warned = false;
@@ -43,9 +45,10 @@ export function resolveTokenCipher(
     if (!warned) {
       warned = true;
       console.warn(
-        "[oauth] oauth.encryptionKey is not set — OAuth tokens are stored in " +
-          "PLAINTEXT. Set oauth.encryptionKey (e.g. $env:AIHUB_OAUTH_ENCRYPTION_KEY) " +
-          "to encrypt tokens at rest."
+        "[oauth] oauth.encryptionKey is not set — OAuth tokens are encrypted at " +
+          "rest, so connecting a new account will FAIL until you set a key. Set " +
+          "oauth.encryptionKey (e.g. $env:AIHUB_OAUTH_ENCRYPTION_KEY) to enable " +
+          "the OAuth connect flow."
       );
     }
     return undefined;
