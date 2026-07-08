@@ -8,6 +8,7 @@ import {
   onCleanup,
 } from "solid-js";
 import type { Component } from "solid-js";
+import { A, useParams } from "@solidjs/router";
 import { LeftNavShell } from "../../components/LeftNavShell";
 import { fetchAgents } from "../../api/agents";
 import type { Agent } from "../../api/types";
@@ -51,26 +52,18 @@ async function disconnectOAuth(agentId: string, provider = PROVIDER): Promise<vo
   );
 }
 
-function OAuthConnectPage(): ReturnType<Component> {
-  const [agents, setAgents] = createSignal<Agent[]>([]);
-  const [selectedAgent, setSelectedAgent] = createSignal<string>("");
+/**
+ * Connect/disconnect card for a single agent's OAuth grant. Shared by the
+ * agent-picker page below and the agent-scoped `configRoute` page, which
+ * both just need to supply the current `agentId`.
+ */
+function OAuthConnectCard(props: { agentId: () => string }): ReturnType<Component> {
   const [status, setStatus] = createSignal<OAuthStatus>();
   const [loading, setLoading] = createSignal(false);
   const [error, setError] = createSignal<string>();
 
-  createEffect(() => {
-    void fetchAgents()
-      .then((list) => {
-        setAgents(list);
-        if (!selectedAgent() && list.length > 0) setSelectedAgent(list[0].id);
-      })
-      .catch((err) =>
-        setError(err instanceof Error ? err.message : String(err))
-      );
-  });
-
   const refreshStatus = async () => {
-    const agentId = selectedAgent();
+    const agentId = props.agentId();
     if (!agentId) return;
     setLoading(true);
     try {
@@ -83,10 +76,10 @@ function OAuthConnectPage(): ReturnType<Component> {
     }
   };
 
-  // Refresh status when the selected agent changes, and again when the popup
-  // signals completion (postMessage) or the window regains focus.
+  // Refresh status when the agent changes, and again when the popup signals
+  // completion (postMessage) or the window regains focus.
   createEffect(() => {
-    selectedAgent();
+    props.agentId();
     void refreshStatus();
   });
 
@@ -110,14 +103,14 @@ function OAuthConnectPage(): ReturnType<Component> {
   });
 
   const connect = () => {
-    const agentId = selectedAgent();
+    const agentId = props.agentId();
     if (!agentId) return;
     const url = `/api/oauth/${PROVIDER}/authorize?agent=${encodeURIComponent(agentId)}`;
     window.open(url, "aihub-oauth", "width=520,height=640");
   };
 
   const disconnect = async () => {
-    const agentId = selectedAgent();
+    const agentId = props.agentId();
     if (!agentId) return;
     await disconnectOAuth(agentId);
     await refreshStatus();
@@ -125,6 +118,96 @@ function OAuthConnectPage(): ReturnType<Component> {
 
   // Reconnect is the same authorize flow; a fresh grant clears needs_reconnect.
   const reconnect = connect;
+
+  return (
+    <>
+      <Show when={error()}>
+        <div class="oauth-error">{error()}</div>
+      </Show>
+
+      <section class="oauth-card">
+        <div class="oauth-card-head">
+          <div class="oauth-provider">
+            <span class="oauth-provider-name">{PROVIDER_LABEL}</span>
+            <Switch
+              fallback={<span class="oauth-badge oauth-badge-off">Not connected</span>}
+            >
+              <Match when={stateOf(status()) === "connected"}>
+                <span class="oauth-badge oauth-badge-on">Connected</span>
+              </Match>
+              <Match when={stateOf(status()) === "needs_reconnect"}>
+                <span class="oauth-badge oauth-badge-warn">Needs reconnect</span>
+              </Match>
+            </Switch>
+          </div>
+          <Switch
+            fallback={
+              <button class="oauth-btn oauth-btn-primary" disabled={!props.agentId()} onClick={connect}>
+                Connect Google Drive
+              </button>
+            }
+          >
+            <Match when={stateOf(status()) === "connected"}>
+              <div class="oauth-actions">
+                <button class="oauth-btn" onClick={() => void refreshStatus()}>Refresh</button>
+                <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
+              </div>
+            </Match>
+            <Match when={stateOf(status()) === "needs_reconnect"}>
+              <div class="oauth-actions">
+                <button class="oauth-btn oauth-btn-primary" disabled={!props.agentId()} onClick={reconnect}>
+                  Reconnect
+                </button>
+                <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
+              </div>
+            </Match>
+          </Switch>
+        </div>
+
+        <Show when={stateOf(status()) === "needs_reconnect"}>
+          <div class="oauth-connected-detail">
+            <p class="oauth-warn-text">
+              This connection can no longer refresh (the grant was revoked or
+              expired). Reconnect to restore access
+              <Show when={status()?.account}>
+                {" "}for <span class="oauth-account-value">{status()!.account}</span>
+              </Show>.
+            </p>
+          </div>
+        </Show>
+
+        <Show when={stateOf(status()) === "connected" && status()?.account}>
+          <div class="oauth-connected-detail">
+            <div class="oauth-account">
+              <span class="oauth-account-label">Connected as</span>
+              <span class="oauth-account-value">{status()!.account}</span>
+            </div>
+          </div>
+        </Show>
+
+        <Show when={loading() && !status()}>
+          <div class="oauth-quiet">Checking connection…</div>
+        </Show>
+      </section>
+    </>
+  );
+}
+
+function OAuthConnectPage(): ReturnType<Component> {
+  const [agents, setAgents] = createSignal<Agent[]>([]);
+  const [selectedAgent, setSelectedAgent] = createSignal<string>("");
+  const [agentsError, setAgentsError] = createSignal<string>();
+
+  createEffect(() => {
+    void fetchAgents()
+      .then((list) => {
+        setAgents(list);
+        if (!selectedAgent() && list.length > 0) setSelectedAgent(list[0].id);
+      })
+      .catch((err) =>
+        setAgentsError(err instanceof Error ? err.message : String(err))
+      );
+  });
 
   return (
     <LeftNavShell>
@@ -135,8 +218,8 @@ function OAuthConnectPage(): ReturnType<Component> {
           <p>Connect external accounts per agent. Tokens are scoped to the agent workspace.</p>
         </header>
 
-        <Show when={error()}>
-          <div class="oauth-error">{error()}</div>
+        <Show when={agentsError()}>
+          <div class="oauth-error">{agentsError()}</div>
         </Show>
 
         <div class="oauth-agent-row">
@@ -152,70 +235,36 @@ function OAuthConnectPage(): ReturnType<Component> {
           </select>
         </div>
 
-        <section class="oauth-card">
-          <div class="oauth-card-head">
-            <div class="oauth-provider">
-              <span class="oauth-provider-name">{PROVIDER_LABEL}</span>
-              <Switch
-                fallback={<span class="oauth-badge oauth-badge-off">Not connected</span>}
-              >
-                <Match when={stateOf(status()) === "connected"}>
-                  <span class="oauth-badge oauth-badge-on">Connected</span>
-                </Match>
-                <Match when={stateOf(status()) === "needs_reconnect"}>
-                  <span class="oauth-badge oauth-badge-warn">Needs reconnect</span>
-                </Match>
-              </Switch>
-            </div>
-            <Switch
-              fallback={
-                <button class="oauth-btn oauth-btn-primary" disabled={!selectedAgent()} onClick={connect}>
-                  Connect Google Drive
-                </button>
-              }
-            >
-              <Match when={stateOf(status()) === "connected"}>
-                <div class="oauth-actions">
-                  <button class="oauth-btn" onClick={() => void refreshStatus()}>Refresh</button>
-                  <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
-                </div>
-              </Match>
-              <Match when={stateOf(status()) === "needs_reconnect"}>
-                <div class="oauth-actions">
-                  <button class="oauth-btn oauth-btn-primary" disabled={!selectedAgent()} onClick={reconnect}>
-                    Reconnect
-                  </button>
-                  <button class="oauth-btn oauth-btn-danger" onClick={() => void disconnect()}>Disconnect</button>
-                </div>
-              </Match>
-            </Switch>
-          </div>
+        <OAuthConnectCard agentId={selectedAgent} />
+      </div>
+    </LeftNavShell>
+  );
+}
 
-          <Show when={stateOf(status()) === "needs_reconnect"}>
-            <div class="oauth-connected-detail">
-              <p class="oauth-warn-text">
-                This connection can no longer refresh (the grant was revoked or
-                expired). Reconnect to restore access
-                <Show when={status()?.account}>
-                  {" "}for <span class="oauth-account-value">{status()!.account}</span>
-                </Show>.
-              </p>
-            </div>
-          </Show>
+/**
+ * Agent-scoped config page mounted at the extension's `configRoute`
+ * (`/agents/:agentId/extensions/googleDrive`). Reached when the extension is
+ * enabled on an agent (ALG-354 bespoke-route redirect); the agent is fixed by
+ * the URL, so there's no agent picker.
+ */
+function AgentOAuthConfigPage(): ReturnType<Component> {
+  const params = useParams<{ agentId: string }>();
+  const agentId = () => params.agentId;
+  const backHref = () => `/agents/${encodeURIComponent(params.agentId)}/edit`;
 
-          <Show when={stateOf(status()) === "connected" && status()?.account}>
-            <div class="oauth-connected-detail">
-              <div class="oauth-account">
-                <span class="oauth-account-label">Connected as</span>
-                <span class="oauth-account-value">{status()!.account}</span>
-              </div>
-            </div>
-          </Show>
+  return (
+    <LeftNavShell>
+      <div class="oauth-root">
+        <style>{OAUTH_STYLES}</style>
+        <A href={backHref()} class="oauth-back">
+          ← Back to agent
+        </A>
+        <header class="oauth-header">
+          <h1>{PROVIDER_LABEL}</h1>
+          <p>Connect this agent's Google Drive account. Tokens are scoped to this agent's workspace.</p>
+        </header>
 
-          <Show when={loading() && !status()}>
-            <div class="oauth-quiet">Checking connection…</div>
-          </Show>
-        </section>
+        <OAuthConnectCard agentId={agentId} />
       </div>
     </LeftNavShell>
   );
@@ -223,6 +272,8 @@ function OAuthConnectPage(): ReturnType<Component> {
 
 const OAUTH_STYLES = `
 .oauth-root { max-width: 720px; margin: 0 auto; padding: 32px 24px; }
+.oauth-back { display: inline-block; margin-bottom: 20px; font-size: 14px; color: var(--text-secondary); text-decoration: none; }
+.oauth-back:hover { color: var(--text-primary); }
 .oauth-header h1 { margin: 0 0 6px; font-size: 22px; color: var(--text-primary); }
 .oauth-header p { margin: 0 0 24px; color: var(--text-secondary); font-size: 14px; }
 .oauth-error { margin-bottom: 16px; padding: 10px 14px; border-radius: 10px;
@@ -258,4 +309,8 @@ const OAUTH_STYLES = `
 export const webRouteExtension = {
   extensionId: "googleDrive",
   routes: [{ path: "/connections", component: OAuthConnectPage }],
+  configRoute: {
+    path: "/agents/:agentId/extensions/googleDrive",
+    component: AgentOAuthConfigPage,
+  },
 };
