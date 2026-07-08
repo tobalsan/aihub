@@ -337,9 +337,26 @@ export function topoSort(extensions: Extension[]): Extension[] {
   return ordered;
 }
 
-export async function loadExtensions(
+/**
+ * Activates a not-yet-loaded extension into the running gateway: registers its
+ * routes and starts it. Wired once at startup (see cli/gateway.ts) so the
+ * registry can bring extensions online without importing the server/context
+ * modules (which would be a circular import). Undefined until wired.
+ */
+type ExtensionActivator = (extension: Extension) => Promise<void>;
+let activateExtension: ExtensionActivator | undefined;
+
+export function setExtensionActivator(activator: ExtensionActivator): void {
+  activateExtension = activator;
+}
+
+/**
+ * Compute the desired set of extensions to load for a config, resolving the
+ * home-route owner. Pure w.r.t. runtime state — does not touch the runtime.
+ */
+async function deriveExtensionsToLoad(
   config: GatewayConfig
-): Promise<Extension[]> {
+): Promise<{ extensions: Extension[]; homeExtensionId: string | undefined }> {
   const extensions: Extension[] = [];
   const rawConfigs = new Map<string, Record<string, unknown>>();
 
@@ -447,7 +464,65 @@ export async function loadExtensions(
     }
   }
 
-  extensionRuntime.load(loadedExtensions, homeExtensionId);
+  return { extensions: loadedExtensions, homeExtensionId };
+}
+
+export async function loadExtensions(
+  config: GatewayConfig
+): Promise<Extension[]> {
+  const { extensions, homeExtensionId } = await deriveExtensionsToLoad(config);
+  extensionRuntime.load(extensions, homeExtensionId);
+  return extensionRuntime.getLoadedExtensions();
+}
+
+/**
+ * Reconcile the running extension set against the current config WITHOUT a
+ * restart. Only ever ADDS: extensions that the config now wants but that were
+ * not loaded at startup are activated (routes registered + started) and folded
+ * into the runtime set. Already-loaded extensions are never re-started or
+ * dropped, so this is safe to call on every per-agent enable / config change.
+ * A no-op (aside from the derivation) when nothing new is needed.
+ */
+export async function reloadExtensions(
+  config: GatewayConfig
+): Promise<Extension[]> {
+  const { extensions: desired, homeExtensionId } =
+    await deriveExtensionsToLoad(config);
+
+  const current = extensionRuntime.getLoadedExtensions();
+  const currentIds = new Set(current.map((extension) => extension.id));
+  const newlyNeeded = desired.filter(
+    (extension) => !currentIds.has(extension.id)
+  );
+  if (newlyNeeded.length === 0) {
+    return current;
+  }
+  if (!activateExtension) {
+    console.warn(
+      `[extensions] cannot activate ${newlyNeeded
+        .map((extension) => `"${extension.id}"`)
+        .join(", ")} at runtime: no activator wired; restart required`
+    );
+    return current;
+  }
+
+  // Preserve everything already running; append the new ones. Re-topo the
+  // union so newly added dependencies are ordered ahead of their dependents.
+  const merged = topoSort([...current, ...newlyNeeded]);
+  const newlyNeededIds = new Set(
+    newlyNeeded.map((extension) => extension.id)
+  );
+
+  // Activate (register routes + start) only the new extensions, in topo order.
+  for (const extension of merged) {
+    if (!newlyNeededIds.has(extension.id)) continue;
+    await activateExtension(extension);
+  }
+
+  extensionRuntime.load(
+    merged,
+    homeExtensionId ?? extensionRuntime.getHomeExtension()
+  );
   return extensionRuntime.getLoadedExtensions();
 }
 

@@ -10,6 +10,8 @@ import { api } from "../server/api.core.js";
 import {
   getExtensionRuntime,
   loadExtensions,
+  reloadExtensions,
+  setExtensionActivator,
 } from "../extensions/registry.js";
 import { createExtensionContext } from "../extensions/context.js";
 import {
@@ -83,8 +85,24 @@ export async function startGatewayCommand(
     await extension.start(extensionContext);
   }
 
+  // Allow extensions enabled at runtime (via the per-agent PATCH endpoint or a
+  // config-file edit) to be brought online without a restart.
+  setExtensionActivator(async (extension) => {
+    extension.registerRoutes(api);
+    await extension.start(extensionContext);
+  });
+
   startServer(port, opts.host, extensionRuntime);
   startGatewayHotReload(runtimeConfig, {
+    async onReload(nextConfig) {
+      try {
+        await reloadExtensions(nextConfig);
+      } catch (error) {
+        console.warn(
+          `[hot-reload] Extension reconcile failed: ${error instanceof Error ? error.message : String(error)}`
+        );
+      }
+    },
     onError(error) {
       console.warn(
         `[hot-reload] Reload failed; keeping last good config: ${error instanceof Error ? error.message : String(error)}`

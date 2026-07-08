@@ -17,6 +17,7 @@ import {
   isExtensionLoaded,
   getHomeExtension,
   getLoadedExtensions,
+  reloadExtensions,
 } from "../extensions/registry.js";
 import {
   buildExtensionCatalog,
@@ -714,6 +715,18 @@ api.patch("/agents/:id/extensions/:extensionId", async (c) => {
   // Invalidate the config cache so the next run (and the next catalog read)
   // observes the change rather than the stale in-memory config.
   const reloaded = reloadConfig();
+
+  // Bring a newly-enabled extension online without a gateway restart so that
+  // /capabilities and tool resolution reflect it immediately (ALG-349). Only
+  // adds extensions not already loaded; never re-starts running ones.
+  try {
+    await reloadExtensions(reloaded);
+  } catch (error) {
+    console.warn(
+      `[extensions] runtime reconcile after enable failed: ${(error as Error).message}`
+    );
+  }
+
   const updatedAgent = findWritableExtensionAgent(reloaded, agentId);
   const extensions = updatedAgent
     ? await buildExtensionCatalog(reloaded, updatedAgent)
