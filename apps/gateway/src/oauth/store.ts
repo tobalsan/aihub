@@ -86,7 +86,7 @@ export class OAuthConnectionStore {
       throw new Error(
         "Refusing to persist OAuth tokens in plaintext: oauth.encryptionKey is " +
           "not configured. Set oauth.encryptionKey (e.g. " +
-          "$env:AIHUB_OAUTH_ENCRYPTION_KEY) to encrypt tokens at rest."
+          "$env:OAUTH_ENCRYPTION_KEY) to encrypt tokens at rest."
       );
     }
     return {

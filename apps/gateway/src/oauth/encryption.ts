@@ -6,7 +6,7 @@ import { TokenCipher } from "./crypto.js";
  * (`oauth.encryptionKey`) and build a {@link TokenCipher} from it.
  *
  * The secret follows the same `$env:` contract as every other operator secret:
- * `oauth.encryptionKey: "$env:AIHUB_OAUTH_ENCRYPTION_KEY"` resolves the value
+ * `oauth.encryptionKey: "$env:OAUTH_ENCRYPTION_KEY"` resolves the value
  * from the environment (loaded from `$AIHUB_HOME/.env` or the process env).
  *
  * When no secret is configured, returns `undefined` and logs a one-time warning.
@@ -47,7 +47,7 @@ export function resolveTokenCipher(
       console.warn(
         "[oauth] oauth.encryptionKey is not set — OAuth tokens are encrypted at " +
           "rest, so connecting a new account will FAIL until you set a key. Set " +
-          "oauth.encryptionKey (e.g. $env:AIHUB_OAUTH_ENCRYPTION_KEY) to enable " +
+          "oauth.encryptionKey (e.g. $env:OAUTH_ENCRYPTION_KEY) to enable " +
           "the OAuth connect flow."
       );
     }

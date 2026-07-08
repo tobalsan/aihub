@@ -118,7 +118,7 @@ in `$AIHUB_HOME/.env`, not in the JSON:
     },
 
     // See section 5.
-    "encryptionKey": "$env:AIHUB_OAUTH_ENCRYPTION_KEY"
+    "encryptionKey": "$env:OAUTH_ENCRYPTION_KEY"
   }
 }
 ```
@@ -151,7 +151,7 @@ openssl rand -base64 32
 Store it in `$AIHUB_HOME/.env` and reference it from config as shown above:
 
 ```dotenv
-AIHUB_OAUTH_ENCRYPTION_KEY=<output of openssl rand -base64 32>
+OAUTH_ENCRYPTION_KEY=<output of openssl rand -base64 32>
 ```
 
 Notes:
