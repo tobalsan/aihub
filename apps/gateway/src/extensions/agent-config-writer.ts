@@ -27,7 +27,7 @@ export type ExtensionConfigPatch = {
   /**
    * Secret fields. Each value is written to the agent's `.env` file and
    * referenced from `agent.yaml` as `$env:NAME` (never plaintext). The env var
-   * name is derived from the agent id, extension id, and field name.
+   * name is derived from the extension id and field name.
    */
   secrets?: Record<string, string>;
 };
@@ -37,18 +37,18 @@ function isRecord(value: unknown): value is Record<string, unknown> {
 }
 
 /**
- * Derive a stable, collision-resistant env var name for a secret field.
- * e.g. agent "sales" + extension "acme-crm" + field "apiKey" →
- * `AIHUB_SALES_ACME_CRM_APIKEY`.
+ * Derive a stable env var name for a secret field. Secrets live in the
+ * agent's own `.env` file, so no agent-scoping prefix is needed.
+ * e.g. extension "acme-crm" + field "apiKey" → `ACME_CRM_API_KEY`.
  */
-export function secretEnvName(
-  agentId: string,
-  extensionId: string,
-  field: string
-): string {
-  const sanitize = (value: string) =>
-    value.replace(/[^A-Za-z0-9]+/g, "_").toUpperCase();
-  return `AIHUB_${sanitize(agentId)}_${sanitize(extensionId)}_${sanitize(field)}`;
+export function secretEnvName(extensionId: string, field: string): string {
+  const toEnvSegment = (value: string) =>
+    value
+      .replace(/([a-z0-9])([A-Z])/g, "$1_$2") // camelCase → camel_Case
+      .replace(/[^A-Za-z0-9]+/g, "_") // non-alnum runs → _
+      .replace(/^_+|_+$/g, "") // trim leading/trailing _
+      .toUpperCase();
+  return `${toEnvSegment(extensionId)}_${toEnvSegment(field)}`;
 }
 
 async function writeLocked(filePath: string, content: string): Promise<void> {
@@ -143,8 +143,6 @@ export async function updateAgentExtensionConfig(
     throw new Error(`Malformed agent.yaml at ${agentPath}`);
   }
 
-  const agentId = typeof parsed.id === "string" ? parsed.id : "";
-
   const extensions = isRecord(parsed.extensions)
     ? { ...parsed.extensions }
     : {};
@@ -166,7 +164,7 @@ export async function updateAgentExtensionConfig(
   const envVars: Record<string, string> = {};
   if (patch.secrets) {
     for (const [field, value] of Object.entries(patch.secrets)) {
-      const envName = secretEnvName(agentId, extensionId, field);
+      const envName = secretEnvName(extensionId, field);
       current[field] = `$env:${envName}`;
       envVars[envName] = value;
     }

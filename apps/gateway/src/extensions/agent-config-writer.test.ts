@@ -95,7 +95,7 @@ describe("updateAgentExtensionConfig", () => {
       secrets: { apiKey: "sk-super-secret" },
     });
 
-    const envName = secretEnvName("sales", "acme-crm", "apiKey");
+    const envName = secretEnvName("acme-crm", "apiKey");
     const extensions = await readAgentExtensions();
     expect(extensions["acme-crm"]).toEqual({
       enabled: true,
@@ -123,7 +123,7 @@ describe("updateAgentExtensionConfig", () => {
       secrets: { apiKey: "second" },
     });
 
-    const envName = secretEnvName("sales", "acme-crm", "apiKey");
+    const envName = secretEnvName("acme-crm", "apiKey");
     const envRaw = await readFile(path.join(workspaceDir, ".env"), "utf8");
     const matches = envRaw.match(new RegExp(`^${envName}=`, "gm")) ?? [];
     expect(matches).toHaveLength(1);
@@ -134,7 +134,7 @@ describe("updateAgentExtensionConfig", () => {
     await updateAgentExtensionConfig(workspaceDir, "acme-crm", {
       secrets: { token: "has spaces #hash" },
     });
-    const envName = secretEnvName("sales", "acme-crm", "token");
+    const envName = secretEnvName("acme-crm", "token");
     const envRaw = await readFile(path.join(workspaceDir, ".env"), "utf8");
     expect(envRaw).toContain(`${envName}="has spaces #hash"`);
   });
