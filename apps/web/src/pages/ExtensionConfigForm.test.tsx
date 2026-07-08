@@ -53,6 +53,7 @@ function exaEntry(
     description: "Exa web search",
     builtIn: false,
     enabled: false,
+    configurable: true,
     configJsonSchema: {
       type: "object",
       properties: { apiKey: { type: "string" } },
