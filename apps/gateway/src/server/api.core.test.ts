@@ -336,6 +336,56 @@ describe("api core session resolution", () => {
     expect(body.items[1]).toMatchObject({ title: "renamed", avatar: "🦊" });
   });
 
+  it("excludes ephemeral compact sessions from the sidebar listing", async () => {
+    const sessionsDir = "/tmp/aihub-test/history";
+    await fs.rm("/tmp/aihub-test", { recursive: true, force: true });
+    await fs.mkdir(sessionsDir, { recursive: true });
+    getActiveAgents.mockReturnValue([
+      { id: "alpha", name: "Alpha", avatar: "🦊" },
+    ]);
+    getSessionEntry.mockResolvedValue(null);
+    await fs.writeFile(
+      path.join(sessionsDir, "2026-05-29T10-00-00-000Z_alpha-real.jsonl"),
+      JSON.stringify({
+        type: "history",
+        role: "user",
+        content: [{ type: "text", text: "real" }],
+        timestamp: 1000,
+      }) + "\n"
+    );
+    await fs.writeFile(
+      path.join(
+        sessionsDir,
+        "2026-05-29T10-01-00-000Z_alpha-compact:real:abc123.jsonl"
+      ),
+      [
+        JSON.stringify({
+          type: "history",
+          role: "user",
+          content: [{ type: "text", text: "Summarize the conversation" }],
+          timestamp: 2000,
+        }),
+        JSON.stringify({
+          type: "history",
+          role: "assistant",
+          content: [{ type: "text", text: "summary" }],
+          timestamp: 2001,
+        }),
+      ].join("\n") + "\n"
+    );
+    const { api } = await import("./api.core.js");
+
+    const response = await api.request(
+      new Request("http://localhost/agents/sessions")
+    );
+
+    expect(response.status).toBe(200);
+    const body = await response.json();
+    expect(
+      body.items.map((item: { sessionId: string }) => item.sessionId)
+    ).toEqual(["real"]);
+  });
+
   it("rejects unsafe explicit session ids", async () => {
     const { api } = await import("./api.core.js");
 
