@@ -451,6 +451,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
 
         .sidebar-content {
           flex: 1;
+          min-height: 0;
           padding: 8px 10px 14px;
           display: flex;
           flex-direction: column;
@@ -458,6 +459,7 @@ export function AgentSidebar(props: AgentSidebarProps) {
         }
 
         .sidebar-sessions {
+          flex: 1;
           min-height: 0;
           display: flex;
           flex-direction: column;
@@ -496,6 +498,8 @@ export function AgentSidebar(props: AgentSidebarProps) {
         }
 
         .sessions-list {
+          flex: 1;
+          min-height: 0;
           overflow: auto;
           display: flex;
           flex-direction: column;
