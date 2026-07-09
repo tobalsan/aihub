@@ -31,6 +31,7 @@ vi.mock("../server/api.core.js", () => ({
 vi.mock("../extensions/registry.js", () => ({
   loadExtensions,
   getExtensionRuntime,
+  setExtensionActivator: vi.fn(),
 }));
 
 vi.mock("../extensions/context.js", () => ({
