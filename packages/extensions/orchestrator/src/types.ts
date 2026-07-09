@@ -1,4 +1,4 @@
-export type LinearIssue = {
+export type TrackerIssue = {
   id: string;
   identifier: string;
   title: string;
@@ -16,16 +16,36 @@ export type LinearIssue = {
   parentId?: string | null;
 };
 
-export type TrackerConfig = {
-  kind: "linear";
-  endpoint: string;
-  apiKey: string;
-  projectSlug: string;
+export type LinearIssue = TrackerIssue;
+
+export type TrackerStatesConfig = {
   activeStates: string[];
   terminalStates: string[];
   needsHuman: string;
   inProgressTarget?: string;
 };
+
+export type LinearTrackerConfig = TrackerStatesConfig & {
+  kind: "linear";
+  endpoint: string;
+  apiKey: string;
+  projectSlug: string;
+};
+
+export type PlaneAuthKind = "api_key" | "oauth_token" | "bot_token";
+
+export type PlaneTrackerConfig = TrackerStatesConfig & {
+  kind: "plane";
+  baseUrl: string;
+  apiKey: string;
+  authKind: PlaneAuthKind;
+  workspaceSlug: string;
+  projectId: string;
+  moduleId?: string;
+  mention?: string;
+};
+
+export type TrackerConfig = LinearTrackerConfig | PlaneTrackerConfig;
 
 export type WorkspaceConfig = {
   root: string;
@@ -38,7 +58,13 @@ export type WorkflowFrontmatter = {
     kind?: string;
     endpoint?: string;
     api_key?: string;
+    auth_kind?: PlaneAuthKind;
     project_slug?: string;
+    base_url?: string;
+    workspace_slug?: string;
+    project_id?: string;
+    module_id?: string;
+    mention?: string;
     active_states?: string[];
     terminal_states?: string[];
     needs_human?: string;

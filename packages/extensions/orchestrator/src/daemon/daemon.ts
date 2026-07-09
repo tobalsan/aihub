@@ -1,12 +1,14 @@
 import type { ExtensionContext, SubagentRuntimeProfile } from "@aihub/shared";
 import { notify } from "@aihub/shared";
-import type { LinearClient } from "../linear/client.js";
 import type { StateStore } from "../state/store.js";
 import type {
-  LinearIssue,
+  TrackerConfig,
+  TrackerIssue,
   ProjectDescriptor,
   WorkflowSnapshot,
 } from "../types.js";
+import type { TrackerClient, TrackerClientFactory } from "../tracker/client.js";
+import { trackerScopeKey } from "../tracker/client.js";
 import { ClaimsRegistry } from "./claims.js";
 import { ConcurrencyLimiter } from "../concurrency/limiter.js";
 import { resolveProfile } from "../profile/resolver.js";
@@ -26,16 +28,11 @@ export type OrchestratorConfig = {
 };
 
 export type OrchestratorNotifier = (message: string) => Promise<void>;
-export type LinearClientFactory = (input: {
-  apiKey: string;
-  endpoint: string;
-  project: ProjectDescriptor;
-}) => LinearClient;
 
 type RunMeta = {
   runId: string;
   project: ProjectDescriptor;
-  issue: LinearIssue;
+  issue: TrackerIssue;
   workspace: string;
   worker?: WorkerRunnerHandle;
   workflow: WorkflowSnapshot;
@@ -55,13 +52,17 @@ function profileList(ctx: ExtensionContext): SubagentRuntimeProfile[] {
 
 function promptFor(
   project: ProjectDescriptor,
-  issue: LinearIssue,
-  body: string
+  issue: TrackerIssue,
+  body: string,
+  kind: TrackerConfig["kind"]
 ): string {
-  return `${body.trim()}\n\n## Orchestrator context\nProject: ${project.id}\nLinear GraphQL tool calls must pass project: ${project.id}\n\n## Linear issue\n${issue.identifier}: ${issue.title}\n\n${issue.description ?? ""}\n${issue.url ? `\n${issue.url}\n` : ""}`.trim();
+  const isPlane = kind === "plane";
+  const toolLine = isPlane ? `Plane API tool calls must pass project: ${project.id}` : `Linear GraphQL tool calls must pass project: ${project.id}`;
+  const workItemNoun = isPlane ? "Plane work item" : "Linear issue";
+  return `${body.trim()}\n\n## Orchestrator context\nProject: ${project.id}\n${toolLine}\n\n## ${workItemNoun}\n${issue.identifier}: ${issue.title}\n\n${issue.description ?? ""}\n${issue.url ? `\n${issue.url}\n` : ""}`.trim();
 }
 
-function pendingBlockerIds(issue: LinearIssue, terminalStates: string[]): string[] {
+function pendingBlockerIds(issue: TrackerIssue, terminalStates: string[]): string[] {
   return (issue.blocked_by ?? [])
     .filter(
       (blocker) => !blocker.state || !terminalStates.includes(blocker.state)
@@ -90,11 +91,11 @@ export class OrchestratorDaemon {
   constructor(
     private readonly deps: {
       ctx: ExtensionContext;
-      client?: LinearClient;
+      client?: TrackerClient;
       store: StateStore;
       claims: ClaimsRegistry;
       getConfig: () => OrchestratorConfig;
-      createLinearClient?: LinearClientFactory;
+      createTrackerClient?: TrackerClientFactory;
       workerRunner?: WorkerRunner;
       notify?: OrchestratorNotifier;
       workflowLoader?: WorkflowLoader;
@@ -109,7 +110,7 @@ export class OrchestratorDaemon {
       paths: this.deps.getConfig().projects ?? [],
       dataDir: this.deps.ctx.getDataDir(),
     });
-    await this.validateProjectSlugs();
+    await this.validateTrackerScopes();
     await this.stopStaleOwnedWorkers();
     this.deps.store.markOpenRunsInterrupted("interrupted_gateway_restart");
     const loader = this.loader();
@@ -162,18 +163,19 @@ export class OrchestratorDaemon {
   private loader(): WorkflowLoader { return this.workflowLoader; }
   private runner(): WorkerRunner { return this.workerRunner; }
 
-  private async validateProjectSlugs(): Promise<void> {
+  private async validateTrackerScopes(): Promise<void> {
     const seen = new Map<string, string>();
     for (const project of this.projects) {
       const workflow = await this.loader().loadProjectWorkflow({
         projectPath: project.path,
       });
-      const existing = seen.get(workflow.config.tracker.projectSlug);
+      const key = trackerScopeKey(workflow.config.tracker);
+      const existing = seen.get(key);
       if (existing)
         throw new Error(
-          `duplicate tracker.project_slug ${workflow.config.tracker.projectSlug}: ${existing}, ${project.id}`
+          `duplicate tracker scope ${key}: ${existing}, ${project.id}`
         );
-      seen.set(workflow.config.tracker.projectSlug, project.id);
+      seen.set(key, project.id);
     }
   }
 
@@ -229,11 +231,6 @@ export class OrchestratorDaemon {
         .getIssue(idOrIdentifier)
         .catch(() => undefined);
       if (!issue) continue;
-      if (
-        issue.projectSlug &&
-        issue.projectSlug !== workflow.config.tracker.projectSlug
-      )
-        continue;
       if (this.deps.claims.get(issue.id, project.id))
         return { ok: false, status: 409, error: "issue already claimed" };
       return (await this.dispatch(project, workflow, issue, client))
@@ -273,8 +270,7 @@ export class OrchestratorDaemon {
       const client = this.clientFor(project, workflow);
       const states = workflow.config.tracker;
       const issues = await client.pollIssues({
-        projectSlug: states.projectSlug,
-        activeStates: [
+        states: [
           ...new Set([
             ...states.activeStates,
             ...states.terminalStates,
@@ -348,13 +344,10 @@ export class OrchestratorDaemon {
   private clientFor(
     project: ProjectDescriptor,
     workflow: WorkflowSnapshot
-  ): LinearClient {
+  ): TrackerClient {
     return (
-      this.deps.createLinearClient?.({
-        apiKey: workflow.config.tracker.apiKey,
-        endpoint: workflow.config.tracker.endpoint,
-        project,
-      }) ?? this.deps.client!
+      this.deps.createTrackerClient?.({ config: workflow.config.tracker }) ??
+      this.deps.client!
     );
   }
 
@@ -368,7 +361,7 @@ export class OrchestratorDaemon {
 
   private logDispatchSkip(
     project: ProjectDescriptor,
-    issue: LinearIssue,
+    issue: TrackerIssue,
     reason: string,
     extra: Record<string, unknown> = {}
   ): void {
@@ -389,8 +382,8 @@ export class OrchestratorDaemon {
   private async dispatch(
     project: ProjectDescriptor,
     workflow: WorkflowSnapshot,
-    issue: LinearIssue,
-    client: LinearClient
+    issue: TrackerIssue,
+    client: TrackerClient
   ): Promise<boolean> {
     if (
       pendingBlockerIds(issue, workflow.config.tracker.terminalStates).length >
@@ -472,7 +465,7 @@ export class OrchestratorDaemon {
         project,
         issue,
         workspace: workspace.path,
-        prompt: promptFor(project, issue, resolvedWorkflow.body),
+        prompt: promptFor(project, issue, resolvedWorkflow.body, resolvedWorkflow.config.tracker.kind),
         label,
         profile: profile.profile,
         workflow: resolvedWorkflow.config,
@@ -504,7 +497,7 @@ export class OrchestratorDaemon {
   }
 
   private hookEnv(
-    issue: LinearIssue,
+    issue: TrackerIssue,
     workspace: string,
     projectId: string
   ): Record<string, string | undefined> {
@@ -514,12 +507,15 @@ export class OrchestratorDaemon {
       AIHUB_ISSUE_IDENTIFIER: issue.identifier,
       AIHUB_WORKSPACE: workspace,
       LINEAR_API_KEY: undefined,
+      PLANE_API_KEY: undefined,
+      PLANE_OAUTH_TOKEN: undefined,
+      PLANE_BOT_TOKEN: undefined,
     };
   }
 
-  private async park(client: LinearClient, issue: LinearIssue, needsHuman: string, reason: string, options: { worker?: WorkerRunnerHandle } = {}): Promise<void> {
-    await client.commentCreate(issue.id, `Orchestrator parked issue: ${reason}`).catch(() => undefined);
-    await client.issueUpdateStateByName(issue.id, needsHuman).catch(() => undefined);
+  private async park(client: TrackerClient, issue: TrackerIssue, needsHuman: string, reason: string, options: { worker?: WorkerRunnerHandle } = {}): Promise<void> {
+    await client.createComment(issue.id, `Orchestrator parked issue: ${reason}`).catch(() => undefined);
+    await client.setIssueState(issue.id, needsHuman).catch(() => undefined);
     if (options.worker) await this.runner().abort(options.worker).catch(() => undefined);
     this.deps.ctx.emit("orchestrator.run.needs_human", { issueId: issue.id, reason });
     this.notifyHitl(`Orchestrator needs human for ${issue.identifier}: ${reason}`);
@@ -573,8 +569,8 @@ export class OrchestratorDaemon {
       const timeout = run?.workflow.config.agent.stall_timeout_ms ?? 300_000;
       if (now - Date.parse(claim.lastEventAt) <= timeout || !run) continue;
       const client = this.clientFor(run.project, run.workflow);
-      await client.commentCreate(claim.issueId, `Orchestrator stalled: no events for ${timeout}ms`).catch(() => undefined);
-      await client.issueUpdateStateByName(claim.issueId, run.workflow.config.tracker.needsHuman).catch(() => undefined);
+      await client.createComment(claim.issueId, `Orchestrator stalled: no events for ${timeout}ms`).catch(() => undefined);
+      await client.setIssueState(claim.issueId, run.workflow.config.tracker.needsHuman).catch(() => undefined);
       if (run.worker) await this.runner().abort(run.worker).catch(() => undefined);
       const active = this.deps.claims.get(claim.issueId, claim.projectId);
       if (active) this.deps.store.appendEvent(active.runId, "worker.aborted", { id: run.worker?.id, reason: "stalled" }, claim.projectId);

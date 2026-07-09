@@ -3,10 +3,12 @@ import fsSync from "node:fs";
 import fs from "node:fs/promises";
 import path from "node:path";
 import yaml from "js-yaml";
-import type { LinearIssue, WorkflowConfig, WorkflowFrontmatter, WorkflowSnapshot } from "../types.js";
+import type { PlaneAuthKind, TrackerConfig, TrackerIssue, TrackerStatesConfig, WorkflowConfig, WorkflowFrontmatter, WorkflowSnapshot } from "../types.js";
+import { planeAuthEnvRef, resolvePlaneEnvAuth } from "../plane/auth.js";
 import { validateWorkflowThinkingForRunner } from "../worker-runner/thinking.js";
 
 const DEFAULT_ENDPOINT = "https://api.linear.app/graphql";
+const DEFAULT_PLANE_BASE_URL = "https://api.plane.so";
 const DEFAULT_ACTIVE = ["Todo", "In Progress"];
 const DEFAULT_TERMINAL = ["Closed", "Cancelled", "Canceled", "Duplicate", "Done"];
 
@@ -43,7 +45,7 @@ function stringifyTemplateValue(value: unknown): string {
   return JSON.stringify(value);
 }
 
-function render(template: string, ctx: { issue?: LinearIssue; attempt?: number | null }): string {
+function render(template: string, ctx: { issue?: TrackerIssue; attempt?: number | null }): string {
   return template.replace(/{{\s*([^{}|\s]+)(?:\s*\|\s*([^{}]+))?\s*}}/g, (_all, expression: string, filter: string | undefined) => {
     if (filter) throw new Error(`Unknown workflow template filter: ${filter.trim()}`);
     if (expression === "attempt") return stringifyTemplateValue(ctx.attempt ?? null);
@@ -68,10 +70,51 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
   const tracker = frontmatter.tracker ?? {};
   const legacyStates = tracker.states ?? {};
   const kind = tracker.kind ?? "linear";
-  if (kind !== "linear") throw new Error(`Unsupported tracker.kind: ${kind}`);
-  const apiKey = expandEnv(tracker.api_key, "$LINEAR_API_KEY");
-  if (!apiKey) throw new Error("tracker.api_key is required");
-  if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
+  if (kind !== "linear" && kind !== "plane") throw new Error(`Unsupported tracker.kind: ${kind} (supported: linear, plane)`);
+  const states: TrackerStatesConfig = {
+    activeStates: tracker.active_states ?? legacyStates.active ?? DEFAULT_ACTIVE,
+    terminalStates: tracker.terminal_states ?? legacyStates.terminal ?? DEFAULT_TERMINAL,
+    needsHuman: tracker.needs_human ?? legacyStates.needs_human ?? "Needs Human",
+    inProgressTarget: legacyStates.in_progress_target,
+  };
+  let trackerConfig: TrackerConfig;
+  if (kind === "linear") {
+    const apiKey = expandEnv(tracker.api_key, "$LINEAR_API_KEY");
+    if (!apiKey) throw new Error("tracker.api_key is required");
+    if (!tracker.project_slug) throw new Error("tracker.project_slug is required");
+    trackerConfig = {
+      kind,
+      endpoint: expandEnv(tracker.endpoint, DEFAULT_ENDPOINT) || DEFAULT_ENDPOINT,
+      apiKey,
+      projectSlug: tracker.project_slug,
+      ...states,
+    };
+  } else {
+    const explicitAuthKind = tracker.auth_kind;
+    if (explicitAuthKind && explicitAuthKind !== "api_key" && explicitAuthKind !== "oauth_token" && explicitAuthKind !== "bot_token") throw new Error(`Unsupported tracker.auth_kind: ${explicitAuthKind} (supported: api_key, oauth_token, bot_token)`);
+    const envAuth = tracker.api_key ? undefined : resolvePlaneEnvAuth();
+    const apiKey = tracker.api_key ? expandEnv(tracker.api_key, "$PLANE_API_KEY") : envAuth?.token;
+    const inferredAuthKind: PlaneAuthKind = tracker.api_key === "$PLANE_BOT_TOKEN" ? "bot_token" : tracker.api_key === "$PLANE_OAUTH_TOKEN" ? "oauth_token" : envAuth?.kind ?? "api_key";
+    if (explicitAuthKind && !tracker.api_key && envAuth && explicitAuthKind !== envAuth.kind) {
+      throw new Error(`tracker.auth_kind is "${explicitAuthKind}" but the resolved token came from ${planeAuthEnvRef(envAuth.kind)}. Set tracker.auth_kind: ${envAuth.kind}, or set tracker.api_key explicitly.`);
+    }
+    const authKind: PlaneAuthKind = explicitAuthKind ?? inferredAuthKind;
+    if (!apiKey) throw new Error("tracker.api_key is required (set PLANE_BOT_TOKEN, PLANE_OAUTH_TOKEN, or PLANE_API_KEY)");
+    if (!tracker.workspace_slug) throw new Error("tracker.workspace_slug is required for tracker.kind: plane");
+    if (!tracker.project_id) throw new Error("tracker.project_id is required for tracker.kind: plane");
+    const baseUrl = (expandEnv(tracker.base_url ?? tracker.endpoint, DEFAULT_PLANE_BASE_URL) || DEFAULT_PLANE_BASE_URL).replace(/\/+$/, "");
+    trackerConfig = {
+      kind,
+      baseUrl,
+      apiKey,
+      authKind,
+      workspaceSlug: tracker.workspace_slug,
+      projectId: tracker.project_id,
+      ...(tracker.module_id ? { moduleId: tracker.module_id } : {}),
+      ...(tracker.mention ? { mention: tracker.mention } : {}),
+      ...states,
+    };
+  }
   const agent = frontmatter.agent ?? {};
   const runner = agent.runner ?? agent.kind;
   if (runner && runner !== "fake" && runner !== "cli" && runner !== "codex" && runner !== "pi" && runner !== "claude") throw new Error(`Unsupported agent.runner: ${runner}`);
@@ -88,16 +131,7 @@ function buildConfig(frontmatter: WorkflowFrontmatter, projectPath: string): Wor
     if (value !== undefined && (!Number.isFinite(value) || value <= 0)) throw new Error(`${key} must be a positive number`);
   }
   return {
-    tracker: {
-      kind,
-      endpoint: expandEnv(tracker.endpoint, DEFAULT_ENDPOINT) || DEFAULT_ENDPOINT,
-      apiKey,
-      projectSlug: tracker.project_slug,
-      activeStates: tracker.active_states ?? legacyStates.active ?? DEFAULT_ACTIVE,
-      terminalStates: tracker.terminal_states ?? legacyStates.terminal ?? DEFAULT_TERMINAL,
-      needsHuman: tracker.needs_human ?? legacyStates.needs_human ?? "Needs Human",
-      inProgressTarget: legacyStates.in_progress_target,
-    },
+    tracker: trackerConfig,
     workspace: {
       root: resolvePath(frontmatter.workspace?.root, projectPath),
       cleanupOnTerminal: frontmatter.workspace?.cleanup_on_terminal ?? false,
@@ -119,7 +153,7 @@ export class WorkflowLoader {
 
   constructor(private readonly home: string) {}
 
-  async loadProjectWorkflow(input: { projectPath: string; issue?: LinearIssue; attempt?: number | null; allowStale?: boolean }): Promise<WorkflowSnapshot> {
+  async loadProjectWorkflow(input: { projectPath: string; issue?: TrackerIssue; attempt?: number | null; allowStale?: boolean }): Promise<WorkflowSnapshot> {
     const workflowPath = path.join(input.projectPath, "WORKFLOW.md");
     try {
       const parsed = parse(await fs.readFile(workflowPath, "utf8"));
@@ -136,7 +170,7 @@ export class WorkflowLoader {
     }
   }
 
-  async resolve(input: { projectPath?: string; issue?: LinearIssue; attempt?: number | null; allowStale?: boolean } = {}): Promise<WorkflowSnapshot> {
+  async resolve(input: { projectPath?: string; issue?: TrackerIssue; attempt?: number | null; allowStale?: boolean } = {}): Promise<WorkflowSnapshot> {
     if (!input.projectPath) throw new Error("projectPath required");
     return this.loadProjectWorkflow({ projectPath: input.projectPath, issue: input.issue, attempt: input.attempt, allowStale: input.allowStale });
   }

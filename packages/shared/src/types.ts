@@ -721,6 +721,11 @@ export const OrchestratorExtensionConfigSchema = z.object({
       exposeGraphqlTool: z.boolean().optional(),
     })
     .optional(),
+  plane: z
+    .object({
+      exposeApiTool: z.boolean().optional(),
+    })
+    .optional(),
   webhook: z
     .object({
       enabled: z.boolean().optional(),

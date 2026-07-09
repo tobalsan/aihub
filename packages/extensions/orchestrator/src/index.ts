@@ -9,7 +9,10 @@ import { WorkflowLoader } from "./workflow/loader.js";
 import { StateStore } from "./state/store.js";
 import { ClaimsRegistry } from "./daemon/claims.js";
 import { OrchestratorDaemon } from "./daemon/daemon.js";
-import { exportLinear } from "./exporter/exporter.js";
+import { createTrackerClient, isRelevantTrackerWebhook } from "./tracker/client.js";
+import { isRelevantLinearWebhook } from "./linear/tracker.js";
+import { planeAuthHeaders } from "./plane/auth.js";
+import type { TrackerConfig } from "./types.js";
 import { runHook } from "./hooks/runner.js";
 import { WorkspaceLayout } from "./workspace/layout.js";
 import { resolveProjects } from "./projects/registry.js";
@@ -194,19 +197,7 @@ export function verifyWebhookSignature(secret: string, body: string, signature: 
   return expectedBuffer.length === actualBuffer.length && crypto.timingSafeEqual(expectedBuffer, actualBuffer);
 }
 
-export function isRelevantWebhook(payload: unknown): boolean {
-  if (!payload || typeof payload !== "object") return false;
-  const record = payload as Record<string, unknown>;
-  const action = String(record.action ?? "").toLowerCase();
-  const type = String(record.type ?? "").toLowerCase();
-  const data = record.data && typeof record.data === "object" ? dataSafe(record.data) : record;
-  const hasIssue = Boolean(data.issue || data.issueId || data.identifier || data.id);
-  const isIssueEvent = type.includes("issue") || action.includes("issue");
-  const stateChanged = isIssueEvent && (action.includes("update") || action.includes("state") || "state" in data);
-  const commentAdded = type.includes("comment") || action.includes("comment") || "comment" in data;
-  return hasIssue && (stateChanged || commentAdded);
-}
-function dataSafe(value: object): Record<string, unknown> { return value as Record<string, unknown>; }
+export const isRelevantWebhook = isRelevantLinearWebhook;
 
 async function projectDescriptors() {
   if (!ctx) return [];
@@ -298,8 +289,8 @@ function register(app: Hono) {
     const project = (await projectDescriptors()).find((item) => !projectId || item.id === projectId || item.path === projectId);
     if (!project) return c.json({ error: "project not found" }, 404);
     const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true });
-    const client = new LinearClient(workflow.config.tracker.apiKey, workflow.config.tracker.endpoint);
-    return c.json(await exportLinear({ client, projectSlug: workflow.config.tracker.projectSlug, outDir: c.req.query("out") ?? path.join(ctx!.getDataDir(), "exports", "linear", project.id) }));
+    const outDir = c.req.query("out") ?? path.join(ctx!.getDataDir(), "exports", workflow.config.tracker.kind, project.id);
+    return c.json(await createTrackerClient(workflow.config.tracker).export({ outDir }));
   });
   app.post("/orchestrator/tick", async (c) => {
     if (!enabled()) return unavailable(c);
@@ -311,10 +302,20 @@ function register(app: Hono) {
     if (!webhook?.enabled) return c.json({ error: "not found" }, 404);
     if (!webhook.secret) return c.json({ error: "webhook secret required" }, 503);
     const body = await c.req.text();
-    const signature = c.req.header("linear-signature") ?? c.req.header("x-linear-signature");
+    const signature = c.req.header("linear-signature") ?? c.req.header("x-linear-signature") ?? c.req.header("x-plane-signature");
     if (!verifyWebhookSignature(webhook.secret, body, signature)) return c.json({ error: "invalid signature" }, 401);
     const payload = JSON.parse(body) as unknown;
-    const relevant = isRelevantWebhook(payload);
+    const kinds = new Set<TrackerConfig["kind"]>();
+    try {
+      for (const project of await projectDescriptors()) {
+        try {
+          const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true });
+          kinds.add(workflow.config.tracker.kind);
+        } catch {}
+      }
+    } catch {}
+    const kindList = kinds.size ? [...kinds] : (["linear", "plane"] as TrackerConfig["kind"][]);
+    const relevant = kindList.some((kind) => isRelevantTrackerWebhook(kind, payload));
     if (relevant) daemon?.enqueueTick();
     return c.json({ ok: true, queued: relevant });
   });
@@ -336,16 +337,27 @@ export const orchestratorExtension: Extension = {
     store = new StateStore(path.join(context.getDataDir(), "orchestrator", "state.db"));
     store.bootstrap();
     store.heartbeat();
-    daemon = new OrchestratorDaemon({ ctx: context, store, claims, getConfig: config, workflowLoader: sharedWorkflowLoader, createLinearClient: ({ apiKey, endpoint }) => new LinearClient(apiKey, endpoint) });
+    daemon = new OrchestratorDaemon({ ctx: context, store, claims, getConfig: config, workflowLoader: sharedWorkflowLoader, createTrackerClient: ({ config: trackerConfig }) => createTrackerClient(trackerConfig) });
     try { await daemon.start(); } catch (error) { daemon.notifyStartupError(error); throw error; }
   },
   async stop() { await daemon?.stop(); store?.close(); ctx = undefined; store = undefined; daemon = undefined; sharedWorkflowLoader = undefined; },
   capabilities() { return ["orchestrator"]; },
-  getAgentTools(): ExtensionAgentTool[] { if (config().linear?.exposeGraphqlTool === false) return []; return [{ name: "orchestrator.linear_graphql", description: "Execute Linear GraphQL using workflow auth. Project is required so calls use the owning project endpoint/api_key.", parameters: { type: "object", properties: { project: { type: "string" }, query: { type: "string" }, variables: { type: "object" } }, required: ["project", "query"] }, execute: async (args) => { try { const parsed = z.object({ project: z.string(), query: z.string(), variables: z.record(z.unknown()).optional() }).parse(args); const project = (await projectDescriptors()).find((item) => item.id === parsed.project || item.path === parsed.project); if (!project) return { error: "project not found" }; const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true }); return await new LinearClient(workflow.config.tracker.apiKey, workflow.config.tracker.endpoint).graphql(parsed.query, parsed.variables); } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; } } }]; },
+  getAgentTools(): ExtensionAgentTool[] {
+    const tools: ExtensionAgentTool[] = [];
+    if (config().linear?.exposeGraphqlTool !== false) tools.push({ name: "orchestrator.linear_graphql", description: "Execute Linear GraphQL using workflow auth. Project is required so calls use the owning project endpoint/api_key.", parameters: { type: "object", properties: { project: { type: "string" }, query: { type: "string" }, variables: { type: "object" } }, required: ["project", "query"] }, execute: async (args) => { try { const parsed = z.object({ project: z.string(), query: z.string(), variables: z.record(z.unknown()).optional() }).parse(args); const project = (await projectDescriptors()).find((item) => item.id === parsed.project || item.path === parsed.project); if (!project) return { error: "project not found" }; const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true }); if (workflow.config.tracker.kind !== "linear") return { error: "project uses tracker.kind: plane — use orchestrator.plane_api" }; return await new LinearClient(workflow.config.tracker.apiKey, workflow.config.tracker.endpoint).graphql(parsed.query, parsed.variables); } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; } } });
+    if (config().plane?.exposeApiTool !== false) tools.push({ name: "orchestrator.plane_api", description: "Execute a raw Plane REST API call using the owning project's workflow auth (base URL, workspace slug, auth header are injected). Project is required. `path` is relative to /api/v1/ and supports placeholders {workspace}, {project}, {module} which expand to the project's configured workspace slug, project id, and module id. Examples: GET 'workspaces/{workspace}/projects/{project}/work-items/?per_page=100', POST 'workspaces/{workspace}/projects/{project}/work-items/{id}/comments/' with body {\"comment_html\":\"<p>hi</p>\"}. Responses are JSON; list endpoints paginate via ?cursor=.", parameters: { type: "object", properties: { project: { type: "string" }, method: { type: "string", enum: ["GET", "POST", "PATCH", "DELETE"] }, path: { type: "string" }, body: { type: "object" } }, required: ["project", "method", "path"] }, execute: async (args) => { try { const parsed = z.object({ project: z.string(), method: z.enum(["GET", "POST", "PATCH", "DELETE"]), path: z.string(), body: z.record(z.unknown()).optional() }).parse(args); const project = (await projectDescriptors()).find((item) => item.id === parsed.project || item.path === parsed.project); if (!project) return { error: "project not found" }; const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true }); const tracker = workflow.config.tracker; if (tracker.kind !== "plane") return { error: "project uses tracker.kind: linear — use orchestrator.linear_graphql" }; if (parsed.path.includes("{module}") && !tracker.moduleId) return { error: "project has no module_id configured" }; const rel = parsed.path.replace(/{workspace}/g, tracker.workspaceSlug).replace(/{project}/g, tracker.projectId).replace(/{module}/g, tracker.moduleId ?? "").replace(/^\/+/, "").replace(/^api\/v1\//, ""); const response = await fetch(`${tracker.baseUrl}/api/v1/${rel}`, { method: parsed.method, headers: { "content-type": "application/json", ...planeAuthHeaders({ kind: tracker.authKind, token: tracker.apiKey }) }, body: parsed.body === undefined ? undefined : JSON.stringify(parsed.body) }); if (response.status === 204) return { status: 204 }; const text = await response.text(); if (!response.ok) return { error: `${response.status} ${text}` }; return text ? JSON.parse(text) : {}; } catch (error) { return { error: error instanceof Error ? error.message : String(error) }; } } });
+    return tools;
+  },
 };
 
 export { registerOrchestratorCommands } from "./cli/index.js";
 export { LinearClient } from "./linear/client.js";
+export { LinearTracker, isRelevantLinearWebhook } from "./linear/tracker.js";
+export { PlaneTracker, isRelevantPlaneWebhook } from "./plane/tracker.js";
+export { PlaneClient } from "./plane/client.js";
+export { createTrackerClient, trackerScopeKey, isRelevantTrackerWebhook } from "./tracker/client.js";
+export type { TrackerClient, TrackerClientFactory, TrackerClientOptions, TrackerExportResult } from "./tracker/client.js";
+export type { TrackerConfig, LinearTrackerConfig, PlaneTrackerConfig, TrackerIssue, LinearIssue } from "./types.js";
 export { WorkflowLoader } from "./workflow/loader.js";
 export { resolveProjects, InvalidProjectsError } from "./projects/registry.js";
 export { WorkspaceLayout, sanitizeIdentifier } from "./workspace/layout.js";
