@@ -4,7 +4,8 @@ import path from "node:path";
 import { beforeEach, describe, expect, it, vi } from "vitest";
 import { Command } from "commander";
 import { OrchestratorApiClient } from "./client.js";
-import { initProject, initWorkflow, registerOrchestratorCommands, safeProjectName } from "./index.js";
+import { initProject, initWorkflow, planeBootstrap, planeIdentifier, registerOrchestratorCommands, safeProjectName } from "./index.js";
+import type { PlaneBootstrapEnv, TrackerBootstrap } from "./index.js";
 
 describe("orchestrator CLI client", () => {
   const calls: string[] = [];
@@ -128,6 +129,38 @@ describe("registerOrchestratorCommands", () => {
     expect(linear.createProject).toHaveBeenCalledWith({ name: "Foo Bar", teamIds: ["team-1"] });
   });
 
+  it("creates Plane project workflow from bootstrap metadata", async () => {
+    const root = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-plane-project-"));
+    const projectsRoot = path.join(root, "projects");
+    const configPath = path.join(root, "aihub.json");
+    await fs.writeFile(configPath, JSON.stringify({ extensions: { orchestrator: { projectsRoot, projects: [] } } }), "utf8");
+    const bootstrap: TrackerBootstrap = {
+      findExisting: vi.fn(async () => undefined),
+      provision: vi.fn(async () => ({
+        id: "mod-1",
+        label: "Plane module Foo Bar",
+        workflowTracker: { kind: "plane", workspace_slug: "ws-a", project_id: "proj-a", module_id: "mod-1", base_url: "https://plane.example" },
+      })),
+      rollback: vi.fn(async () => undefined),
+    };
+
+    const result = await initProject("Foo Bar", { profile: "reviewer", tracker: "plane", bootstrap, configPath });
+    const workflow = await fs.readFile(result.workflowPath, "utf8");
+    const config = JSON.parse(await fs.readFile(configPath, "utf8"));
+
+    expect(workflow).toContain("kind: plane");
+    expect(workflow).toContain("base_url: https://plane.example");
+    expect(workflow).toContain("workspace_slug: ws-a");
+    expect(workflow).toContain("project_id: proj-a");
+    expect(workflow).toContain("module_id: mod-1");
+    expect(workflow).toContain("api_key: $PLANE_API_KEY");
+    expect(workflow).toContain("auth_kind: api_key");
+    expect(workflow).toContain("Fetch Plane issue {{issue.identifier}}.");
+    expect(workflow).toContain("## Plane Workflow");
+    expect(config.extensions.orchestrator.projects).toEqual([path.join(projectsRoot, "foo-bar")]);
+    expect(bootstrap.provision).toHaveBeenCalledWith("Foo Bar");
+  });
+
   it("defaults projectsRoot to ~/projects", async () => {
     const home = await fs.mkdtemp(path.join(os.tmpdir(), "aih-orch-home-"));
     const homedir = vi.spyOn(os, "homedir").mockReturnValue(home);
@@ -197,5 +230,133 @@ describe("registerOrchestratorCommands", () => {
     } finally {
       await fs.chmod(configPath, 0o644).catch(() => undefined);
     }
+  });
+});
+
+describe("planeIdentifier", () => {
+  it("derives an identifier from initials for multi-word names", () => {
+    expect(planeIdentifier("Foo Bar Baz")).toBe("FBB");
+  });
+
+  it("uppercases and strips symbols for single-word names", () => {
+    expect(planeIdentifier("foo-bar_2026!")).toBe("FOOBAR2026");
+  });
+
+  it("throws when no letters or numbers remain", () => {
+    expect(() => planeIdentifier("!!!")).toThrow("Cannot derive a Plane project identifier from name");
+  });
+});
+
+describe("planeBootstrap", () => {
+  const projectEnv: PlaneBootstrapEnv = {
+    apiKey: "token-1",
+    authKind: "api_key",
+    workspaceSlug: "ws-a",
+    baseUrl: "https://plane.example",
+  };
+  const moduleEnv: PlaneBootstrapEnv = { ...projectEnv, projectId: "proj-a" };
+
+  let fetchMock: ReturnType<typeof vi.fn>;
+
+  beforeEach(() => {
+    fetchMock = vi.fn();
+    vi.stubGlobal("fetch", fetchMock);
+  });
+
+  it("finds an existing project by name", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: [{ id: "proj-1", name: "Foo Bar", identifier: "FB" }] }), { status: 200 })
+    );
+
+    const found = await planeBootstrap(projectEnv).findExisting("Foo Bar");
+
+    expect(found).toEqual({ id: "proj-1", label: "Foo Bar (FB)" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://plane.example/api/v1/workspaces/ws-a/projects/?per_page=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("provisions a project and returns workflow tracker metadata", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ id: "proj-1", name: "Foo Bar", identifier: "FB" }), { status: 200 })
+    );
+
+    const result = await planeBootstrap(projectEnv).provision("Foo Bar");
+
+    expect(result).toEqual({
+      id: "proj-1",
+      label: "Plane project Foo Bar (FB)",
+      workflowTracker: {
+        kind: "plane",
+        workspace_slug: "ws-a",
+        base_url: "https://plane.example",
+        api_key: "$PLANE_API_KEY",
+        auth_kind: "api_key",
+        project_id: "proj-1",
+      },
+    });
+    const [, requestInit] = fetchMock.mock.calls[0];
+    expect(requestInit.method).toBe("POST");
+    expect(JSON.parse(requestInit.body)).toEqual({ name: "Foo Bar", identifier: "FB" });
+  });
+
+  it("rolls back a project by id", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await planeBootstrap(projectEnv).rollback("proj-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://plane.example/api/v1/workspaces/ws-a/projects/proj-1/",
+      expect.objectContaining({ method: "DELETE" })
+    );
+  });
+
+  it("finds an existing module by name scoped to the project", async () => {
+    fetchMock.mockResolvedValueOnce(
+      new Response(JSON.stringify({ results: [{ id: "mod-1", name: "Foo Bar" }] }), { status: 200 })
+    );
+
+    const found = await planeBootstrap(moduleEnv).findExisting("Foo Bar");
+
+    expect(found).toEqual({ id: "mod-1", label: "Foo Bar (module)" });
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://plane.example/api/v1/workspaces/ws-a/projects/proj-a/modules/?per_page=100",
+      expect.objectContaining({ method: "GET" })
+    );
+  });
+
+  it("provisions a module under the configured project", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(JSON.stringify({ id: "mod-1", name: "Foo Bar" }), { status: 200 }));
+
+    const result = await planeBootstrap(moduleEnv).provision("Foo Bar");
+
+    expect(result).toEqual({
+      id: "mod-1",
+      label: "Plane module Foo Bar",
+      workflowTracker: {
+        kind: "plane",
+        workspace_slug: "ws-a",
+        base_url: "https://plane.example",
+        api_key: "$PLANE_API_KEY",
+        auth_kind: "api_key",
+        project_id: "proj-a",
+        module_id: "mod-1",
+      },
+    });
+    const [url, requestInit] = fetchMock.mock.calls[0];
+    expect(url).toBe("https://plane.example/api/v1/workspaces/ws-a/projects/proj-a/modules/");
+    expect(JSON.parse(requestInit.body)).toEqual({ name: "Foo Bar" });
+  });
+
+  it("rolls back a module by id scoped to the project", async () => {
+    fetchMock.mockResolvedValueOnce(new Response(null, { status: 204 }));
+
+    await planeBootstrap(moduleEnv).rollback("mod-1");
+
+    expect(fetchMock).toHaveBeenCalledWith(
+      "https://plane.example/api/v1/workspaces/ws-a/projects/proj-a/modules/mod-1/",
+      expect.objectContaining({ method: "DELETE" })
+    );
   });
 });
