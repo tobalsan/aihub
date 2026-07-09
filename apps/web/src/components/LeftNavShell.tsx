@@ -75,7 +75,8 @@ export function LeftNavShell(props: { children?: JSX.Element }) {
           flex: 1;
           min-width: 0;
           min-height: 0;
-          overflow: hidden;
+          overflow-y: auto;
+          overflow-x: hidden;
         }
 
         .left-nav-shell.zen-mode .left-nav-main {
