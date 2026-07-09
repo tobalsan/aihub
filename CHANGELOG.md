@@ -4,13 +4,21 @@ These release notes are retro-created from commit history and handoff docs. Vers
 
 ## [Unreleased]
 
+## v0.20.0 — Teams, per-agent extensions & OAuth connections
+
+The largest release to date: role- and team-based multi-user access control, an admin Edit-Agent hub for per-agent extension configuration, and per-agent OAuth connections (Google Drive) with tokens encrypted at rest — plus a Plane tracker for the orchestrator and scheduler/Telegram hardening.
+
 ### Fixed
 - Agent chat sidebar SESSIONS list is now independently scrollable (ALG-264). The nested flex scroll chain in `AgentSidebar.tsx` was broken so the sessions list overflowed past the viewport and older sessions were unreachable; `.sidebar-content` now has `min-height: 0`, `.sidebar-sessions` has `flex: 1`, and `.sessions-list` has `flex: 1` + `min-height: 0`, so the list scrolls while the Orchestrator/Agents nav and SESSIONS header stay fixed.
 - `/compact` no longer creates a duplicate sidebar thread (ALG-266). Compaction summarizes the conversation in place under the same session, but the internal summarization run used an ephemeral `compact:<sessionId>:<uuid>` session whose history file leaked into `GET /api/agents/sessions` and surfaced as a standalone thread titled "Summarize the conversat…". The sidebar listing filter (`sessionIdIsInteractive`) now excludes `compact:`/`compact-` prefixed sessions alongside the existing scheduler/slack/webhook/bench exclusions, so only the original thread remains.
 - Team chat access is now enforced on every agent run/write/read surface, not just the visible agent list. Direct REST run dispatch (`/api/agents/:id/messages`, `/compact`), agent read surfaces (`/api/agents/:id`, status, history, session resume/delete/rename), WebSocket `subscribe`/`send`/status fan-out, agent-bound media upload and download, and bearer/API-token access all reject a user who lacks team access to the target agent and allow one who has it, with admin/superadmin staff bypass preserved. This closes a gap where a determined caller could bypass list-level filtering via a direct API/WS/token call. As part of this, the aggregate `GET /api/agents/status` and `GET /api/agents/sessions` endpoints (which are already filtered per user) are no longer mis-treated as single-agent addresses and wrongly rejected for non-staff users.
+- Telegram `/new` now correctly starts a fresh conversation (ALG-308).
 
 ### Changed
 - Team assignment now lives on the Edit-Agent page. The `/agents/:agentId/edit` page has an admin-only **Team assignment** section that assigns a never-forked pool agent to a team (via `assignPoolToTeam`) or moves an already-forked agent between teams (via `reassignFork`), showing the current team and a "will move from previous team" warning before a move. The equivalent inline Move/Assign-to-team controls have been removed from the pool catalog cards, so team assignment happens in one place. Both actions still call the existing admin-guarded fork APIs and persist; the controls remain admin/superadmin-gated.
+- Scheduler jobs now default to a 30-minute timeout with an optional per-job override, so a hung job can no longer wedge the scheduler loop.
+- Extension secret env-var names are now unscoped (the raw name, no agent/extension prefix), so `$env:` refs resolve against the agent's `.env` directly.
+- Web navigation is unified and power/admin surfaces are gated to `superadmin`.
 
 ### Added
 - OAuth token encryption at rest + operator setup docs (ALG-359): OAuth access and refresh tokens are now encrypted with AES-256-GCM before being persisted to the connection store under `$AIHUB_HOME/oauth/` — a leaked token row is ciphertext (`enc:v2:...`), not a live Google grant. The AES key is derived (scrypt, once per cipher instance) from a new `oauth.encryptionKey` instance-config secret (`$env:` refs supported, e.g. `$env:AIHUB_OAUTH_ENCRYPTION_KEY`). The store **fails closed**: when the key is unset it refuses to persist tokens (connecting a new account errors and logs a startup warning) so a plaintext token row is never created; existing legacy plaintext rows still read and are re-encrypted on next save. A new operator setup guide (`docs/oauth-google-drive-setup.md`) documents enabling the Google Drive API, configuring the OAuth consent screen with the Drive read-only scope, registering the per-deployment callback URL in the operator's own Google OAuth client, and setting the client ID/secret and encryption key in config.
@@ -29,6 +37,53 @@ These release notes are retro-created from commit history and handoff docs. Vers
 - Added user↔team membership. Admins can add and remove users from a team; a user may belong to many teams at once. The Teams page now has a per-team members view with admin-only add/remove controls, and any authenticated user can see which users belong to each team. Deleting a team now reports the real set of users who would be left teamless (those with no other team). Chat access does not yet resolve from membership — that lands in a later slice.
 - Added Teams as a first-class entity. Admins can create, edit, and delete teams (name, description, optional color and icon) from a new Teams page; team names are unique and unset color/icon fall back to grey and a generic team icon. Any authenticated user can view all teams. Deleting a team shows a confirmation that reports how many users and agents would be left teamless (always zero until membership and agent↔team assignment land in later slices).
 - Introduced a `superadmin` role above `admin`. The first user of a fresh instance now bootstraps as `superadmin`. Superadmins can promote/demote admins and other superadmins from the User access page; admins and regular users cannot change roles. Both `admin` and `superadmin` count as staff for approval and agent-assignment bypass.
+- Orchestrator tracker seam with **Plane** support: `aihub orchestrator init-project --tracker plane` scaffolds a Plane-backed project, tracker secrets are scrubbed from worker environments, and Plane tracker setup is documented.
+
+### Upgrade notes
+- **Access control (breaking):** chat access now resolves from team membership, not the legacy agent allowlist. Legacy assignments auto-migrate to teams on first startup, preserving prior access; after upgrade, an agent with no team is chattable only by staff (admin/superadmin).
+- The first user of a fresh instance now bootstraps as **superadmin**.
+- **OAuth:** set `oauth.encryptionKey` (e.g. `$env:AIHUB_OAUTH_ENCRYPTION_KEY`) before connecting any account — the token store fails closed without it. Operators must register their own Google OAuth client with the Drive read-only scope and per-deployment callback URL; see `docs/oauth-google-drive-setup.md`.
+- Extension secrets persist as `$env:` refs in the agent's `.env`, never as plaintext in `agent.yaml`. Secret env-var names are now unscoped — verify custom extension secret refs.
+- Scheduler jobs now time out after 30 minutes by default; set a per-job override for jobs that legitimately run longer.
+
+### Known limitations
+- OAuth ships with Google Drive (read-only) as the only provider.
+- The schema-driven auto-form supports text, number, and boolean fields only; richer config uses a bespoke route.
+
+## v0.19.0 — Chat/session reliability + orchestrator run logs
+
+Hardened interactive chat and Discord runs, added JSONL run-event logging to the orchestrator, and made the scheduler resilient to hung jobs.
+
+### Highlights
+- Store orchestrator run events as JSONL under each project path (ALG-203).
+- Fixed Discord agent runs silently failing on complex/queued requests: per-invocation `onEvent` reply isolation, decoupled `runAgent` from the Carbon listener, and `replyHandled` on the queued path (ALG-205).
+- Synthesize a run-level done via quiescence for the Codex runner (ALG-204).
+- Sessions poll now stops and redirects to login on 401 instead of looping (ALG-255).
+- Scheduler no longer wedges on hung jobs; added `jobTimeoutMs` to the config schema (ALG-189).
+- Fixed stale chat "thinking" state after hung/aborted runs; show the issue identifier on active orchestrator runs.
+- Made `curl` available to sandboxed agents; avoid stale Linear updates; chat links always open in a new tab.
+
+### Upgrade notes
+- New scheduler `jobTimeoutMs` config option; leaving it unset preserves prior behavior.
+
+## v0.18.0 — Orchestrator worker-runner seam + multi-runtime workers
+
+Introduced a pluggable orchestrator worker-runner seam with Codex, Pi, and Claude runtimes, cut the subagents runtime dependency, and enforced real per-turn timeouts.
+
+### Highlights
+- Defined an orchestrator worker-runner seam and added Codex (app-server), Pi RPC, and Claude RPC worker runners; the default runner is now `pi`.
+- Cut the orchestrator's runtime dependency on the subagents package.
+- Enforced `turn_timeout_ms` as a real per-turn deadline across all protocol runners.
+- Added run-history pagination; lowered default `max_active_runs` to 3; capped consecutive completed runs on still-active issues; reset the run streak when parking.
+- Added per-agent gateway env aliases and honored agent-local env refs.
+- Added a justfile with release/deploy recipes; hardened the media metadata store for `send_file`.
+
+### Upgrade notes
+- The default orchestrator worker runner is now `pi`; set the runner explicitly if you relied on another default.
+- `max_active_runs` default lowered to 3.
+
+### Known limitations
+- Worker runtimes (Codex/Pi/Claude) must be installed and on PATH for their respective runners.
 
 ## v0.17.0 — Proactive messaging + scheduler ops
 
