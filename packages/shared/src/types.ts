@@ -1399,6 +1399,7 @@ export const CreateScheduleRequestSchema = z.object({
   schedule: ScheduleSchema,
   model: RequiredModelConfigSchema.optional(),
   payload: SchedulePayloadSchema,
+  timeoutMs: z.number().positive().optional(),
 });
 export type CreateScheduleRequest = z.infer<typeof CreateScheduleRequestSchema>;
 
@@ -1408,6 +1409,7 @@ export const UpdateScheduleRequestSchema = z.object({
   schedule: ScheduleSchema.optional(),
   model: RequiredModelConfigSchema.optional(),
   payload: SchedulePayloadSchema.optional(),
+  timeoutMs: z.number().positive().optional(),
 });
 export type UpdateScheduleRequest = z.infer<typeof UpdateScheduleRequestSchema>;
 

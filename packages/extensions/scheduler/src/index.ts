@@ -35,6 +35,7 @@ const createJobToolSchema = z.object({
   startAt: z.string().optional(),
   message: z.string().min(1),
   sessionId: z.string().optional(),
+  timeoutMs: z.number().positive().optional(),
 });
 
 const updateJobToolSchema = z.object({
@@ -44,6 +45,7 @@ const updateJobToolSchema = z.object({
   schedule: scheduleInputSchema.optional(),
   message: z.string().min(1).optional(),
   sessionId: z.string().nullable().optional(),
+  timeoutMs: z.number().positive().optional(),
 });
 
 const jobIdToolSchema = z.object({ jobId: z.string().min(1) });
@@ -73,7 +75,8 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
     },
     {
       name: "scheduler.create_job",
-      description: "Create an enabled scheduler cron job for this agent",
+      description:
+        "Create an enabled scheduler cron job for this agent. Optional timeoutMs overrides the per-run timeout (default 30 minutes).",
       parameters: {
         type: "object",
         properties: {
@@ -83,6 +86,7 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
           startAt: { type: "string" },
           message: { type: "string" },
           sessionId: { type: "string" },
+          timeoutMs: { type: "number" },
         },
         required: ["name", "cron", "tz", "message"],
       },
@@ -98,6 +102,7 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
               startAt: input.startAt,
             },
             payload: { message: input.message, sessionId: input.sessionId },
+            timeoutMs: input.timeoutMs,
           });
           const { agentId, ...body } = parsed;
           return { ok: true, job: await getScheduler().add(agentId!, body) };
@@ -108,7 +113,8 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
     },
     {
       name: "scheduler.update_job",
-      description: "Update this agent's scheduler cron job",
+      description:
+        "Update this agent's scheduler cron job. Set timeoutMs to override the per-run timeout in milliseconds (default 30 minutes).",
       parameters: {
         type: "object",
         properties: {
@@ -126,6 +132,7 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
           },
           message: { type: "string" },
           sessionId: { type: ["string", "null"] },
+          timeoutMs: { type: "number" },
         },
         required: ["jobId"],
       },
@@ -151,6 +158,7 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
             enabled: input.enabled,
             schedule: input.schedule,
             payload,
+            timeoutMs: input.timeoutMs,
           });
           return {
             ok: true,

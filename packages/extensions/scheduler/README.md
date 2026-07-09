@@ -44,6 +44,7 @@ Disk shape omits `agentId`; it is implied by the workspace:
       },
       "model": { "provider": "anthropic", "model": "claude-sonnet-4" },
       "payload": { "message": "Summarize overnight events." },
+      "timeoutMs": 1800000,
       "createdAt": "2026-05-19T07:00:00.000Z"
     }
   ]
@@ -51,6 +52,8 @@ Disk shape omits `agentId`; it is implied by the workspace:
 ```
 
 `model` is optional. When present, both `provider` and `model` are required and the scheduled run uses that model instead of the agent default. Jobs without `model` keep using the agent default.
+
+`timeoutMs` is an optional top-level job field: the per-run timeout in milliseconds for that job. Falls back to `extensions.scheduler.jobTimeoutMs`, then the 30-minute built-in default.
 
 Malformed `cron/jobs.json` logs one warning and is treated as empty for that
 agent. In phase 1, job files are loaded at gateway start; restart after manual
@@ -123,7 +126,7 @@ When `extensions.scheduler.enabled` is not `false`, agents receive scheduler too
 - `scheduler.delete_job`
 - `scheduler.get_latest_output`
 
-Tools use raw cron + timezone input, generate job ids server-side, create enabled jobs by default, and support optional `sessionId`. They do not expose model overrides.
+Tools use raw cron + timezone input, generate job ids server-side, create enabled jobs by default, and support optional `sessionId`. They do not expose model overrides. `create_job`/`update_job` accept an optional `timeoutMs`: the per-run timeout in milliseconds (default 30 minutes; falls back to `extensions.scheduler.jobTimeoutMs`, then the 30-minute built-in).
 
 ## Hot reload
 

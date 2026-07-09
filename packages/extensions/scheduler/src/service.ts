@@ -13,7 +13,7 @@ import {
   writeCronRunOutput,
 } from "./output.js";
 
-const DEFAULT_JOB_TIMEOUT_MS = 10 * 60 * 1000; // 10 minutes
+const DEFAULT_JOB_TIMEOUT_MS = 30 * 60 * 1000; // 30 minutes
 
 export type SchedulerState = {
   nextRunAtMs?: number;
@@ -165,6 +165,7 @@ export class SchedulerService {
       schedule: input.schedule,
       model: input.model,
       payload: input.payload,
+      timeoutMs: input.timeoutMs,
       createdAt: new Date().toISOString(),
       state: {},
     };
@@ -191,6 +192,7 @@ export class SchedulerService {
     if (patch.schedule) job.schedule = patch.schedule;
     if (patch.model) job.model = patch.model;
     if (patch.payload) job.payload = patch.payload;
+    if (patch.timeoutMs !== undefined) job.timeoutMs = patch.timeoutMs;
 
     if (job.enabled) {
       job.state = job.state ?? {};
