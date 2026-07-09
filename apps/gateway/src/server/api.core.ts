@@ -328,7 +328,7 @@ function isSafeSessionId(sessionId: string): boolean {
 
 function sessionIdIsInteractive(sessionId: string): boolean {
   return isSafeSessionId(sessionId) &&
-    !/^(scheduler:|scheduler-|bench-|slack:|slack-|webhook:|webhook-|default$)/.test(
+    !/^(scheduler:|scheduler-|bench-|slack:|slack-|webhook:|webhook-|compact:|compact-|default$)/.test(
       sessionId
     );
 }
