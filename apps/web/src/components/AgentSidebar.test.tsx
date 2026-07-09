@@ -73,7 +73,7 @@ describe("AgentSidebar", () => {
       container
     );
 
-    expect(container.textContent).toContain("AIHub");
+    expect(container.textContent).toContain("Yoplai");
     expect(container.textContent).toContain("Projects");
     expect(container.textContent).toContain("Agents");
 

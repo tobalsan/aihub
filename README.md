@@ -240,11 +240,13 @@ Bootstrap flow:
 2. Gateway creates `$AIHUB_HOME/auth.db`, runs Better Auth migrations, and mounts `/api/auth/*`.
 3. The first Google OAuth user becomes `admin`.
 4. That admin approves later signups and manages roles at `/admin/users`.
-5. Admins manage per-user agent access at `/admin/agents`.
+5. Admins manage agent access by assigning agents to teams at `/teams`; any user can chat an agent whose team they belong to.
+
+Roles are `user` / `admin` / `superadmin`. Admins can authorize pending users and reject/approve access from `/admin/users`. Only superadmins can promote/demote roles, start "View as" impersonation, or use chat's full-view mode (thinking blocks, tool call/result detail, model metadata) — regular admins get the same simple chat view as any user.
 
 Notes:
 
-- Multi-user mode adds `/login`, `/api/me`, `/api/admin/users`, and `/api/admin/agents`.
+- Multi-user mode adds `/login`, `/api/me`, and `/api/admin/users`.
 - Gateway initializes the Better Auth runtime before opening the HTTP listener, so `/api/auth/*` is live as soon as the server starts.
 - Sessions/history move to per-user paths under `$AIHUB_HOME/sessions/users/<userId>/`.
 - Headless callers (curl, CI, scripts) can use `aihub user token create|list|revoke` to mint bearer API keys and call `/api/*` with `Authorization: Bearer <token>` instead of a browser cookie.
@@ -439,7 +441,7 @@ packages/
 
 ## Web UI Navigation
 
-- Left sidebar: AIHub logo + primary links (`Chats` always; `Projects` and `Conversations` only when those components are enabled)
+- Single unified left sidebar (`LeftNavShell`/`AgentSidebar`) wraps every route — `/`, `/projects`, `/agents`, `/teams`, `/agents/:id/edit`, `/conversations`, `/admin/users`, and `/chat/:agentId`. Primary links: `Chats` always; `Projects` and `Conversations` only when those components are enabled; `Agents` and `Teams` visible to everyone; `Admin` (→ `/admin/users`) visible only to admin/superadmin. The sidebar logo shows custom org branding when configured, otherwise the default "Yoplai" wordmark — never both.
 - Main route: `/` for Areas overview (new homepage)
 - Areas homepage supports quick area creation with auto-generated ids and color picker selection
 - Project routes: `/projects` shows the cached Board-backed Projects kanban (`Triage`, `Shaping`, `Active`, `Ready to merge`, `Done`), `/projects/archive` groups archived and cancelled projects, and `/projects/:id` reuses the Board-style project detail (`Pitch`, `Slices`, `Thread`, `Activity`) with the global left nav. The Projects create form stores the initial idea in `README.md` for shaping agents to turn into `PITCH.md`, exposes an editable repo field, prefills it from the selected area repo, and validates the path on blur without blocking creation. Moving a project to `Shaping` or any `shaping:*` stage requires an explicit project-level repo. The Board extension's `Projects` tab embeds the two-pane Projects Overview with client-side filters/search and worktree run state from `/api/board/projects`
@@ -447,7 +449,7 @@ packages/
 - Collapsed left/right sidebars hover-expand as overlays instead of pushing the main content
 - Legacy direct-chat agent list remains at `/agents`
 - `Archived` button lives in the projects header (top-right) and toggles archived-projects section
-- Left sidebar nav is persistent across `/projects`, `/agents`, `/conversations`, and `/chat/:agentId`
+- Left sidebar nav is persistent across `/projects`, `/agents`, `/teams`, `/conversations`, `/admin/users`, and `/chat/:agentId`
 - The full project editor remains available from the overview through `?detail=1`; it opens `ProjectDetailPage` over the overview for Pitch editing, chat, activity, changes, and slice spec work
 - Board project detail uses one editable Pitch surface backed by `PITCH.md`; legacy projects without `PITCH.md` display the `README.md` body as fallback while `README.md` remains the frontmatter carrier. Project-level `SPECS.md` files are legacy artifacts and are not surfaced in project detail. The header title can be edited inline from its hover edit icon, saved with Enter/check, or cancelled with Escape.
 - Slice detail uses one editable Specs surface backed by `SPECS.md`; legacy slices without `SPECS.md` display the `README.md` body as fallback while slice `README.md` remains the frontmatter carrier. `TASKS.md`, `VALIDATION.md`, and `THREAD.md` remain separate slice tabs; the Thread tab supports adding timestamped comments from the UI, with Cmd/Ctrl+Enter to submit.

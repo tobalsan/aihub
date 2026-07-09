@@ -468,14 +468,13 @@ export function ChatView() {
   const navigate = useNavigate();
   const [agent] = createResource(() => params.agentId, fetchAgent);
 
-  const hasAdminRole = (role: string | string[] | null | undefined) => {
-    const staff = ["admin", "superadmin"];
+  const hasSuperadminRole = (role: string | string[] | null | undefined) => {
     return Array.isArray(role)
-      ? role.some((r) => staff.includes(r))
-      : typeof role === "string" && staff.includes(role);
+      ? role.includes("superadmin")
+      : role === "superadmin";
   };
   const canUseFullView = createMemo(
-    () => !capabilities.multiUser || hasAdminRole(capabilities.user?.role)
+    () => !capabilities.multiUser || hasSuperadminRole(capabilities.user?.role)
   );
   const viewMode = createMemo<HistoryViewMode>(() =>
     params.view === "full" && canUseFullView() ? "full" : "simple"

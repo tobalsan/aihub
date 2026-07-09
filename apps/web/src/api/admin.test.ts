@@ -1,9 +1,7 @@
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import {
-  fetchAgentAssignments,
   fetchImpersonationStatus,
   fetchUsers,
-  setAgentAssignments,
   startImpersonation,
   updateUser,
 } from "./admin";
@@ -56,41 +54,6 @@ describe("admin api client", () => {
       body: JSON.stringify({ approved: true, role: "admin" }),
       credentials: "include",
     });
-  });
-
-  it("fetches assignments with credentials", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({
-        assignments: [{ agentId: "agent-a", userId: "user-1" }],
-      }),
-    });
-
-    const assignments = await fetchAgentAssignments();
-
-    expect(fetchMock).toHaveBeenCalledWith("/api/admin/agents/assignments", {
-      credentials: "include",
-    });
-    expect(assignments[0]?.agentId).toBe("agent-a");
-  });
-
-  it("sets assignments with credentials", async () => {
-    fetchMock.mockResolvedValue({
-      ok: true,
-      json: async () => ({}),
-    });
-
-    await setAgentAssignments("agent-a", ["user-1", "user-2"]);
-
-    expect(fetchMock).toHaveBeenCalledWith(
-      "/api/admin/agents/agent-a/assignments",
-      {
-        method: "PUT",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ userIds: ["user-1", "user-2"] }),
-        credentials: "include",
-      }
-    );
   });
 
   it("starts impersonation with 204 response", async () => {

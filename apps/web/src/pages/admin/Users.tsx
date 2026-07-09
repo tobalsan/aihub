@@ -108,7 +108,6 @@ export default function AdminUsersPage() {
     <AdminLayout
       title="User access"
       description="Approve pending users and set admin privileges."
-      active="users"
     >
       <Show when={error()}>
         {(message) => <p class="admin-error">{message()}</p>}
@@ -169,7 +168,11 @@ export default function AdminUsersPage() {
                         <td>{formatDate(user.createdAt)}</td>
                         <td>
                           <div class="admin-actions">
-                            <Show when={user.id !== sessionUser()?.id}>
+                            <Show
+                              when={
+                                isSuperadmin() && user.id !== sessionUser()?.id
+                              }
+                            >
                               <button
                                 type="button"
                                 class="admin-action-button"

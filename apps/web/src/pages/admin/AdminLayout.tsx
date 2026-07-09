@@ -1,10 +1,8 @@
-import { A } from "@solidjs/router";
 import type { JSX } from "solid-js";
 
 export default function AdminLayout(props: {
   title: string;
   description: string;
-  active: "users" | "agents";
   children?: JSX.Element;
 }) {
   return (
@@ -16,22 +14,6 @@ export default function AdminLayout(props: {
             <h1>{props.title}</h1>
             <p>{props.description}</p>
           </div>
-          <nav class="admin-page-tabs" aria-label="Admin pages">
-            <A
-              href="/admin/users"
-              class="admin-page-tab"
-              classList={{ active: props.active === "users" }}
-            >
-              Users
-            </A>
-            <A
-              href="/admin/agents"
-              class="admin-page-tab"
-              classList={{ active: props.active === "agents" }}
-            >
-              Agent access
-            </A>
-          </nav>
         </header>
         <div class="admin-page-body">{props.children}</div>
       </section>
@@ -71,31 +53,6 @@ export default function AdminLayout(props: {
           margin: 8px 0 0;
           color: var(--text-secondary);
           max-width: 58ch;
-        }
-
-        .admin-page-tabs {
-          display: inline-flex;
-          gap: 8px;
-          flex-wrap: wrap;
-        }
-
-        .admin-page-tab {
-          padding: 10px 14px;
-          border-radius: 999px;
-          border: 1px solid var(--border-default);
-          color: var(--text-secondary);
-          text-decoration: none;
-          transition: background 0.15s ease, color 0.15s ease, border-color 0.15s ease;
-        }
-
-        .admin-page-tab:hover {
-          background: var(--bg-raised);
-          color: var(--text-primary);
-        }
-
-        .admin-page-tab.active {
-          background: color-mix(in srgb, var(--bg-raised) 82%, transparent);
-          color: var(--text-primary);
         }
 
         .admin-page-body {

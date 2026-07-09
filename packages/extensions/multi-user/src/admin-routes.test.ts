@@ -360,9 +360,9 @@ describe("multi-user admin routes", () => {
     });
   });
 
-  it("admin can start impersonation for another user", async () => {
+  it("superadmin can start impersonation for another user", async () => {
     vi.spyOn(console, "info").mockImplementation(() => undefined);
-    const runtime = createRuntime();
+    const runtime = createRuntime({ session: createSession("superadmin") });
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
     const { registerMultiUserRoutes } = await importAdminRoutes();
@@ -384,12 +384,12 @@ describe("multi-user admin routes", () => {
     );
 
     expect(response.status).toBe(204);
-    expect(getImpersonation("admin-session")?.targetUserId).toBe("user-1");
-    endImpersonation("admin-session");
+    expect(getImpersonation("superadmin-session")?.targetUserId).toBe("user-1");
+    endImpersonation("superadmin-session");
   });
 
   it("rejects self impersonation", async () => {
-    const runtime = createRuntime();
+    const runtime = createRuntime({ session: createSession("superadmin") });
     getMultiUserRuntime.mockReturnValue(runtime.runtime);
 
     const { registerMultiUserRoutes } = await importAdminRoutes();
@@ -405,7 +405,7 @@ describe("multi-user admin routes", () => {
           cookie: "session=1",
           "content-type": "application/json",
         },
-        body: JSON.stringify({ targetUserId: "admin-1" }),
+        body: JSON.stringify({ targetUserId: "superadmin-1" }),
       })
     );
 

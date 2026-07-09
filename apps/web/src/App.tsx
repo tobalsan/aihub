@@ -17,7 +17,6 @@ import { ChatView } from "./components/ChatView";
 import { QuickChatFAB } from "./components/QuickChatFAB";
 import { QuickChatOverlay } from "./components/QuickChatOverlay";
 import { LeftNavShell } from "./components/LeftNavShell";
-import { ConsoleShell } from "./components/ConsoleShell";
 import { AgentCatalog } from "./pages/AgentCatalog";
 import { EditAgent } from "./pages/EditAgent";
 import { ExtensionConfigForm } from "./pages/ExtensionConfigForm";
@@ -46,9 +45,6 @@ import {
 const LazyAuthGuard = lazy(() => import("./auth/AuthGuard"));
 const LazyLoginPage = lazy(() => import("./pages/Login"));
 const LazyAdminUsersPage = lazy(() => import("./pages/admin/Users"));
-const LazyAdminAgentsPage = lazy(
-  () => import("./pages/admin/AgentAssignments")
-);
 
 const basePath = import.meta.env.BASE_URL?.replace(/\/+$/, "") ?? "";
 
@@ -291,41 +287,41 @@ function HomeRoute() {
 
 function AgentsRouteShell() {
   return (
-    <ConsoleShell>
+    <LeftNavShell>
       <AgentCatalog />
-    </ConsoleShell>
+    </LeftNavShell>
   );
 }
 
 function TeamsRouteShell() {
   return (
-    <ConsoleShell>
+    <LeftNavShell>
       <Teams />
-    </ConsoleShell>
+    </LeftNavShell>
   );
 }
 
 function EditAgentRouteShell() {
   return (
-    <ConsoleShell>
+    <LeftNavShell>
       <EditAgent />
-    </ConsoleShell>
+    </LeftNavShell>
   );
 }
 
 function ExtensionConfigRouteShell() {
   return (
-    <ConsoleShell>
+    <LeftNavShell>
       <ExtensionConfigForm />
-    </ConsoleShell>
+    </LeftNavShell>
   );
 }
 
 function ExtensionDetailsRouteShell() {
   return (
-    <ConsoleShell>
+    <LeftNavShell>
       <ExtensionDetails />
-    </ConsoleShell>
+    </LeftNavShell>
   );
 }
 
@@ -351,16 +347,6 @@ function AdminUsersRouteShell() {
     <LeftNavShell>
       <Suspense>
         <LazyAdminUsersPage />
-      </Suspense>
-    </LeftNavShell>
-  );
-}
-
-function AdminAgentsRouteShell() {
-  return (
-    <LeftNavShell>
-      <Suspense>
-        <LazyAdminAgentsPage />
       </Suspense>
     </LeftNavShell>
   );
@@ -437,14 +423,6 @@ export default function App() {
         component={() => (
           <GuardedRoute>
             <AdminUsersRouteShell />
-          </GuardedRoute>
-        )}
-      />
-      <Route
-        path="/admin/agents"
-        component={() => (
-          <GuardedRoute>
-            <AdminAgentsRouteShell />
           </GuardedRoute>
         )}
       />

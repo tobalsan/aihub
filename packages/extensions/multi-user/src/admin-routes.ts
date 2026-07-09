@@ -4,6 +4,7 @@ import {
   getRequestAuthContext,
   hasSuperadminRole,
   requireAdmin,
+  requireSuperadmin,
 } from "./middleware.js";
 import { getMultiUserRuntime } from "./index.js";
 import { logImpersonationEvent, startImpersonation } from "./impersonation.js";
@@ -90,7 +91,7 @@ export function registerMultiUserAdminRoutes(app: Hono): void {
     return c.json(result);
   });
 
-  app.post("/admin/impersonate/start", requireAdmin(), async (c) => {
+  app.post("/admin/impersonate/start", requireSuperadmin(), async (c) => {
     const parsed = StartImpersonationBodySchema.safeParse(await c.req.json());
     if (!parsed.success) {
       return c.json({ error: parsed.error.message }, 400);

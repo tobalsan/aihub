@@ -8,13 +8,6 @@ export type AdminUser = {
   createdAt?: string;
 };
 
-export type Assignment = {
-  userId: string;
-  agentId: string;
-  assignedBy: string;
-  assignedAt: string;
-};
-
 export type ImpersonationStatus =
   | { active: false }
   | {
@@ -55,24 +48,6 @@ export async function updateUser(
     method: "PATCH",
     headers: { "Content-Type": "application/json" },
     body: JSON.stringify(data),
-  });
-}
-
-export async function fetchAgentAssignments(): Promise<Assignment[]> {
-  const data = await request<{ assignments: Assignment[] }>(
-    "/api/admin/agents/assignments"
-  );
-  return data.assignments;
-}
-
-export async function setAgentAssignments(
-  agentId: string,
-  userIds: string[]
-): Promise<void> {
-  await request(`/api/admin/agents/${encodeURIComponent(agentId)}/assignments`, {
-    method: "PUT",
-    headers: { "Content-Type": "application/json" },
-    body: JSON.stringify({ userIds }),
   });
 }
 
