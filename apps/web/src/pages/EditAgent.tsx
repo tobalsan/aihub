@@ -6,7 +6,7 @@ import {
   Show,
 } from "solid-js";
 import { A, useNavigate, useParams } from "@solidjs/router";
-import { fetchPool } from "../api";
+import { fetchAgents, fetchPool } from "../api";
 import {
   autoFormPath,
   detailsPath,
@@ -23,6 +23,7 @@ import {
   type Team,
 } from "../api/teams";
 import { useSession } from "../auth/client";
+import { capabilities } from "../lib/capabilities";
 
 function isEmoji(str: string): boolean {
   return /^\p{Emoji}/u.test(str) && str.length <= 4;
@@ -146,16 +147,22 @@ export function EditAgent() {
     )
   );
 
-  const [agents] = createResource(fetchPool);
+  const [agents] = createResource(() =>
+    capabilities.forkedAgents ? fetchPool() : fetchAgents()
+  );
   const agent = createMemo(() =>
     (agents() ?? []).find((candidate) => candidate.id === params.agentId)
   );
 
   const [teams] = createResource(() =>
-    isAdmin() ? fetchTeams() : Promise.resolve([] as Team[])
+    isAdmin() && capabilities.forkedAgents
+      ? fetchTeams()
+      : Promise.resolve([] as Team[])
   );
   const [forks, { refetch: refetchForks }] = createResource(() =>
-    isAdmin() ? fetchForks() : Promise.resolve([] as AgentFork[])
+    isAdmin() && capabilities.forkedAgents
+      ? fetchForks()
+      : Promise.resolve([] as AgentFork[])
   );
   const fork = createMemo(() =>
     (forks() ?? []).find((entry) => entry.sourcePoolId === params.agentId)
@@ -166,7 +173,11 @@ export function EditAgent() {
   const [pending, setPending] = createSignal<string | null>(null);
   const [extError, setExtError] = createSignal<string | null>(null);
   const disabledEnableMessage = createMemo(() =>
-    fork() ? AGENT_FOLDER_MISSING_MESSAGE : ASSIGN_TO_ENABLE_MESSAGE
+    capabilities.forkedAgents
+      ? fork()
+        ? AGENT_FOLDER_MISSING_MESSAGE
+        : ASSIGN_TO_ENABLE_MESSAGE
+      : AGENT_FOLDER_MISSING_MESSAGE
   );
 
   // Route an extension enable to its config surface per the 3-tier contract
@@ -246,7 +257,7 @@ export function EditAgent() {
           )}
         </Show>
 
-        <Show when={isAdmin() && agent()}>
+        <Show when={isAdmin() && capabilities.forkedAgents && agent()}>
           <TeamAssignment
             poolId={params.agentId}
             teams={teams() ?? []}

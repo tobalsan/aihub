@@ -50,7 +50,8 @@ function globToDirs(pattern: string, configDir: string): string[] {
 
 function discoverAgents(
   agentGlobs: string | string[] | undefined,
-  configDir: string
+  configDir: string,
+  options: { strict?: boolean; label?: string; emptyMessage?: string } = {}
 ): AgentConfig[] {
   const patterns =
     typeof agentGlobs === "string" ? [agentGlobs] : (agentGlobs ?? []);
@@ -61,21 +62,29 @@ function discoverAgents(
     for (const workspaceDir of globToDirs(pattern, configDir)) {
       const agentPath = path.join(workspaceDir, "agent.yaml");
       if (!fs.existsSync(agentPath)) {
-        console.warn(`[config] no agent.yaml in ${workspaceDir}; skipping`);
+        const message = `[config] no agent.yaml in ${workspaceDir}`;
+        if (options.strict) {
+          throw new Error(
+            `${message}. Configure ${options.label ?? "agents"} with directories that contain agent.yaml.`
+          );
+        }
+        console.warn(`${message}; skipping`);
         continue;
       }
       let parsedYaml: unknown;
       try {
         parsedYaml = yaml.load(fs.readFileSync(agentPath, "utf8"));
       } catch (error) {
-        console.warn(
-          `[config] failed to read ${agentPath}: ${(error as Error).message}`
-        );
+        const message = `[config] failed to read ${agentPath}: ${(error as Error).message}`;
+        if (options.strict) throw new Error(message);
+        console.warn(message);
         continue;
       }
       const parsed = AgentYamlConfigSchema.safeParse(parsedYaml);
       if (!parsed.success) {
-        console.warn(`[config] invalid ${agentPath}: ${parsed.error.message}`);
+        const message = `[config] invalid ${agentPath}: ${parsed.error.message}`;
+        if (options.strict) throw new Error(message);
+        console.warn(message);
         continue;
       }
       const folderName = path.basename(workspaceDir);
@@ -93,6 +102,13 @@ function discoverAgents(
       seen.set(parsed.data.id, agentPath);
       agents.push({ ...parsed.data, workspace: workspaceDir, workspaceDir });
     }
+  }
+
+  if (options.strict && agents.length === 0) {
+    throw new Error(
+      options.emptyMessage ??
+        `[config] no valid ${options.label ?? "agents"} found. Configure ${options.label ?? "agents"} with directories that contain agent.yaml.`
+    );
   }
 
   return agents.sort((a, b) => a.id.localeCompare(b.id));
@@ -171,17 +187,27 @@ export function loadConfig(): GatewayConfig {
   }
   const parsed = GatewayRootConfigSchema.parse(json);
   const configDir = path.dirname(configPath);
+  const hasPoolConfig = Object.prototype.hasOwnProperty.call(json, "pool");
+  const agentDiscovery =
+    parsed.agents ?? (hasPoolConfig ? undefined : "$AIHUB_HOME/agents/*");
+  const poolEmptyMessage =
+    "[config] pool is configured but no valid agents were found. Remove pool for single-folder mode, or point pool at directories containing agent.yaml.";
   const result: GatewayConfig = {
     ...parsed,
     version: 3,
     agents: discoverAgents(
-      parsed.agents as string | string[] | undefined,
-      configDir
+      agentDiscovery as string | string[] | undefined,
+      configDir,
+      { strict: !hasPoolConfig && parsed.agents === undefined, label: "agents" }
     ),
-    pool: discoverAgents(
-      parsed.pool as string | string[] | undefined,
-      configDir
-    ),
+    pool: hasPoolConfig
+      ? discoverAgents(
+          parsed.pool as string | string[] | undefined,
+          configDir,
+          { strict: true, label: "pool", emptyMessage: poolEmptyMessage }
+        )
+      : undefined,
+    forkedAgents: hasPoolConfig,
   };
 
   // Validate OneCLI CA file path at startup if configured

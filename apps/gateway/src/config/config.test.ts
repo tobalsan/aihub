@@ -125,5 +125,51 @@ describe("config validation", () => {
       "foo",
     ]);
     expect(loadConfig().agents).toEqual([]);
+    expect(loadConfig().forkedAgents).toBe(true);
+  });
+
+  it("defaults missing agents config to $AIHUB_HOME/agents", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
+    const home = path.join(tmpDir, "home");
+    await fs.mkdir(home, { recursive: true });
+    await writeAgent(path.join(home, "agents", "local"), "local");
+    await fs.writeFile(
+      path.join(home, "aihub.json"),
+      JSON.stringify({ version: 3 })
+    );
+    vi.stubEnv("AIHUB_HOME", home);
+    const { loadConfig } = await import("./index.js");
+    const config = loadConfig();
+    expect(config.agents.map((agent) => agent.id)).toEqual(["local"]);
+    expect(config.pool).toBeUndefined();
+    expect(config.forkedAgents).toBe(false);
+  });
+
+  it("fails clearly when default agents folder is missing", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
+    const home = path.join(tmpDir, "home");
+    await fs.mkdir(home, { recursive: true });
+    await fs.writeFile(
+      path.join(home, "aihub.json"),
+      JSON.stringify({ version: 3 })
+    );
+    vi.stubEnv("AIHUB_HOME", home);
+    const { loadConfig } = await import("./index.js");
+    expect(() => loadConfig()).toThrow(/no valid agents found/);
+  });
+
+  it("fails clearly when pool is configured but empty", async () => {
+    tmpDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-config-"));
+    const home = path.join(tmpDir, "home");
+    await fs.mkdir(path.join(home, "pool"), { recursive: true });
+    await fs.writeFile(
+      path.join(home, "aihub.json"),
+      JSON.stringify({ version: 3, pool: "pool/*" })
+    );
+    vi.stubEnv("AIHUB_HOME", home);
+    const { loadConfig } = await import("./index.js");
+    expect(() => loadConfig()).toThrow(
+      /pool is configured but no valid agents/
+    );
   });
 });

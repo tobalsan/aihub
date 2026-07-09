@@ -211,16 +211,18 @@ export function AgentSidebar(props: AgentSidebarProps) {
               <span class="nav-full">Agents</span>
               <span class="nav-short">Ag</span>
             </A>
-            <A
-              href="/teams"
-              class="nav-link"
-              classList={{
-                active: stripBase(location.pathname).startsWith("/teams"),
-              }}
-            >
-              <span class="nav-full">Teams</span>
-              <span class="nav-short">Te</span>
-            </A>
+            <Show when={capabilities.multiUser && capabilities.forkedAgents}>
+              <A
+                href="/teams"
+                class="nav-link"
+                classList={{
+                  active: stripBase(location.pathname).startsWith("/teams"),
+                }}
+              >
+                <span class="nav-full">Teams</span>
+                <span class="nav-short">Te</span>
+              </A>
+            </Show>
             <Show
               when={
                 capabilities.multiUser && hasAdminRole(capabilities.user?.role)

@@ -64,7 +64,13 @@ export function getAgentFilter(
     // Staff bypass and single-user (no runtime) both see everything. Otherwise
     // visibility resolves from team membership via the access resolver — the
     // `agent_assignments` allowlist is no longer consulted.
-    if (!activeRuntime || hasAdminRole(role)) return agents;
+    if (
+      !activeRuntime ||
+      hasAdminRole(role) ||
+      activeRuntime.getPoolAgentIds().length === 0
+    ) {
+      return agents;
+    }
     const visibleAgentIds = new Set(
       activeRuntime.access.getVisibleChatAgents(userId)
     );

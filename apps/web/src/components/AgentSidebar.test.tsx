@@ -222,7 +222,33 @@ describe("AgentSidebar", () => {
     );
 
     expect(container.textContent).not.toContain("Projects");
+    expect(container.textContent).not.toContain("Teams");
     expect(container.textContent).toContain("Agents");
+
+    dispose();
+  });
+
+  it("shows Teams only in multi-user forked-agent mode", () => {
+    setCapabilitiesForTests({
+      multiUser: true,
+      forkedAgents: true,
+      extensions: {},
+    });
+    const container = document.createElement("div");
+    document.body.appendChild(container);
+    const [collapsed] = createSignal(false);
+
+    const dispose = render(
+      () => (
+        <AgentSidebar
+          collapsed={collapsed}
+          onToggleCollapse={() => {}}
+        />
+      ),
+      container
+    );
+
+    expect(container.textContent).toContain("Teams");
 
     dispose();
   });

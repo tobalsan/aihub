@@ -296,7 +296,9 @@ function AgentsRouteShell() {
 function TeamsRouteShell() {
   return (
     <LeftNavShell>
-      <Teams />
+      <Show when={capabilities.forkedAgents} fallback={<AgentCatalog />}>
+        <Teams />
+      </Show>
     </LeftNavShell>
   );
 }

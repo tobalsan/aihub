@@ -1,11 +1,12 @@
 import { createMemo, createResource, For, Show } from "solid-js";
 import { A } from "@solidjs/router";
-import { fetchPool } from "../api";
+import { fetchAgents, fetchPool } from "../api";
 import {
   fetchPoolActions,
   type PoolCatalogEntry,
 } from "../api/teams";
 import { useSession } from "../auth/client";
+import { capabilities } from "../lib/capabilities";
 
 function isEmoji(str: string): boolean {
   return /^\p{Emoji}/u.test(str) && str.length <= 4;
@@ -39,7 +40,9 @@ function hasAdminRole(role: string | string[] | null | undefined): boolean {
 }
 
 export function AgentCatalog() {
-  const [agents] = createResource(fetchPool);
+  const [agents] = createResource(() =>
+    capabilities.forkedAgents ? fetchPool() : fetchAgents()
+  );
   const session = useSession();
   const isAdmin = createMemo(() =>
     hasAdminRole(
@@ -48,14 +51,17 @@ export function AgentCatalog() {
   );
   // The per-user action state for every pool card, resolved by the gateway
   // (chat / assign_to_team / none).
-  const [actions] = createResource(fetchPoolActions);
+  const [actions] = createResource(
+    () => capabilities.forkedAgents,
+    (enabled) => (enabled ? fetchPoolActions() : Promise.resolve([]))
+  );
   const actionByPool = createMemo(() => {
     const map = new Map<string, PoolCatalogEntry>();
     for (const entry of actions() ?? []) map.set(entry.poolId, entry);
     return map;
   });
   const canEditAgent = (entry: PoolCatalogEntry | undefined) =>
-    isAdmin() || entry?.action === "chat";
+    !capabilities.forkedAgents || isAdmin() || entry?.action === "chat";
 
   return (
     <div class="agent-catalog">
@@ -117,6 +123,13 @@ export function AgentCatalog() {
                 <div class="catalog-divider" />
                 {(() => {
                   const entry = actionByPool().get(agent.id);
+                  if (!capabilities.forkedAgents) {
+                    return (
+                      <A href={`/chat/${agent.id}`} class="catalog-chat-link">
+                        Chat
+                      </A>
+                    );
+                  }
                   // Chat: a fork exists and this user can chat it (member or
                   // staff). Route to the fork agent id, never the pool id.
                   return (

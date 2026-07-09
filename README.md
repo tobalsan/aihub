@@ -52,7 +52,7 @@ The app uses a main config file at `$AIHUB_HOME/aihub.json` (default: `~/.aihub/
 All data is saved as markdown files in the projects folder.
 By default, if you don't specify anything, all projects are saved in `~/projects`.
 Project document layout is centralized in `ProjectDocumentStore`: project metadata stays in `README.md`, pitch in `PITCH.md`, comments in `THREAD.md`, slices under `slices/<sliceId>/`, and `SCOPE_MAP.md` is generated.
-Config uses v3: `$AIHUB_HOME/aihub.json` holds global settings and `agents` discovery globs; each lead agent lives in its own workspace with `agent.yaml`.
+Config uses v3: `$AIHUB_HOME/aihub.json` holds global settings and optional `agents` discovery globs; each lead agent lives in its own workspace with `agent.yaml`. If `agents` is omitted and no root `pool` is configured, AIHub defaults to `$AIHUB_HOME/agents` and fails startup clearly if that folder does not contain agent workspaces.
 Config has a single extension model. Root `extensions.<id>` holds shared extension defaults, and `agent.yaml` `extensions.<id>` opts that agent into tool-style extensions with optional per-agent overrides.
 Projects can opt into the slice orchestrator daemon with `extensions.projects.orchestrator`. When enabled, it polls configured slice status bindings, starts `Worker` subagents for `todo`, starts `Reviewer` subagents for `review`, and starts `Merger` subagents for `ready_to_merge`. The dispatcher is split internally into dispatch policy, prompt factory, and run planner modules. Slices can declare `blocked_by` prerequisites; blocked slices are skipped until every blocker is `done`, `ready_to_merge`, or `cancelled`. HITL bursts require `hitl_channel` to name an existing `notifications.channels` key.
 Orchestrated Worker/Reviewer/Merger prompts tell agents to pass their role via `--author` when posting project or slice comments, so THREAD.md keeps role attribution.
@@ -95,7 +95,7 @@ Agents can optionally run inside ephemeral Docker containers for filesystem, net
 ### Lead agents
 
 Lead agent configuration is optional, as orchestration is done via CLI subagents.
-If you want lead agents, point `aihub.json` at agent workspace folders. Each workspace contains `agent.yaml` and prompt files.
+If you want lead agents, point `aihub.json` at agent workspace folders, or omit `agents` to use `$AIHUB_HOME/agents` in non-pool mode. Each workspace contains `agent.yaml` and prompt files.
 
 ```bash
 export AIHUB_HOME="${AIHUB_HOME:-$HOME/.aihub}"

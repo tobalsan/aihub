@@ -163,7 +163,7 @@ function findWritableExtensionAgent(
 
 async function getVisibleAgents(c: Context) {
   const agents = getActiveAgents();
-  if (!isExtensionLoaded("multiUser")) {
+  if (!isExtensionLoaded("multiUser") || !loadConfig().forkedAgents) {
     return agents;
   }
 
@@ -240,6 +240,7 @@ api.get("/capabilities", async (c) => {
     extensions,
     agents: agents.map((agent) => agent.id),
     multiUser: isMultiUserEnabled,
+    forkedAgents: config.forkedAgents ?? false,
     agentFab: config.agentFab ?? false,
     ...(home ? { home } : {}),
     ...(isMultiUserEnabled && authContext
@@ -441,7 +442,11 @@ api.get("/agents", async (c) => {
 
 // GET /api/pool - list all pool agents (no per-user filtering)
 api.get("/pool", async (c) => {
-  const agents = loadConfig().pool ?? [];
+  const config = loadConfig();
+  if (!config.forkedAgents) {
+    return c.json({ error: "Pool is not configured" }, 404);
+  }
+  const agents = config.pool ?? [];
   const includePrivateMeta = await canViewAgentPrivateMeta(c);
   return c.json(
     agents.map((a) => ({

@@ -7,16 +7,21 @@ import type { PoolCatalogEntry } from "../api/teams";
 // ── Mocks ─────────────────────────────────────────────────────────────────────
 
 const {
+  fetchAgentsMock,
   fetchPoolMock,
   fetchPoolActionsMock,
   useSessionMock,
 } = vi.hoisted(() => ({
+  fetchAgentsMock: vi.fn(),
   fetchPoolMock: vi.fn(),
   fetchPoolActionsMock: vi.fn(),
   useSessionMock: vi.fn(),
 }));
 
-vi.mock("../api", () => ({ fetchPool: fetchPoolMock }));
+vi.mock("../api", () => ({
+  fetchAgents: fetchAgentsMock,
+  fetchPool: fetchPoolMock,
+}));
 
 vi.mock("../api/teams", () => ({
   fetchPoolActions: fetchPoolActionsMock,
@@ -35,6 +40,10 @@ vi.mock("@solidjs/router", () => ({
 }));
 
 import { AgentCatalog } from "./AgentCatalog";
+import {
+  resetCapabilitiesForTests,
+  setCapabilitiesForTests,
+} from "../lib/capabilities";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -75,8 +84,10 @@ async function mountCatalog() {
 }
 
 beforeEach(() => {
+  fetchAgentsMock.mockReset();
   fetchPoolMock.mockReset();
   fetchPoolActionsMock.mockReset();
+  setCapabilitiesForTests({ forkedAgents: true });
   useSessionMock.mockReset();
   container = document.createElement("div");
   document.body.appendChild(container);
@@ -85,6 +96,7 @@ beforeEach(() => {
 afterEach(() => {
   dispose?.();
   container.remove();
+  resetCapabilitiesForTests();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────
@@ -101,6 +113,22 @@ describe("AgentCatalog action states", () => {
     );
     expect(chat).not.toBeNull();
     expect(chat?.getAttribute("href")).toBe("/chat/scribe");
+  });
+
+  it("uses runnable agents directly when forked-agent mode is disabled", async () => {
+    setCapabilitiesForTests({ forkedAgents: false });
+    setSession("user");
+    fetchAgentsMock.mockResolvedValue([agent("local")]);
+    await mountCatalog();
+
+    expect(fetchAgentsMock).toHaveBeenCalledOnce();
+    expect(fetchPoolMock).not.toHaveBeenCalled();
+    expect(fetchPoolActionsMock).not.toHaveBeenCalled();
+
+    const chat = container.querySelector<HTMLAnchorElement>(
+      ".catalog-chat-link"
+    );
+    expect(chat?.getAttribute("href")).toBe("/chat/local");
   });
 
   it("shows the unassigned message and no Chat link when action is none", async () => {
