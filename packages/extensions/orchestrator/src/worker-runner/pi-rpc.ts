@@ -3,6 +3,7 @@ import fsSync from "node:fs";
 import path from "node:path";
 import type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStartInput, WorkerRunnerStatus } from "./runner.js";
 import { piThinkingForRunner, validateWorkflowThinkingForRunner } from "./thinking.js";
+import { sanitizedWorkerEnv } from "./env.js";
 
 type PiCommandResponse = {
   id?: string | number | null;
@@ -150,13 +151,12 @@ export class PiRpcRunner implements WorkerRunner {
     const [cmd, ...args] = commandParts(input);
     const child = spawn(cmd, args, {
       cwd: input.workspace,
-      env: {
-        ...process.env,
+      env: sanitizedWorkerEnv({
         AIHUB_RUN_ID: input.runId,
         AIHUB_PROJECT_ID: input.project.id,
         AIHUB_ISSUE_ID: input.issue.id,
         AIHUB_ISSUE_IDENTIFIER: input.issue.identifier,
-      },
+      }),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });

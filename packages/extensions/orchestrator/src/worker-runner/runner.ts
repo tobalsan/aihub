@@ -5,6 +5,7 @@ import { ClaudeRpcRunner } from "./claude-rpc.js";
 import { CodexAppServerRunner } from "./codex-app-server.js";
 import { PiRpcRunner } from "./pi-rpc.js";
 import { runnerForWorkflow } from "./thinking.js";
+import { sanitizedWorkerEnv } from "./env.js";
 
 export type WorkerRunnerKind = "fake" | "cli" | "codex" | "pi" | "claude";
 
@@ -74,15 +75,14 @@ export class CliWorkerRunner implements WorkerRunner {
     if (!cmd) throw new Error("agent.command is required for cli runner");
     const child = spawn(cmd, args, {
       cwd: input.workspace,
-      env: {
-        ...process.env,
+      env: sanitizedWorkerEnv({
         AIHUB_RUN_ID: input.runId,
         AIHUB_PROJECT_ID: input.project.id,
         AIHUB_ISSUE_ID: input.issue.id,
         AIHUB_ISSUE_IDENTIFIER: input.issue.identifier,
         AIHUB_WORKER_PROMPT: input.prompt,
         AIHUB_WORKER_MODEL: input.workflow.agent.model,
-      },
+      }),
       stdio: "ignore",
       detached: false,
     });

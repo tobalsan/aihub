@@ -2,6 +2,7 @@ import { spawn, type ChildProcess } from "node:child_process";
 import { createInterface } from "node:readline";
 import type { WorkerRunner, WorkerRunnerHandle, WorkerRunnerStartInput, WorkerRunnerStatus } from "./runner.js";
 import { reasoningEffortForRunner, validateWorkflowThinkingForRunner } from "./thinking.js";
+import { sanitizedWorkerEnv } from "./env.js";
 
 type JsonRpcMessage = {
   id?: string | number | null;
@@ -163,13 +164,12 @@ export class CodexAppServerRunner implements WorkerRunner {
     const [cmd, ...args] = commandParts(input.workflow.agent.command);
     const child = spawn(cmd, args, {
       cwd: input.workspace,
-      env: {
-        ...process.env,
+      env: sanitizedWorkerEnv({
         AIHUB_RUN_ID: input.runId,
         AIHUB_PROJECT_ID: input.project.id,
         AIHUB_ISSUE_ID: input.issue.id,
         AIHUB_ISSUE_IDENTIFIER: input.issue.identifier,
-      },
+      }),
       stdio: ["pipe", "pipe", "pipe"],
       detached: false,
     });

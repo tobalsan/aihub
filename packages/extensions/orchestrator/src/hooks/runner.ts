@@ -1,10 +1,10 @@
 import { spawn } from "node:child_process";
 import type { StateStore } from "../state/store.js";
+import { sanitizedWorkerEnv } from "../worker-runner/env.js";
 
 export async function runHook(input: { command?: string; phase: string; cwd: string; runId: string; store?: StateStore; env: Record<string, string | undefined>; exitCode?: number }): Promise<number> {
   if (!input.command) return 0;
-  const env = { ...process.env, ...input.env };
-  delete env.LINEAR_API_KEY;
+  const env = sanitizedWorkerEnv(input.env);
   if (input.phase === "after_run" && input.exitCode !== undefined) env.AIHUB_EXIT_CODE = String(input.exitCode);
   return new Promise((resolve, reject) => {
     const child = spawn("sh", ["-c", input.command!], { cwd: input.cwd, env });
