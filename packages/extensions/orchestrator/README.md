@@ -1,6 +1,6 @@
 # @aihub/extension-orchestrator
 
-Symphony-aligned Linear orchestrator for AIHub.
+Symphony-aligned issue orchestrator for AIHub. Tracker-agnostic: each project's `WORKFLOW.md` picks `tracker.kind: linear` or `tracker.kind: plane`.
 
 ## AIHub config
 
@@ -34,10 +34,11 @@ Full schema:
   "validation": { "strict": true },
   "notifyChannel": "ops",
   "linear": { "exposeGraphqlTool": true },
+  "plane": { "exposeApiTool": true },
   "webhook": {
     "enabled": true,
     "path": "/api/orchestrator/webhook",
-    "secret": "$LINEAR_WEBHOOK_SECRET"
+    "secret": "$ORCHESTRATOR_WEBHOOK_SECRET"
   }
 }
 ```
@@ -51,29 +52,42 @@ Fields:
 - `validation.strict` optional boolean. Fail startup on invalid configured project. Default `true`.
 - `notifyChannel` optional string. Notification channel for HITL/stall/startup errors.
 - `linear.exposeGraphqlTool` optional boolean. Expose `orchestrator.linear_graphql` to workers. Default `true`.
-- `webhook.enabled` optional boolean. Enables Linear webhook receiver.
+- `plane.exposeApiTool` optional boolean. Expose `orchestrator.plane_api` to workers. Default `true`.
+- `webhook.enabled` optional boolean. Enables the tracker webhook receiver (Linear and/or Plane).
 - `webhook.path` optional string. Reserved webhook path metadata; route is mounted under `/api/orchestrator/webhook`.
-- `webhook.secret` optional string. HMAC secret for Linear webhook verification.
+- `webhook.secret` optional string. Shared HMAC secret used to verify both Linear and Plane webhook signatures.
 
 No orchestrator repo map, default repo, worktree, poll interval, or `workspacesRoot` settings live in `aihub.json`. Project runtime settings live in each project `WORKFLOW.md`.
 
-## Create Linear Project + WORKFLOW.md
+## Create a tracker project + WORKFLOW.md
 
-Bootstrap a Linear project and local orchestrator project folder:
+Bootstrap a tracker project and local orchestrator project folder:
 
 ```bash
 pnpm aihub:dev orchestrator init-project "Foo Bar"
+pnpm aihub:dev orchestrator init-project "Foo Bar" --tracker plane
 ```
 
-The command:
+`--tracker <linear|plane>` selects the tracker; default `linear`.
+
+Linear (`--tracker linear`, default):
 
 - Reads `extensions.orchestrator.projectsRoot`, defaulting to `~/projects`.
 - Creates a Linear project named `Foo Bar`.
 - Creates `<projectsRoot>/foo-bar`.
 - Writes `WORKFLOW.md` with `tracker.project_slug` set to the created Linear project's `slugId`.
 - Appends the project folder path to `extensions.orchestrator.projects` in `$AIHUB_HOME/aihub.json`.
+- Requires `LINEAR_API_KEY` in the environment.
 
-The folder must not already exist and a Linear project with the same name must not already exist. Because project registration is read at gateway startup, restart the gateway after running `init-project`.
+Plane (`--tracker plane`):
+
+- Requires one Plane auth env (`PLANE_BOT_TOKEN`, `PLANE_OAUTH_TOKEN`, or `PLANE_API_KEY`) and `PLANE_WORKSPACE_SLUG` in the environment. Precedence is bot token, OAuth token, then API key.
+- `PLANE_BASE_URL` optional, default `https://api.plane.so`.
+- `PLANE_PROJECT_ID` optional. When unset, creates a new **Plane project** named `Foo Bar` and writes `tracker.project_id` from the created project. When set, creates a **module** named `Foo Bar` inside that existing project instead, and writes both `tracker.project_id` (the given `PLANE_PROJECT_ID`) and `tracker.module_id` (the created module) — see [module vs project scoping](#module-vs-project-scoping).
+- Writes `WORKFLOW.md` with `tracker.kind: plane` and the resolved `workspace_slug`/`project_id`/`module_id`; `base_url` is only written when `PLANE_BASE_URL` overrides the default.
+- Appends the project folder path to `extensions.orchestrator.projects` in `$AIHUB_HOME/aihub.json`.
+
+The local project folder must not already exist and a same-named project/module on the configured tracker must not already exist. Because project registration is read at gateway startup, restart the gateway after running `init-project`.
 
 ## Create WORKFLOW.md
 
@@ -92,11 +106,13 @@ Options:
 - `--profile <name>`: optional orchestrator profile override. When omitted, the runner supplies protocol defaults.
 - `--force`: overwrite existing `WORKFLOW.md`.
 
+`init-workflow` only has a CLI flag for the Linear `tracker.project_slug` today; it always scaffolds a `tracker.kind: linear` block. For Plane, use `init-project --tracker plane` (below), or run `init-workflow` and then hand-edit the `tracker:` block to the Plane shape shown under [WORKFLOW.md configuration](#workflowmd-configuration).
+
 The generator never creates a global fallback workflow. It only writes project-owned `WORKFLOW.md`.
 
 ## WORKFLOW.md configuration
 
-Full example:
+Full example (Linear):
 
 ```yaml
 ---
@@ -166,15 +182,88 @@ If, and only if, you need to make code changes:
 Ask rather than assume when requirements, ownership, or risk are unclear. Involve HITL by updating the Linear comment with the question or blocker and moving the issue to `Needs Human`.
 ```
 
+Full example (Plane), project-scoped:
+
+```yaml
+---
+tracker:
+  kind: plane
+  base_url: https://api.plane.so
+  workspace_slug: my-workspace
+  project_id: 8f14e45f-...
+  api_key: $PLANE_BOT_TOKEN # or $PLANE_OAUTH_TOKEN / $PLANE_API_KEY
+  auth_kind: bot_token # bot_token | oauth_token | api_key
+  mention: Worker Agent # optional bot display name; polls work items assigned to that bot
+  active_states: [Todo, In Progress]
+  terminal_states: [Closed, Cancelled, Canceled, Duplicate, Done]
+  needs_human: Needs Human
+polling:
+  interval_ms: 30000
+  jitter_ms: 5000
+workspace:
+  root: ./workspaces
+agent:
+  runner: pi
+  model: null
+  thinking: medium
+  max_concurrent: 3
+plane:
+  exposeApiTool: true
+---
+You are working on Plane issue {{issue.identifier}}.
+
+## DO THIS FIRST
+
+1. Fetch Plane issue {{issue.identifier}}.
+2. If current state is `Todo`, move it to `In Progress`.
+3. Add or update one Plane comment signaling you are working on the issue.
+4. Continue only after those Plane updates succeed.
+```
+
+Module-scoped Plane project (polls one module's issues instead of the whole project):
+
+```yaml
+tracker:
+  kind: plane
+  workspace_slug: my-workspace
+  project_id: 8f14e45f-...
+  module_id: 3c9a2b10-...
+  api_key: $PLANE_API_KEY
+```
+
 ### `tracker`
 
-- `kind`: currently only `linear`.
+- `kind`: `linear` (default) or `plane`. Unrecognized values fail workflow load with `Unsupported tracker.kind: <kind> (supported: linear, plane)`.
+- `api_key`: literal token or `$ENV_VAR`. Linear default `$LINEAR_API_KEY`. Plane may use `$PLANE_BOT_TOKEN`, `$PLANE_OAUTH_TOKEN`, or `$PLANE_API_KEY`; when omitted, Plane resolves envs in that order.
+- `auth_kind`: Plane only. `bot_token` and `oauth_token` send `Authorization: Bearer <token>`; `api_key` sends `X-API-Key: <token>`. If omitted, inferred from env fallback or from `api_key: $PLANE_BOT_TOKEN` / `$PLANE_OAUTH_TOKEN`; otherwise defaults to `api_key`.
+- `active_states`: states eligible for worker dispatch. Default `[Todo, In Progress]`. Same field, same defaults for both trackers.
+- `terminal_states`: states that release claims and optionally clean workspaces. Default `[Closed, Cancelled, Canceled, Duplicate, Done]`. Same field, same defaults for both trackers.
+- `needs_human`: exceptional park state. Default `Needs Human`. Orchestrator-owned transitions into this state are hard stops for any active worker run. Same field, same defaults for both trackers.
+
+Linear-only fields:
+
 - `endpoint`: Linear GraphQL endpoint. Defaults to `https://api.linear.app/graphql`.
-- `api_key`: literal token or `$ENV_VAR`. Usually `$LINEAR_API_KEY`.
 - `project_slug`: required Linear project `slugId`. Candidate issues are filtered by this.
-- `active_states`: states eligible for worker dispatch. Default `[Todo, In Progress]`.
-- `terminal_states`: states that release claims and optionally clean workspaces. Default `[Closed, Cancelled, Canceled, Duplicate, Done]`.
-- `needs_human`: exceptional park state. Default `Needs Human`. Orchestrator-owned transitions into this state are hard stops for any active worker run.
+
+Plane-only fields:
+
+- `base_url`: Plane origin, e.g. `https://api.plane.so` (Cloud) or a self-hosted origin. No trailing `/api/v1`. Defaults to `https://api.plane.so`.
+- `workspace_slug`: required Plane workspace slug.
+- `project_id`: required Plane project UUID.
+- `module_id`: optional Plane module UUID. When set, polling/lookup scopes to that module instead of the whole project (see [module vs project scoping](#module-vs-project-scoping)).
+- `mention`: optional Plane bot display name. The tracker resolves it to one workspace member via a plain `GET /members/` call (case-insensitive substring on `display_name`; zero or multiple matches fail fast). Polling then filters the unfiltered work-items (or module-issues) list client-side to items whose `assignees` include the resolved user id, and still applies `active_states`.
+
+#### Module vs project scoping
+
+- Without `module_id`, the tracker is scoped to the whole Plane project: `pollIssues` reads `GET .../projects/{project_id}/work-items/`, and `getIssue`/`setIssueState`/`createComment`/`export` all operate against that project.
+- With `module_id` set, `pollIssues` instead reads `GET .../projects/{project_id}/modules/{module_id}/module-issues/`, and `getIssue` additionally requires the fetched issue to belong to that module (its `module`/`modules` field must match `module_id`) — issues in the same project but outside the module are treated as out of scope (same "return undefined" behavior as a cross-project Linear issue).
+- The tracker scope key used for duplicate-registration checks is `workspaceSlug/projectId` for project scope, or `workspaceSlug/projectId/moduleId` for module scope, so one project and one of its modules can be registered as two separate orchestrator projects without colliding.
+
+#### Plane known gaps
+
+- `blocked_by` is populated from Plane's work-item relations endpoint, resolving each blocker's identifier/state (fetching the blocker individually if it wasn't in the already-polled page). Behaves the same as Linear's `{{issue.blocked_by}}`.
+- `{{issue.labels}}` is always an empty array for Plane issues today — label UUID → name resolution is not implemented, since no shipped workflow prompt/logic branches on labels.
+- `{{issue.priority}}` is always `null` for Plane issues — Plane's priority is a string enum while `TrackerIssue.priority` is `number | null`, so it is not mapped.
 
 ### `polling`
 
@@ -296,7 +385,7 @@ Hook env includes:
 - `AIHUB_ISSUE_IDENTIFIER`
 - `AIHUB_WORKSPACE`
 
-`LINEAR_API_KEY` is intentionally not passed to hooks/workers.
+`LINEAR_API_KEY`, `PLANE_API_KEY`, `PLANE_OAUTH_TOKEN`, and `PLANE_BOT_TOKEN` are intentionally not passed to hooks/workers.
 
 ### `linear`
 
@@ -308,7 +397,36 @@ Worker tool calls must include project id:
 { "project": "aihub", "query": "...", "variables": {} }
 ```
 
-The tool uses that project's workflow `tracker.api_key` and `tracker.endpoint`.
+The tool uses that project's workflow `tracker.api_key` and `tracker.endpoint`. Calling it against a project whose `tracker.kind` is `plane` returns `{ "error": "project uses tracker.kind: plane — use orchestrator.plane_api" }` instead of making a request.
+
+### `plane`
+
+- `exposeApiTool`: enables `orchestrator.plane_api`. Default `true`.
+
+`orchestrator.plane_api` executes a raw Plane REST call using the owning project's workflow auth (`base_url`, `workspace_slug`, and the correct auth header are injected — the worker never sees the token). Worker tool calls must include project id, HTTP method, and a path relative to `/api/v1/`:
+
+```json
+{
+  "project": "aihub-plane",
+  "method": "GET",
+  "path": "workspaces/{workspace}/projects/{project}/work-items/?per_page=100"
+}
+```
+
+```json
+{
+  "project": "aihub-plane",
+  "method": "POST",
+  "path": "workspaces/{workspace}/projects/{project}/work-items/{id}/comments/",
+  "body": { "comment_html": "<p>hi</p>" }
+}
+```
+
+- `path` supports placeholders `{workspace}`, `{project}`, `{module}`, which expand to the project's configured `workspace_slug`, `project_id`, and `module_id`. Using `{module}` against a project with no `module_id` configured returns `{ "error": "project has no module_id configured" }` instead of making a request.
+- A leading `/` and an optional leading `api/v1/` in `path` are stripped before the request is made.
+- `method` is one of `GET`, `POST`, `PATCH`, `DELETE`.
+- Responses are returned as parsed JSON (`{ "status": 204 }` for empty 204 responses); list endpoints paginate via `?cursor=`.
+- Calling it against a project whose `tracker.kind` is `linear` returns `{ "error": "project uses tracker.kind: linear — use orchestrator.linear_graphql" }` instead of making a request.
 
 ### Prompt body
 
@@ -341,16 +459,28 @@ Rules:
 
 Repo bootstrap should prefer deterministic hooks/tooling. Prompt-driven cloning is allowed, but must stay inside the issue workspace.
 
+## Webhook
+
+Set `extensions.orchestrator.webhook.enabled: true` and `webhook.secret` to accept push-triggered ticks instead of relying only on polling. One route (`POST /api/orchestrator/webhook`) serves both trackers; project registration determines which tracker(s) a payload is checked against.
+
+- Linear: send the webhook signature via the `Linear-Signature` or `X-Linear-Signature` header (Linear sends `Linear-Signature`; either name is accepted).
+- Plane: send the webhook signature via the `X-Plane-Signature` header.
+- Both use the same HMAC-SHA256-hex scheme over the raw request body, verified against the same configured `webhook.secret` — there is no separate Plane secret to configure.
+- The route rejects the request with 401 when the signature does not verify, and with 503 when `webhook.secret` is not configured.
+- On a verified payload, the orchestrator resolves the tracker kind(s) of every registered project (falling back to `linear` if none load) and only enqueues a tick if the payload looks relevant for at least one of those kinds (issue create/update/delete or a comment event); irrelevant payloads (e.g. non-issue Plane webhook events) return `{ "ok": true, "queued": false }` without ticking.
+
+Configure each tracker's webhook to point at `/api/orchestrator/webhook` with the matching signing secret.
+
 ## Runtime model
 
-- Tracker scope comes from `WORKFLOW.md` `tracker.project_slug`.
-- Linear auth comes from `tracker.api_key`, usually `$LINEAR_API_KEY`.
-- Candidate issues are filtered by Linear project `slugId`.
+- Tracker scope comes from `WORKFLOW.md` `tracker.project_slug` (Linear) or `tracker.workspace_slug`/`tracker.project_id`/`tracker.module_id` (Plane).
+- Auth comes from `tracker.api_key`: `$LINEAR_API_KEY` for Linear; `$PLANE_BOT_TOKEN`, `$PLANE_OAUTH_TOKEN`, or `$PLANE_API_KEY` for Plane.
+- Candidate issues are filtered to that tracker scope (Linear project `slugId`; Plane project, optionally narrowed to one module). Plane can further narrow polling with `tracker.mention` to work items assigned to the resolved bot user.
 - Workspace directories are per issue under `workspace.root`.
 - Core orchestrator does not create git clones or worktrees.
 - Gateway owns orchestrator worker lifetime; workers stop with gateway.
 - Orchestrator dashboard/API surfaces orchestrator `worker_id`, worker status events, and persisted worker logs/events. It does not call `/api/subagents` for dispatched work.
-- Restart recovery uses Linear state + preserved workspace directories. SQLite is observability/history.
+- Restart recovery uses tracker state + preserved workspace directories. SQLite is observability/history.
 
 ### Run log storage
 
