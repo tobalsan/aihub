@@ -77,8 +77,13 @@ function recordValue(value: unknown): Record<string, unknown> | undefined {
   return value && typeof value === "object" && !Array.isArray(value) ? value as Record<string, unknown> : undefined;
 }
 
+const ANSI_ESCAPE_REGEX = new RegExp(
+  `${String.fromCharCode(0x1b)}\\[[0-?]*[ -/]*[@-~]`,
+  "g"
+);
+
 function stripAnsi(value: string): string {
-  return value.replace(/\u001b\[[0-?]*[ -/]*[@-~]/g, "").replace(/\[[0-9;]*m/g, "");
+  return value.replace(ANSI_ESCAPE_REGEX, "").replace(/\[[0-9;]*m/g, "");
 }
 
 function contentText(value: unknown): string | undefined {
@@ -311,9 +316,13 @@ function register(app: Hono) {
         try {
           const workflow = await workflowLoader().resolve({ projectPath: project.path, allowStale: true });
           kinds.add(workflow.config.tracker.kind);
-        } catch {}
+        } catch {
+          // Project workflow may be unresolvable (stale/missing config); skip it.
+        }
       }
-    } catch {}
+    } catch {
+      // Failing to enumerate projects shouldn't block the webhook response.
+    }
     const kindList = kinds.size ? [...kinds] : (["linear", "plane"] as TrackerConfig["kind"][]);
     const relevant = kindList.some((kind) => isRelevantTrackerWebhook(kind, payload));
     if (relevant) daemon?.enqueueTick();

@@ -8,6 +8,7 @@ import type { AgentFork, Team } from "../api/teams";
 
 const {
   fetchPoolMock,
+  fetchAgentsMock,
   fetchTeamsMock,
   fetchForksMock,
   assignPoolToTeamMock,
@@ -19,6 +20,7 @@ const {
   navigateMock,
 } = vi.hoisted(() => ({
   fetchPoolMock: vi.fn(),
+  fetchAgentsMock: vi.fn(),
   fetchTeamsMock: vi.fn(),
   fetchForksMock: vi.fn(),
   assignPoolToTeamMock: vi.fn(),
@@ -30,7 +32,10 @@ const {
   navigateMock: vi.fn(),
 }));
 
-vi.mock("../api", () => ({ fetchPool: fetchPoolMock }));
+vi.mock("../api", () => ({
+  fetchPool: fetchPoolMock,
+  fetchAgents: fetchAgentsMock,
+}));
 
 vi.mock("../api/extensions", () => ({
   fetchAgentExtensions: fetchAgentExtensionsMock,
@@ -88,6 +93,10 @@ function fork(partial: Partial<AgentFork> & { sourcePoolId: string }): AgentFork
 }
 
 import { EditAgent } from "./EditAgent";
+import {
+  resetCapabilitiesForTests,
+  setCapabilitiesForTests,
+} from "../lib/capabilities";
 
 // ── Helpers ───────────────────────────────────────────────────────────────────
 
@@ -113,7 +122,9 @@ async function mountEdit(agentId: string) {
 }
 
 beforeEach(() => {
+  setCapabilitiesForTests({ forkedAgents: true });
   fetchPoolMock.mockReset();
+  fetchAgentsMock.mockReset().mockResolvedValue([]);
   fetchTeamsMock.mockReset().mockResolvedValue([] as Team[]);
   fetchForksMock.mockReset().mockResolvedValue([] as AgentFork[]);
   fetchAgentExtensionsMock.mockReset().mockResolvedValue([]);
@@ -130,6 +141,7 @@ beforeEach(() => {
 afterEach(() => {
   dispose?.();
   container.remove();
+  resetCapabilitiesForTests();
 });
 
 // ── Tests ─────────────────────────────────────────────────────────────────────

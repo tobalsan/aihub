@@ -185,7 +185,9 @@ export class OrchestratorDaemon {
       if (pid && pid > 0 && pid !== process.pid) {
         try {
           process.kill(pid, "SIGTERM");
-        } catch {}
+        } catch {
+          // Process may have already exited between the pid check and kill; ignore.
+        }
       }
     }
   }

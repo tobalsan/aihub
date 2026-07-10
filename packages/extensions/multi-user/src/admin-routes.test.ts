@@ -60,7 +60,7 @@ vi.mock(
       getAgent,
       getActiveAgents,
       isAgentActive: () => true,
-      loadConfig: () => ({ agents: [] }),
+      loadConfig: () => ({ agents: [], forkedAgents: true }),
       resolveWorkspaceDir: (workspace: string) => workspace,
     };
   }
@@ -1133,6 +1133,7 @@ describe("multi-user api core", () => {
       agents: ["agent-b"],
       multiUser: true,
       agentFab: false,
+      forkedAgents: true,
       user: {
         id: "user-1",
         name: "User One",

@@ -35,7 +35,7 @@ import {
 } from "../media/metadata.js";
 
 export function createExtensionContext(
-  resolvedConfig: GatewayConfig
+  _resolvedConfig: GatewayConfig
 ): Parameters<Extension["start"]>[0] {
   return {
     getConfig: () => loadConfig(),

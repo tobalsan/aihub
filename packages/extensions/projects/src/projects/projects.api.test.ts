@@ -2,6 +2,7 @@ import { describe, it, expect, beforeAll, afterAll, vi } from "vitest";
 import * as fs from "node:fs/promises";
 import * as path from "node:path";
 import os from "node:os";
+import { writeTestV3Config } from "../../../../../apps/gateway/src/test-utils/v3-config.js";
 
 let clearProjectsContextForTest: (() => void) | undefined;
 
@@ -27,7 +28,18 @@ describe("projects API", () => {
     process.env.USERPROFILE = tmpDir;
 
     const configDir = path.join(tmpDir, ".aihub");
-    await fs.mkdir(configDir, { recursive: true });
+    await writeTestV3Config(configDir, {
+      agents: [
+        {
+          id: "test-agent",
+          name: "Test Agent",
+          model: { provider: "anthropic", model: "claude-3-5-sonnet-20241022" },
+        },
+      ],
+      extensions: {
+        projects: { enabled: true, root: projectsRoot },
+      },
+    });
     const config = {
       version: 2,
       agents: [
@@ -42,10 +54,6 @@ describe("projects API", () => {
         projects: { enabled: true, root: projectsRoot },
       },
     };
-    await fs.writeFile(
-      path.join(configDir, "aihub.json"),
-      JSON.stringify(config, null, 2)
-    );
 
     vi.resetModules();
     const { setProjectsContext, clearProjectsContext } =

@@ -394,7 +394,11 @@ export function registerOrchestratorCommands(command: Command, client?: Orchestr
     .option("--json", "print raw JSON")
     .action(async (opts) => {
       const data = await api().runs(opts.limit, opts.issue, opts.project);
-      opts.json ? printJson(data) : console.log(renderRuns(data));
+      if (opts.json) {
+        printJson(data);
+      } else {
+        console.log(renderRuns(data));
+      }
     });
 
   command

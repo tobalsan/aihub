@@ -240,7 +240,7 @@ describe("SchedulerService timeout and loop isolation", () => {
     };
     setSchedulerContext(context(config, runAgent));
     const scheduler = new SchedulerService();
-    const job = await scheduler.add("alpha", {
+    await scheduler.add("alpha", {
       name: "Hung",
       schedule: { cron: "* * * * *", tz: "UTC" },
       payload: { message: "Hang" },
@@ -352,7 +352,7 @@ describe("SchedulerService timeout and loop isolation", () => {
     };
     setSchedulerContext(context(config, runAgent));
     const scheduler = new SchedulerService();
-    const job = await scheduler.add("alpha", {
+    await scheduler.add("alpha", {
       name: "Hung",
       schedule: { cron: "* * * * *", tz: "UTC" },
       payload: { message: "Hang" },
@@ -395,7 +395,7 @@ describe("SchedulerService timeout and loop isolation", () => {
     };
     setSchedulerContext(context(config, runAgent));
     const scheduler = new SchedulerService();
-    const job = await scheduler.add("alpha", {
+    await scheduler.add("alpha", {
       name: "Hung",
       schedule: { cron: "* * * * *", tz: "UTC" },
       payload: { message: "Hang" },

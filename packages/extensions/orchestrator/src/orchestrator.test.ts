@@ -105,15 +105,6 @@ Plane body {{issue.identifier}}
   );
 }
 
-async function expectWorkspaceRemoved(
-  root: string,
-  identifier: string
-): Promise<void> {
-  await expect(
-    fs.stat(path.join(root, "workspaces", sanitizeIdentifier(identifier)))
-  ).rejects.toThrow();
-}
-
 async function expectWorkspacePreserved(
   root: string,
   identifier: string

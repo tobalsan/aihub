@@ -70,7 +70,7 @@ describe("PlaneTracker polling scope", () => {
 
   it("filters Plane polls to mentioned or assigned bot work items", async () => {
     const assignedI3 = { ...I1, id: "i3", sequence_id: 44, assignees: ["bot-uuid"] };
-    const { fetchImpl, calls } = mockFetch((path, _method, url) => {
+    const { fetchImpl, calls } = mockFetch((path, _method, _url) => {
       const base = baseHandle(path);
       if (base) return base;
       if (path.endsWith("/members/")) return json([{ id: "bot-uuid", display_name: "Worker Agent", is_bot: true }]);

@@ -275,6 +275,7 @@ describe("api core session resolution", () => {
       agentFab: false,
       agents: [],
       pool,
+      forkedAgents: true,
     };
     const { api } = await import("./api.core.js");
 

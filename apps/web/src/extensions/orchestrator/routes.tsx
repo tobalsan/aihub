@@ -318,17 +318,6 @@ function transcriptItems(events: OrchestratorLogEvent[]): AgentTranscriptItem[] 
     .filter((item): item is AgentTranscriptItem => item !== null);
 }
 
-function detailBody(
-  toolName: string,
-  args: Record<string, unknown>,
-  body: string
-) {
-  const key = toolName.trim().toLowerCase();
-  if (body.trim()) return body;
-  if (key === "write" && typeof args.content === "string") return args.content;
-  return formatJson(args);
-}
-
 function getToolResultText(result?: FullToolResultMessage): string {
   return (result?.content ?? [])
     .filter((block) => block.type === "text")
@@ -1125,8 +1114,8 @@ function OrchestratorDashboard(): ReturnType<Component> {
   });
 
   createEffect(() => {
-    logItems().length;
-    if (tab() !== "logs" || !stickBottom() || !drawerEl) return;
+    const itemCount = logItems().length;
+    if (itemCount === 0 || tab() !== "logs" || !stickBottom() || !drawerEl) return;
     requestAnimationFrame(() => {
       if (drawerEl && stickBottom()) drawerEl.scrollTop = drawerEl.scrollHeight;
     });

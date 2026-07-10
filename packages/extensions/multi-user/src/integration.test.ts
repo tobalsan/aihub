@@ -441,6 +441,7 @@ describe("multi-user integration", () => {
         agents: ["main"],
         multiUser: false,
         agentFab: false,
+        forkedAgents: false,
       });
 
       const agentsResponse = await app.request("/api/agents");
@@ -506,6 +507,7 @@ describe("multi-user integration", () => {
         agents: ["main"],
         multiUser: false,
         agentFab: false,
+        forkedAgents: false,
       });
     } finally {
       restoreEnv(previousEnv);

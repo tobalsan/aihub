@@ -56,6 +56,10 @@ function parseAttachments(value: unknown): FileAttachment[] | undefined {
   return undefined;
 }
 
+const CONTROL_CHAR_REGEX = new RegExp(
+  `[${String.fromCharCode(0)}-${String.fromCharCode(0x1f)}${String.fromCharCode(0x7f)}]`
+);
+
 function isSafeSessionId(sessionId: string): boolean {
   return (
     sessionId.length > 0 &&
@@ -63,7 +67,7 @@ function isSafeSessionId(sessionId: string): boolean {
     !sessionId.includes("/") &&
     !sessionId.includes("\\") &&
     !/(^|[._:-])\.\.($|[._:-])/.test(sessionId) &&
-    !/[\u0000-\u001f\u007f]/.test(sessionId)
+    !CONTROL_CHAR_REGEX.test(sessionId)
   );
 }
 

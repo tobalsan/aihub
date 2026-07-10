@@ -1,6 +1,7 @@
 import fs from "node:fs";
 import os from "node:os";
 import path from "node:path";
+import { randomBytes, scryptSync, createCipheriv } from "node:crypto";
 import { afterEach, beforeEach, describe, expect, it } from "vitest";
 import type { OAuthConnection } from "@aihub/shared";
 import { TokenCipher, isEncrypted } from "./crypto.js";
@@ -40,7 +41,6 @@ describe("TokenCipher", () => {
     // without importing the removed v1 encrypt.
     const secret = "legacy-v1-secret";
     const plaintext = "ya29.legacy-v1-token";
-    const { randomBytes, scryptSync, createCipheriv } = require("node:crypto");
     const salt = randomBytes(16);
     const iv = randomBytes(12);
     const key = scryptSync(Buffer.from(secret, "utf8"), salt, 32);

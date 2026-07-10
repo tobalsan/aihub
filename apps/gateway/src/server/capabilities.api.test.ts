@@ -55,6 +55,7 @@ describe("/capabilities API", () => {
       extensions: { scheduler: true },
       agents: ["main"],
       multiUser: false,
+      forkedAgents: false,
       agentFab: false,
     });
   });
