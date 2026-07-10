@@ -111,10 +111,24 @@ describe("scheduler agent tools", () => {
     setSchedulerContext(context(config));
     const tools = await schedulerExtension.getAgentTools?.(alpha, { config });
     const create = tools!.find((tool) => tool.name === "scheduler.create_job")!;
+    const latestOutput = tools!.find((tool) => tool.name === "scheduler.get_latest_output")!;
 
     const result = await create.execute({ name: "Bad", cron: "", tz: "UTC", message: "Run" }, { agent: alpha, config }) as { ok: boolean; error?: string };
+    const missingJobId = await latestOutput.execute({}, { agent: alpha, config }) as { ok: boolean; error?: string };
 
     expect(result.ok).toBe(false);
     expect(result.error).toContain("cron");
+    expect(latestOutput.description).toContain("scheduler.list_jobs");
+    expect(latestOutput.parameters).toMatchObject({
+      required: ["jobId"],
+      properties: {
+        jobId: { description: expect.stringContaining("scheduler.list_jobs") },
+        maxChars: { description: expect.stringContaining("Defaults to 4000") },
+      },
+    });
+    expect(missingJobId).toEqual({
+      ok: false,
+      error: "jobId is required. Call scheduler.list_jobs first, then pass the selected jobs[n].id as jobId.",
+    });
   });
 });

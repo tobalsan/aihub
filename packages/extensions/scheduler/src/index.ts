@@ -191,18 +191,39 @@ function schedulerAgentTools(): ExtensionAgentTool[] {
     },
     {
       name: "scheduler.get_latest_output",
-      description: "Get a bounded preview of this agent's latest scheduler job output",
+      description:
+        "Get a bounded preview of one scheduler job's latest output. First call scheduler.list_jobs, then pass the selected job's id as jobId. If output is not found, that job has not produced stored output yet.",
       parameters: {
         type: "object",
         properties: {
-          jobId: { type: "string" },
-          maxChars: { type: "number", minimum: 1, maximum: 20000 },
+          jobId: {
+            type: "string",
+            description: "Required. Job ID from scheduler.list_jobs (jobs[n].id).",
+          },
+          maxChars: {
+            type: "number",
+            minimum: 1,
+            maximum: 20000,
+            description: "Optional maximum preview length in characters. Defaults to 4000.",
+          },
         },
         required: ["jobId"],
       },
       async execute(args, { agent }) {
         try {
-          const input = latestOutputToolSchema.parse(args);
+          const parsed = latestOutputToolSchema.safeParse(args);
+          if (!parsed.success) {
+            const hasJobIdError = parsed.error.issues.some((issue) => issue.path[0] === "jobId");
+            if (hasJobIdError) {
+              return {
+                ok: false,
+                error:
+                  "jobId is required. Call scheduler.list_jobs first, then pass the selected jobs[n].id as jobId.",
+              };
+            }
+            return toolError(parsed.error);
+          }
+          const input = parsed.data;
           const ctx = getSchedulerContext();
           const latest = await readLatestOutputFile(
             ctx.resolveWorkspaceDir(agent),

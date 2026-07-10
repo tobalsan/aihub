@@ -128,6 +128,8 @@ When `extensions.scheduler.enabled` is not `false`, agents receive scheduler too
 
 Tools use raw cron + timezone input, generate job ids server-side, create enabled jobs by default, and support optional `sessionId`. They do not expose model overrides. `create_job`/`update_job` accept an optional `timeoutMs`: the per-run timeout in milliseconds (default 30 minutes; falls back to `extensions.scheduler.jobTimeoutMs`, then the 30-minute built-in).
 
+`scheduler.get_latest_output` requires `jobId`. Call `scheduler.list_jobs` first and pass a returned `jobs[n].id`; optional `maxChars` bounds preview length from 1 to 20,000 characters (default 4,000). `Output not found` means job has not produced stored output yet.
+
 ## Hot reload
 
 Gateway polls config, agent YAML files, and agent `cron/jobs.json` files every 5 seconds. Manual cron file edits refresh scheduler state without restart.
