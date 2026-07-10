@@ -5,7 +5,7 @@ import type {
   Context,
   Model,
 } from "@earendil-works/pi-ai";
-import { completeSimple as defaultCompleteSimple } from "@earendil-works/pi-ai";
+import { completeSimple as defaultCompleteSimple } from "@earendil-works/pi-ai/compat";
 import { AuthStorage, ModelRegistry } from "@earendil-works/pi-coding-agent";
 import type { GatewayConfig, LeadSession } from "@aihub/shared";
 import { getProjectsContext } from "../context.js";

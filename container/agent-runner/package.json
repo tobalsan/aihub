@@ -9,9 +9,9 @@
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",
-    "@earendil-works/pi-agent-core": "^0.75.4",
-    "@earendil-works/pi-ai": "^0.75.4",
-    "@earendil-works/pi-coding-agent": "^0.75.4",
+    "@earendil-works/pi-agent-core": "^0.80.6",
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-coding-agent": "^0.80.6",
     "undici": "^7.20.0"
   },
   "devDependencies": {

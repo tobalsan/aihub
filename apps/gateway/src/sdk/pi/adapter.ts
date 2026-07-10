@@ -183,7 +183,7 @@ export const piAdapter: SdkAdapter = {
         ModelRegistry,
         DefaultResourceLoader,
       } = await import("@earendil-works/pi-coding-agent");
-      const { getEnvApiKey } = await import("@earendil-works/pi-ai");
+      const { getEnvApiKey } = await import("@earendil-works/pi-ai/compat");
 
       // Resolve model
       await fs.mkdir(CONFIG_DIR, { recursive: true });

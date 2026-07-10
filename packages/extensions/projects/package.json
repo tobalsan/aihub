@@ -21,8 +21,8 @@
   },
   "dependencies": {
     "@aihub/shared": "workspace:*",
-    "@earendil-works/pi-ai": "^0.75.4",
-    "@earendil-works/pi-coding-agent": "^0.75.4",
+    "@earendil-works/pi-ai": "^0.80.6",
+    "@earendil-works/pi-coding-agent": "^0.80.6",
     "chokidar": "^4.0.3",
     "commander": "^12.1.0",
     "hono": "^4.11.4",
