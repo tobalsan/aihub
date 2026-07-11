@@ -615,6 +615,10 @@ discord: {
 
 **Live broadcast:** Main-session responses from other sources (web, amsg, scheduler) are broadcast to `broadcastToChannel`. Discord-originated runs are not echoed back (loop prevention via `source` tracking).
 
+### IRC (`packages/extensions/irc/`)
+
+Opt-in native IRC transport. Root `extensions.irc` provides connection defaults and channel-to-agent routing; each receiving agent must set `extensions.irc.enabled: true` in its `agent.yaml`. The service handles TLS/plain sockets, keepalive PING/PONG, NickServ identify, nick collision fallback, reconnect, and IRC-safe plain-text replies. Channels choose `mention-only` or `reply-all`; DMs may be disabled or assigned to an agent. Ambient context is bounded per channel/DM sender, and `maxA2ATurns` is isolated per channel, resetting only for case-insensitive `humanNicks` matches.
+
 ### Heartbeat (`packages/extensions/heartbeat/`)
 
 Periodic agent check-in with Discord alert delivery. Heartbeat depends on scheduler availability as the tick gate; if `extensions.scheduler` is absent or `enabled: false` while heartbeat is configured, heartbeat logs a warning and noops.

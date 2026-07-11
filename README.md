@@ -852,7 +852,39 @@ curl -X POST localhost:4000/api/schedules/my-agent/<job-id>/run
 
 ## Channels
 
-AIHub supports Discord and Slack as messaging channels. Shared bots are opt-in via `extensions` in `aihub.json`; per-agent bot config lives in `agent.yaml`.
+AIHub supports Discord, Slack, and IRC as messaging channels. Shared transports are opt-in via `extensions` in `aihub.json`; agents opt in through `agent.yaml`.
+
+### IRC
+
+IRC uses one gateway connection. Enable the participating agent explicitly, then map configured channels to it:
+
+```yaml
+# agents/main/agent.yaml
+extensions:
+  irc:
+    enabled: true
+```
+
+```json
+{
+  "extensions": {
+    "irc": {
+      "enabled": true,
+      "host": "irc.example.net",
+      "port": 6697,
+      "tls": true,
+      "nick": "aihub",
+      "nickservPassword": "$env:IRC_NICKSERV_PASSWORD",
+      "channels": { "#team": { "agent": "main", "mode": "mention-only" } },
+      "dm": { "enabled": true, "agent": "main" },
+      "humanNicks": ["alice"],
+      "maxA2ATurns": 4
+    }
+  }
+}
+```
+
+Mention-only channels respond to `aihub: message`; `reply-all` channels answer every message. Channel context is bounded by `historyLimit`; the per-channel A2A cap resets only on configured human nicks. Credentials use `$env:` references.
 
 ### Discord
 

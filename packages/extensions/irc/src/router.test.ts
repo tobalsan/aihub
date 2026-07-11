@@ -1,0 +1,11 @@
+import { describe, expect, it, vi } from "vitest";
+import type { ExtensionContext, IrcExtensionConfig } from "@aihub/shared";
+import { IrcRouter } from "./router.js";
+
+const config: IrcExtensionConfig = { host: "localhost", port: 6667, tls: false, nick: "aihub", channels: { "#team": { agent: "main", mode: "mention-only" } }, dm: { enabled: true, agent: "main", allowFrom: ["alice"], debounceMs: 1 }, historyLimit: 3, maxA2ATurns: 2, humanNicks: ["alice"] };
+function setup() { const runAgent = vi.fn().mockResolvedValue({ payloads: [{ text: "**ok**" }], meta: { durationMs: 0, sessionId: "x" } }); const ctx = { getAgent: () => ({ id: "main", workspace: ".", extensions: { irc: { enabled: true } } }), getAgents: () => [], isAgentActive: () => true, runAgent } as unknown as ExtensionContext; const send = vi.fn(); return { router: new IrcRouter(ctx, config, { send, nick: "aihub" } as any), runAgent, send }; }
+const message = (prefix: string, target: string, trailing: string) => ({ prefix, command: "PRIVMSG", params: [target], trailing });
+describe("IRC router", () => {
+  it("uses ambient channel context and replies to nick-addressed messages", async () => { const { router, runAgent, send } = setup(); router.handle(message("bob!u@h", "#team", "unaddressed context")); router.handle(message("bob!u@h", "#team", "aihub: answer")); await new Promise((resolve) => setTimeout(resolve, 10)); expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({ message: "answer", sessionKey: "irc:#team", context: expect.objectContaining({ kind: "irc" }) })); await new Promise((resolve) => setTimeout(resolve, 450)); expect(send).toHaveBeenCalledWith("#team", "ok"); });
+  it("coalesces allowlisted DMs and ignores other nicks", async () => { const { router, runAgent } = setup(); router.handle(message("mallory!u@h", "aihub", "no")); router.handle(message("alice!u@h", "aihub", "one")); router.handle(message("alice!u@h", "aihub", "two")); await new Promise((resolve) => setTimeout(resolve, 20)); expect(runAgent).toHaveBeenCalledTimes(1); expect(runAgent).toHaveBeenCalledWith(expect.objectContaining({ message: "one\ntwo", sessionKey: "irc:alice" })); });
+});

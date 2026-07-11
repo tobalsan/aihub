@@ -27,6 +27,7 @@ function validateComponentAgentReferences(
   const agentIds = new Set(config.agents.map((agent) => agent.id));
   const errors: string[] = [];
   const discord = config.extensions?.discord;
+  const irc = config.extensions?.irc;
 
   for (const [channelId, route] of Object.entries(discord?.channels ?? {})) {
     if (!agentIds.has(route.agent)) {
@@ -41,6 +42,11 @@ function validateComponentAgentReferences(
       `Component "discord" dm references unknown agent "${discord.dm.agent}"`
     );
   }
+
+  for (const [channel, route] of Object.entries(irc?.channels ?? {})) {
+    if (!agentIds.has(route.agent)) errors.push(`Component "irc" channel "${channel}" references unknown agent "${route.agent}"`);
+  }
+  if (irc?.dm?.agent && !agentIds.has(irc.dm.agent)) errors.push(`Component "irc" dm references unknown agent "${irc.dm.agent}"`);
 
   return {
     valid: errors.length === 0,
