@@ -8,6 +8,6 @@ export function parseIrcLine(line: string): IrcMessage | null {
 }
 export function nickFromPrefix(prefix?: string): string | undefined { return prefix?.split("!", 1)[0]; }
 export function normalizeIrcText(text: string): string { const action = /^\u0001ACTION\s+(.+)\u0001$/.exec(text); return action ? `* ${action[1]}` : text; }
-export function toPlainIrcText(text: string): string { return text.replace(/\u0003(?:\d{1,2}(?:,\d{1,2})?)?|[\u0002\u000f\u0016\u001d\u001f]/g, "").replace(/```/g, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim(); }
+export function toPlainIrcText(text: string): string { return text.replace(/[\u0000-\u001f\u007f]/g, "").replace(/```/g, "").replace(/[*_`]/g, "").replace(/\s+/g, " ").trim(); }
 export function isAddressed(text: string, nick: string): { addressed: boolean; text: string } { const match = new RegExp(`^\\s*${nick.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*[:,]\\s*`, "i").exec(text); return { addressed: !!match, text: match ? text.slice(match[0].length) : text }; }
 export function splitIrcText(text: string, maxBytes = 400): string[] { const out: string[] = []; let chunk = ""; for (const char of text.replace(/\r/g, "").split("\n").join(" ")) { if (Buffer.byteLength(chunk + char) > maxBytes) { if (chunk) out.push(chunk); chunk = char; } else chunk += char; } if (chunk) out.push(chunk); return out; }
