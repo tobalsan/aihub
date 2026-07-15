@@ -89,7 +89,7 @@ When code changes are needed:
 4. Do not commit until the reviewer comes back clean.
 5. After a clean review, commit the work in the worktree.
 6. Create or update the GitHub PR using `gh`. Mint the token with the repo owner explicit — `GH_TOKEN=$(gh-app-token --owner <owner>)` (e.g. `--owner tobalsan` for `tobalsan/aihub`). Do NOT call the credential helper without a repo path: with no owner it falls back to the default installation (a different account) and `gh pr create` fails with `Resource not accessible by integration`. `git push` works regardless because git supplies the owner automatically.
-7. Link the PR to the current tracker issue when the configured tracker supports it; otherwise include the PR URL in the final tracker comment.
+7. Link the PR to the current tracker issue when the configured tracker supports it; otherwise include the PR URL in the final tracker comment. If PR can't be linked directly, you must include the issue ID directly in the PR title.
 8. Post your final handoff comment.
 9. Move the issue to `In Review` **last** (see ordering rule below).
 
