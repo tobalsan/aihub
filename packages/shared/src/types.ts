@@ -208,6 +208,7 @@ const AgentConfigBaseSchema = z.object({
   discord: DiscordConfigSchema.optional(),
   slack: z.lazy(() => SlackAgentConfigSchema).optional(),
   telegram: z.lazy(() => TelegramAgentConfigSchema).optional(),
+  irc: z.lazy(() => IrcAgentConfigSchema).optional(),
   reasoning: ThinkLevelSchema.optional(),
   thinkLevel: ThinkLevelSchema.optional(),
   queueMode: z.enum(["queue", "interrupt"]).optional().default("queue"),
@@ -509,6 +510,22 @@ export const IrcExtensionConfigSchema = z.object({
   humanNicks: z.array(z.string()).optional().default([]),
 });
 export type IrcExtensionConfig = z.infer<typeof IrcExtensionConfigSchema>;
+
+export const IrcAgentConfigSchema = z.object({
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535).optional().default(6697),
+  tls: z.boolean().optional().default(true),
+  nick: z.string().min(1),
+  username: z.string().min(1).optional(),
+  password: SecretRefSchema.optional(),
+  nickservPassword: SecretRefSchema.optional(),
+  channels: z.record(z.string().min(1), IrcChannelConfigSchema.omit({ agent: true }).strict()).default({}),
+  dm: z.object({ enabled: z.boolean().optional(), allowFrom: z.array(z.string()).optional(), debounceMs: z.number().int().min(0).optional() }).strict().optional(),
+  historyLimit: z.number().int().min(0).optional().default(20),
+  maxA2ATurns: z.number().int().min(0).optional().default(4),
+  humanNicks: z.array(z.string()).optional().default([]),
+});
+export type IrcAgentConfig = z.infer<typeof IrcAgentConfigSchema>;
 
 export const SlackExtensionChannelConfigSchema = z.object({
   agent: z.string(),

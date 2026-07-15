@@ -617,7 +617,7 @@ discord: {
 
 ### IRC (`packages/extensions/irc/`)
 
-Opt-in native IRC transport. Root `extensions.irc` provides connection defaults and channel-to-agent routing; each receiving agent must set `extensions.irc.enabled: true` in its `agent.yaml`. The service handles TLS/plain sockets, keepalive PING/PONG, NickServ identify, nick collision fallback, reconnect, and IRC-safe plain-text replies. Channels choose `mention-only` or `reply-all`; DMs may be disabled or assigned to an agent. Ambient context is bounded per channel/DM sender, and `maxA2ATurns` is isolated per channel, resetting only for case-insensitive `humanNicks` matches.
+Opt-in native IRC transport. Root `extensions.irc` provides shared connection and channel-to-agent routing; each receiving agent must set `extensions.irc.enabled: true` in its `agent.yaml`. Alternatively, top-level agent `irc` owns a dedicated connection: channel values contain `mode` without `agent`, DM config omits `agent`, and runtime injects agent id as owner. Presence auto-loads IRC; agent-local `$env:` credentials resolve through gateway startup secret resolution. Service handles TLS/plain sockets, keepalive PING/PONG, NickServ identify, nick collision fallback, reconnect, and IRC-safe plain-text replies. Channels choose `mention-only` or `reply-all`; DMs may be disabled or assigned to an agent. Ambient context is bounded per channel/DM sender, and `maxA2ATurns` is isolated per channel, resetting only for case-insensitive `humanNicks` matches.
 
 ### Heartbeat (`packages/extensions/heartbeat/`)
 

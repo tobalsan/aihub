@@ -153,7 +153,7 @@ describe("startup validation", () => {
     const dir = await mkdtemp(path.join(tmpdir(), "aihub-agent-env-"));
     await writeFile(
       path.join(dir, ".env"),
-      "ONECLI_TOKEN=agent-onecli\nSLACK_BOT_TOKEN=agent-slack\nSLACK_APP_TOKEN=agent-app\n"
+      "ONECLI_TOKEN=agent-onecli\nSLACK_BOT_TOKEN=agent-slack\nSLACK_APP_TOKEN=agent-app\nIRC_PASSWORD=agent-irc\nIRC_NICKSERV_PASSWORD=agent-nickserv\n"
     );
 
     const config = GatewayConfigSchema.parse({
@@ -169,6 +169,12 @@ describe("startup validation", () => {
             token: "$env:SLACK_BOT_TOKEN",
             appToken: "$env:SLACK_APP_TOKEN",
           },
+          irc: {
+            host: "irc.example.com",
+            nick: "main-bot",
+            password: "$env:IRC_PASSWORD",
+            nickservPassword: "$env:IRC_NICKSERV_PASSWORD",
+          },
         },
       ],
       extensions: {},
@@ -181,6 +187,10 @@ describe("startup validation", () => {
           slack: expect.objectContaining({
             token: "agent-slack",
             appToken: "agent-app",
+          }),
+          irc: expect.objectContaining({
+            password: "agent-irc",
+            nickservPassword: "agent-nickserv",
           }),
         }),
       ],

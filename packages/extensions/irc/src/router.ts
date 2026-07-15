@@ -7,7 +7,7 @@ export class IrcRouter {
   private history = new Map<string, History>(); private guard: IrcLoopGuard;
   private pendingDms = new Map<string, { timer: NodeJS.Timeout; content: string; agent: string; sender: string; key: string }>();
   private stopped = false;
-  constructor(private ctx: ExtensionContext, private config: IrcExtensionConfig, private service: Pick<IrcService, "send" | "nick">) { this.guard = new IrcLoopGuard(config.maxA2ATurns, config.humanNicks); }
+  constructor(private ctx: ExtensionContext, private config: IrcExtensionConfig, private service: Pick<IrcService, "send" | "nick">, private ownerAgentId?: string) { this.guard = new IrcLoopGuard(config.maxA2ATurns, config.humanNicks); }
   handle(message: IrcMessage): void {
     if (message.command !== "PRIVMSG" || !message.params[0] || !message.trailing) return;
     const sender = nickFromPrefix(message.prefix); const target = message.params[0]; if (!sender || sender.toLowerCase() === this.service.nick.toLowerCase()) return;
@@ -31,6 +31,6 @@ export class IrcRouter {
     const context: IrcContext = { kind: "irc", blocks: [{ type: "metadata", channel: "irc", place: isChannel ? destination : `direct message / ${sender}`, conversationType: isChannel ? "channel_message" : "direct_message", sender }, { type: "history", messages: (this.history.get(key) ?? []).map((entry) => ({ author: entry.sender, content: entry.text, timestamp: Date.now() })) }] };
     void this.ctx.runAgent({ agentId, message: content, sessionKey: `irc:${key}`, source: "irc", context }).then(async (result) => { for (const payload of result.payloads) for (const part of splitIrcText(toPlainIrcText(payload.text ?? ""))) { if (this.stopped) return; this.service.send(destination, part); await new Promise((resolve) => setTimeout(resolve, 400)); } }).catch((error) => { if (!this.stopped) console.error("[irc] agent run failed:", error); });
   }
-  private enabled(agentId: string): boolean { const agent: AgentConfig | undefined = this.ctx.getAgent(agentId); return !!agent && this.ctx.isAgentActive(agentId) && agent.extensions?.irc?.enabled === true; }
+  private enabled(agentId: string): boolean { const agent: AgentConfig | undefined = this.ctx.getAgent(agentId); const eligible = this.ownerAgentId === agentId || agent?.extensions?.irc?.enabled === true; return !!agent && eligible && this.ctx.isAgentActive(agentId); }
   private record(key: string, sender: string, text: string): void { const entries = this.history.get(key) ?? []; entries.push({ sender, text }); while (entries.length > this.config.historyLimit) entries.shift(); this.history.set(key, entries); }
 }

@@ -106,7 +106,19 @@ const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
 };
 
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
-  irc: { packageName: "@aihub/extension-irc", load: () => import("@aihub/extension-irc").then((module) => module.ircExtension), getConfig: (config) => config.extensions?.irc, routePrefixes: [] },
+  irc: {
+    packageName: "@aihub/extension-irc",
+    load: () => import("@aihub/extension-irc").then((module) => module.ircExtension),
+    getConfig: (config) => {
+      const hasPerAgent = config.agents?.some((agent) => agent.irc);
+      const rootConfig = config.extensions?.irc;
+      if (rootConfig && (rootConfig.enabled !== false || !hasPerAgent)) {
+        return { ...rootConfig, _perAgentFallback: hasPerAgent };
+      }
+      return hasPerAgent ? { _perAgent: true } : rootConfig;
+    },
+    routePrefixes: [],
+  },
   discord: {
     packageName: "@aihub/extension-discord",
     load: () =>

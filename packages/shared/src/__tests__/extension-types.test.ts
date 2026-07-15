@@ -4,6 +4,8 @@ import {
   ExtensionsConfigSchema,
   DiscordExtensionConfigSchema,
   LangfuseExtensionConfigSchema,
+  IrcAgentConfigSchema,
+  AgentYamlConfigSchema,
   TelegramExtensionConfigSchema,
   GatewayConfigSchema,
   type Extension,
@@ -34,6 +36,24 @@ describe("extension config schemas", () => {
     });
 
     expect(result.success).toBe(false);
+  });
+
+  it("parses top-level agent IRC config without route agent fields", () => {
+    const result = AgentYamlConfigSchema.parse({
+      id: "main",
+      name: "Main",
+      model: { provider: "anthropic", model: "claude" },
+      irc: {
+        host: "irc.example.com",
+        nick: "main-bot",
+        password: "$env:IRC_PASSWORD",
+        channels: { "#team": { mode: "reply-all" } },
+        dm: { enabled: true, allowFrom: ["alice"], debounceMs: 10 },
+      },
+    });
+    expect(result.irc?.channels["#team"]?.mode).toBe("reply-all");
+    expect(result.irc?.password).toBe("$env:IRC_PASSWORD");
+    expect(IrcAgentConfigSchema.safeParse({ host: "irc", nick: "bot", channels: { "#team": { agent: "other" } } }).success).toBe(false);
   });
 
   it("parses telegram extension config with an $env token", () => {

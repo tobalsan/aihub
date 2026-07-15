@@ -85,6 +85,33 @@ describe("extension registry", () => {
     expect(isExtensionLoaded("multiUser")).toBe(false);
   });
 
+  it("auto-loads IRC from top-level agent config", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [{
+        id: "main", name: "Main", workspace: "~/agents/main",
+        model: { provider: "anthropic", model: "claude" },
+        irc: { host: "irc.example.com", nick: "main-bot", channels: { "#team": { mode: "reply-all" } } },
+      }],
+    });
+    const result = await loadExtensions(config);
+    expect(result.map((extension) => extension.id)).toContain("irc");
+  });
+
+  it("loads per-agent IRC when shared IRC is disabled", async () => {
+    const config = GatewayConfigSchema.parse({
+      version: 2,
+      agents: [{
+        id: "main", name: "Main", workspace: "~/agents/main",
+        model: { provider: "anthropic", model: "claude" },
+        irc: { host: "irc.example.com", nick: "main-bot" },
+      }],
+      extensions: { irc: { enabled: false, host: "shared.example.com", nick: "shared-bot" } },
+    });
+    const result = await loadExtensions(config);
+    expect(result.map((extension) => extension.id)).toContain("irc");
+  });
+
   it("loads multiUser extension when enabled", async () => {
     const config = GatewayConfigSchema.parse({
       version: 2,
