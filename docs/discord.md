@@ -2,6 +2,8 @@
 
 Connect your agent to Discord with support for guilds, DMs, reactions, slash commands, and forum-channel threads.
 
+Replies stream by default: Discord posts the first agent text immediately and edits it as the turn continues. Accepted messages receive a 👀 reaction until the first reply text is posted. Images, PDFs, and supported Office files (up to 25 MB) are forwarded to the agent; attachment-only DMs are accepted.
+
 ## Prerequisites
 
 1. Create a Discord application at https://discord.com/developers/applications
@@ -197,6 +199,10 @@ That binding is what lets a user's reply in the created forum thread resume the 
   "discord": {
     "token": "string (required)",
     "applicationId": "string (enables slash commands)",
+    "streamReplies": true,
+    "acknowledgeMessages": true,
+    "ackEmoji": "👀",
+    "attachmentsEnabled": true,
 
     "dm": {
       "enabled": true,

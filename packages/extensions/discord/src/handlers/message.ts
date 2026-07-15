@@ -22,6 +22,12 @@ export type MessageData = {
     bot?: boolean;
   };
   mentions?: Array<{ id: string }>;
+  attachments?: Array<{
+    filename: string;
+    url: string;
+    size?: number;
+    content_type?: string | null;
+  }>;
 };
 
 export type PipelineResult = {

@@ -4,6 +4,9 @@ These release notes are retro-created from commit history and handoff docs. Vers
 
 ## [Unreleased]
 
+### Added
+- Discord replies stream live into an editable message, acknowledged messages receive a configurable 👀 reaction, and supported image/PDF/Office attachments are forwarded to the agent.
+
 ## v0.20.0 — Teams, per-agent extensions & OAuth connections
 
 The largest release to date: role- and team-based multi-user access control, an admin Edit-Agent hub for per-agent extension configuration, and per-agent OAuth connections (Google Drive) with tokens encrypted at rest — plus a Plane tracker for the orchestrator and scheduler/Telegram hardening.

@@ -99,6 +99,10 @@ export const DiscordConfigSchema = z.object({
   // live, batched plain-text notes in the channel/thread during a turn. Off
   // when absent/false. Mirrors the Telegram option (ALG-288).
   showToolCalls: z.boolean().optional(),
+  streamReplies: z.boolean().optional(),
+  acknowledgeMessages: z.boolean().optional(),
+  attachmentsEnabled: z.boolean().optional(),
+  ackEmoji: z.string().min(1).optional(),
 });
 export type DiscordConfig = z.infer<typeof DiscordConfigSchema>;
 
@@ -473,6 +477,10 @@ export const DiscordExtensionConfigSchema = z.object({
   // live, batched plain-text notes in the channel/thread during a turn. Off
   // when absent/false. Mirrors the Telegram option (ALG-288).
   showToolCalls: z.boolean().optional(),
+  streamReplies: z.boolean().optional(),
+  acknowledgeMessages: z.boolean().optional(),
+  attachmentsEnabled: z.boolean().optional(),
+  ackEmoji: z.string().min(1).optional(),
 });
 export type DiscordExtensionConfig = z.infer<
   typeof DiscordExtensionConfigSchema
