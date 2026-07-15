@@ -100,11 +100,13 @@ const EXTENSION_LOAD_PRIORITY: Record<string, number> = {
   webhooks: -10,
   subagents: -5,
   discord: 10,
+  irc: 10,
   slack: 10,
   telegram: 10,
 };
 
 const EXTENSION_REGISTRY: Record<string, ExtensionRegistration> = {
+  irc: { packageName: "@aihub/extension-irc", load: () => import("@aihub/extension-irc").then((module) => module.ircExtension), getConfig: (config) => config.extensions?.irc, routePrefixes: [] },
   discord: {
     packageName: "@aihub/extension-discord",
     load: () =>

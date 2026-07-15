@@ -8,6 +8,7 @@ import type {
   TelegramContext,
   TelegramContextBlock,
   UserContext,
+  IrcContext,
 } from "./types.js";
 
 export const SLACK_FORMATTING = [
@@ -173,6 +174,13 @@ export function renderTelegramContext(ctx: TelegramContext): string {
   ].join("\n");
 }
 
+export function renderIrcContext(ctx: IrcContext): string {
+  const metadata = ctx.blocks.find((block) => block.type === "metadata");
+  if (!metadata || metadata.type !== "metadata") return "";
+  const history = ctx.blocks.find((block) => block.type === "history");
+  return ["[CHANNEL CONTEXT]", "channel: irc", `place: ${metadata.place}`, `conversation_type: ${metadata.conversationType}`, `sender: ${metadata.sender}`, "recent_history:", renderHistory(history && history.type === "history" ? history.messages : undefined), "[END CHANNEL CONTEXT]"].join("\n");
+}
+
 function renderUserContext(ctx: UserContext): string {
   const name = ctx.name?.trim().replace(/\s+/g, " ") || "unknown";
   return [
@@ -187,6 +195,7 @@ export function renderAgentContext(ctx: AgentContext): string {
   if (ctx.kind === "discord") return renderDiscordContext(ctx);
   if (ctx.kind === "slack") return renderSlackContext(ctx);
   if (ctx.kind === "telegram") return renderTelegramContext(ctx);
+  if (ctx.kind === "irc") return renderIrcContext(ctx);
   if (ctx.kind === "web") return renderUserContext(ctx);
   return "";
 }

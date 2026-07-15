@@ -479,6 +479,29 @@ export type DiscordExtensionConfig = z.infer<
 >;
 export type DiscordComponentConfig = DiscordExtensionConfig;
 
+export const IrcChannelConfigSchema = z.object({
+  agent: z.string().min(1),
+  mode: z.enum(["mention-only", "reply-all"]).optional().default("mention-only"),
+});
+export type IrcChannelConfig = z.infer<typeof IrcChannelConfigSchema>;
+
+export const IrcExtensionConfigSchema = z.object({
+  enabled: z.boolean().optional(),
+  host: z.string().min(1),
+  port: z.number().int().min(1).max(65535).optional().default(6697),
+  tls: z.boolean().optional().default(true),
+  nick: z.string().min(1),
+  username: z.string().min(1).optional(),
+  password: SecretRefSchema.optional(),
+  nickservPassword: SecretRefSchema.optional(),
+  channels: z.record(z.string().min(1), IrcChannelConfigSchema).default({}),
+  dm: z.object({ enabled: z.boolean().optional(), agent: z.string().min(1).optional(), allowFrom: z.array(z.string()).optional(), debounceMs: z.number().int().min(0).optional() }).optional(),
+  historyLimit: z.number().int().min(0).optional().default(20),
+  maxA2ATurns: z.number().int().min(0).optional().default(4),
+  humanNicks: z.array(z.string()).optional().default([]),
+});
+export type IrcExtensionConfig = z.infer<typeof IrcExtensionConfigSchema>;
+
 export const SlackExtensionChannelConfigSchema = z.object({
   agent: z.string(),
   requireMention: z.boolean().optional(),
@@ -755,6 +778,7 @@ export type LangfuseExtensionConfig = z.infer<
 export const ExtensionsConfigSchema = z
   .object({
     discord: DiscordExtensionConfigSchema.optional(),
+    irc: IrcExtensionConfigSchema.optional(),
     slack: SlackExtensionConfigSchema.optional(),
     telegram: TelegramExtensionConfigSchema.optional(),
     scheduler: z
@@ -1706,7 +1730,7 @@ export type ChannelConversationType =
   | "thread_reply";
 
 export type ChannelContextMetadata = {
-  channel: "discord" | "slack" | "telegram";
+  channel: "discord" | "slack" | "telegram" | "irc";
   place: string;
   conversationType: ChannelConversationType;
   sender: string;
@@ -1798,6 +1822,8 @@ export type TelegramContext = {
   blocks: TelegramContextBlock[];
 };
 
+export type IrcContext = { kind: "irc"; blocks: Array<{ type: "metadata"; channel: "irc"; place: string; conversationType: ChannelConversationType; sender: string } | { type: "history"; messages: Array<{ author: string; content: string; timestamp: number }> }> };
+
 export type UserContext = {
   kind: "web";
   name?: string;
@@ -1807,6 +1833,7 @@ export type AgentContext =
   | DiscordContext
   | SlackContext
   | TelegramContext
+  | IrcContext
   | UserContext;
 
 export const AgentContextSchema: z.ZodType<AgentContext> = z
