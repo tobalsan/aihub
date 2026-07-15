@@ -46,4 +46,14 @@ describe("StreamingDisplay", () => {
     expect(firstClient.rest.post).not.toHaveBeenCalled();
     expect(secondClient.rest.post).toHaveBeenCalledWith("/channels/two/messages", { body: { content: "visible" } });
   });
+
+  it("handles a failed first post and runs failure cleanup", async () => {
+    const client = { rest: { post: vi.fn().mockRejectedValue(new Error("Discord unavailable")), patch: vi.fn() } };
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    const display = new StreamingDisplay(client as never, "channel", vi.fn(), 60_000, undefined, undefined, cleanup);
+
+    display.append("hello");
+    await expect(display.finalize()).rejects.toThrow("Discord unavailable");
+    expect(cleanup).toHaveBeenCalledOnce();
+  });
 });

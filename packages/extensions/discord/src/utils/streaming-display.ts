@@ -18,14 +18,15 @@ export class StreamingDisplay {
     private readonly onFirstPost: () => Promise<void>,
     private readonly intervalMs = DISCORD_STREAM_UPDATE_INTERVAL_MS,
     private readonly replyTo?: { messageId: string; mode: "off" | "all" | "first" },
-    private readonly beforeFirstPost?: () => Promise<void>
+    private readonly beforeFirstPost?: () => Promise<void>,
+    private readonly onRenderError?: () => Promise<void>
   ) {}
 
   append(text: string): void {
     if (this.closed || !text) return;
     this.text += text;
     if (!this.messages.length && !this.rendering) {
-      this.enqueueRender();
+      void this.enqueueRender().catch(() => {});
       return;
     }
     if (!this.timer) this.timer = setTimeout(() => this.enqueueRender(), this.intervalMs);
@@ -46,7 +47,12 @@ export class StreamingDisplay {
   private enqueueRender(force = false): Promise<void> {
     if (!this.rendering) {
       this.rendering = true;
-      this.renderChain = this.render(force).finally(() => { this.rendering = false; });
+      this.renderChain = this.render(force)
+        .catch(async (error) => {
+          await this.onRenderError?.();
+          throw error;
+        })
+        .finally(() => { this.rendering = false; });
     } else {
       this.renderChain = this.renderChain.then(() => this.enqueueRender(force));
     }

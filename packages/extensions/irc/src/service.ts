@@ -18,10 +18,9 @@ export class IrcService {
   get nick(): string { return this.currentNick; }
   private connect(): void {
     this.currentNick = this.config.nick;
-    const onConnect = () => { if (this.stopped) return; this.log.info(`[irc] connected ${this.config.host}:${this.config.port}`); if (this.config.password) this.write(`PASS ${this.config.password}`); this.write(`NICK ${this.currentNick}`); this.write(`USER ${this.config.username ?? this.config.nick} 0 * :${this.config.nick}`); };
-    const socket = this.config.tls
-      ? tls.connect({ host: this.config.host, port: this.config.port, servername: this.config.host }, onConnect)
-      : net.connect({ host: this.config.host, port: this.config.port }, onConnect);
+    let socket: net.Socket | tls.TLSSocket;
+    const onConnect = () => { if (this.socket !== socket || this.stopped) return; this.log.info(`[irc] connected ${this.config.host}:${this.config.port}`); if (this.config.password) this.write(`PASS ${this.config.password}`); this.write(`NICK ${this.currentNick}`); this.write(`USER ${this.config.username ?? this.config.nick} 0 * :${this.config.nick}`); };
+    socket = this.config.tls ? tls.connect({ host: this.config.host, port: this.config.port, servername: this.config.host }, onConnect) : net.connect({ host: this.config.host, port: this.config.port }, onConnect);
     this.socket = socket;
     socket.setEncoding("utf8"); socket.setKeepAlive(true, 30_000);
     socket.on("data", (data: string) => { if (this.socket === socket) this.receive(data); });
