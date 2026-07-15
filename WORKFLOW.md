@@ -2,7 +2,8 @@
 tracker:
   kind: plane
   workspace: algodyn
-  project: a9e7c4c0-9b02-4b2d-88c2-c522e72701a8
+  projects: 
+    - a9e7c4c0-9b02-4b2d-88c2-c522e72701a8
   active_states: [Todo, In Progress]
   terminal_states: [In Review, Done, Cancelled]
   needs_human: "Needs Human"
