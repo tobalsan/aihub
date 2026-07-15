@@ -110,6 +110,7 @@ function createMockClient() {
       post: vi.fn(() => Promise.resolve()),
       get: vi.fn(() => Promise.resolve({})),
       put: vi.fn(() => Promise.resolve()),
+      delete: vi.fn(() => Promise.resolve()),
     },
     handleDeployRequest: vi.fn(() => Promise.resolve()),
   };
@@ -190,6 +191,7 @@ describe("Discord bot integration", () => {
   });
 
   afterEach(() => {
+    delete (mockExtensionContext as { saveMediaFile?: unknown }).saveMediaFile;
     vi.clearAllMocks();
   });
 
@@ -644,6 +646,38 @@ describe("Discord bot integration", () => {
         );
 
         expect(mockRunAgent).toHaveBeenCalledTimes(1);
+      });
+
+      it("acknowledges attachment-only messages, forwards the file, then streams a reply", async () => {
+        const saveMediaFile = vi.fn().mockResolvedValue({ path: "/media/screen.png", mimeType: "image/png" });
+        (mockExtensionContext as { saveMediaFile?: unknown }).saveMediaFile = saveMediaFile;
+        mockFetch
+          .mockResolvedValueOnce({ ok: true, json: () => Promise.resolve({ id: "app-123" }) } as Response)
+          .mockResolvedValueOnce(new Response(new Uint8Array([1]), { status: 200 }));
+        await createDiscordBot(createTestAgent({
+          guilds: { "guild-1": { requireMention: false, reactionNotifications: "off" } },
+        }));
+        capturedHandlers.onReady?.({ user: { id: "bot-123", username: "TestBot" } }, mockClient);
+
+        await capturedHandlers.onMessage?.({
+          id: "msg-file",
+          content: "",
+          channel_id: "channel-1",
+          guild_id: "guild-1",
+          author: { id: "user-1", username: "testuser", bot: false },
+          mentions: [],
+          attachments: [{ filename: "screen.png", url: "https://cdn.test/screen", content_type: "image/png" }],
+        }, mockClient);
+        await flushPromises();
+
+        expect(mockClient.rest.put).toHaveBeenCalledWith("/channels/channel-1/messages/msg-file/reactions/%F0%9F%91%80/@me");
+        expect(saveMediaFile).toHaveBeenCalledOnce();
+        expect(mockRunAgent).toHaveBeenCalledWith(expect.objectContaining({
+          message: "",
+          attachments: [{ path: "/media/screen.png", mimeType: "image/png" }],
+        }));
+        expect(mockClient.rest.post).toHaveBeenCalledWith("/channels/channel-1/messages", expect.objectContaining({ body: expect.objectContaining({ content: "Hello from agent" }) }));
+        expect(mockClient.rest.delete).toHaveBeenCalledWith("/channels/channel-1/messages/msg-file/reactions/%F0%9F%91%80/@me");
       });
 
       it("ignores DM reactions", async () => {

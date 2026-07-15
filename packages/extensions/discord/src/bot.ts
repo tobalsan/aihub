@@ -30,6 +30,9 @@ import { getDiscordContext } from "./context.js";
 import { getForumSubscribers } from "./forum-subscribers.js";
 import { ToolNotes } from "./utils/tool-notes.js";
 import { createThreadSessionBindingStore } from "./thread-session-bindings.js";
+import { AckReaction } from "./utils/ack-reaction.js";
+import { collectDiscordAttachments } from "./utils/attachments.js";
+import { StreamingDisplay } from "./utils/streaming-display.js";
 
 export type DiscordBot = {
   client: CarbonClient;
@@ -229,13 +232,19 @@ async function handleDiscordMessage(
   }
 
   const content = result.normalizedContent;
-  if (!content) return;
+  const attachmentFiles = target.config.attachmentsEnabled === false ? [] : data.attachments ?? [];
+  if (!content && attachmentFiles.length === 0) return;
 
   const sessionKey = target.isMainSession
     ? DEFAULT_MAIN_KEY
     : `discord:${data.channel_id}`;
 
   startTyping(client, data.channel_id, target.agent.id, { sessionKey }, false);
+
+  const ack = target.config.acknowledgeMessages === false
+    ? null
+    : new AckReaction(client, data.channel_id, data.id, target.config.ackEmoji ?? "👀");
+  if (ack) await ack.add();
 
   let context;
   try {
@@ -288,17 +297,32 @@ async function handleDiscordMessage(
     });
   } catch (err) {
     console.error(`${target.logPrefix} Error:`, err);
+    await ack?.remove();
     await sendDiscordError(client, data.channel_id, replyToMode, data.id);
     return;
   }
+
+  const saveMediaFile = getDiscordContext().saveMediaFile;
+  const attachmentResult = attachmentFiles.length > 0 && saveMediaFile
+    ? await collectDiscordAttachments(attachmentFiles, saveMediaFile)
+    : { attachments: [], errors: [] };
+  if (!content && attachmentResult.attachments.length === 0) {
+    await ack?.remove();
+    for (const error of attachmentResult.errors) await sendDiscordToolNote(client, data.channel_id, error).catch(() => {});
+    return;
+  }
+  for (const error of attachmentResult.errors) {
+    await sendDiscordToolNote(client, data.channel_id, error).catch(() => {});
+  }
+  const message = content;
 
   // Per-invocation state — not shared with any other concurrent handler call.
   // Passing onEvent scopes all stream events to this specific runAgent() call,
   // so same-channel overlapping messages cannot cross-consume each other's events.
   // runAgent() is fired without await so the Carbon listener returns fast,
   // well within Carbon 0.16's 12 s listener-timeout on the standard lane.
-  let accumulatedText = "";
   let replyHandled = false;
+  let accumulatedText = "";
 
   // Opt-in tool-call visibility (ALG-292): when enabled, surface concise
   // one-line notes about the agent's tool calls during the turn, coalesced so
@@ -319,34 +343,45 @@ async function handleDiscordMessage(
     });
     return noteChain;
   };
+  const display = target.config.streamReplies === false
+    ? null
+    : new StreamingDisplay(client, data.channel_id, async () => ack?.remove(), undefined, { messageId: data.id, mode: replyToMode }, async () => { if (toolNotes) await noteChain; }, async () => ack?.remove());
 
   getDiscordContext()
     .runAgent({
       agentId: target.agent.id,
-      message: content,
+      message,
+      attachments: attachmentResult.attachments,
       sessionKey,
       source: "discord",
       context,
       onEvent: (event) => {
         if (event.type === "text") {
           accumulatedText += event.data;
+          if (display) display.append(event.data);
           return;
         }
         if (event.type === "done") {
           if (event.meta?.queued) {
             // Agent was queued; extend the typing indicator with TTL to match pre-fix behaviour.
             replyHandled = true;
+            void ack?.remove();
             startTyping(client, data.channel_id, target.agent.id, { sessionKey }, true);
             return;
           }
           replyHandled = true;
+          if (!accumulatedText) void ack?.remove();
           // Drain any remaining tool-call notes before the reply so the audit
           // trail is complete and ordered ahead of the final answer.
           if (toolNotes) {
             const finalNotes = toolNotes.takeFinal();
             if (finalNotes) void flushToolNotes(finalNotes.text);
           }
-          if (accumulatedText) {
+          if (display) {
+            noteChain.then(() => display.finalize()).catch((err) => {
+              console.error(`${target.logPrefix} Reply error:`, err);
+            });
+          } else if (accumulatedText) {
             noteChain
               .then(() =>
                 sendDiscordReply(
@@ -369,6 +404,8 @@ async function handleDiscordMessage(
         if (event.type === "error") {
           if (replyHandled) return;
           replyHandled = true;
+          void ack?.remove();
+          void display?.abort().catch((err) => console.error(`${target.logPrefix} Reply abort error:`, err));
           sendDiscordError(client, data.channel_id, replyToMode, data.id).catch((err) => {
             console.error(`${target.logPrefix} Error reply failed:`, err);
           });
@@ -384,6 +421,8 @@ async function handleDiscordMessage(
     .catch((err) => {
       if (replyHandled) return;
       replyHandled = true;
+      void ack?.remove();
+      void display?.abort().catch((err) => console.error(`${target.logPrefix} Reply abort error:`, err));
       console.error(`${target.logPrefix} Error:`, err);
       sendDiscordError(client, data.channel_id, replyToMode, data.id).catch(() => {});
     });
@@ -461,11 +500,22 @@ async function handleForumThreadOpening(
   parentChannelId: string,
   onSettled?: () => void
 ): Promise<void> {
-  const content = data.content?.trim();
-  if (!content || data.author.bot) return;
-
+  const content = data.content?.trim() ?? "";
+  if ((!content && !(data.attachments?.length)) || data.author.bot) return;
   const sessionKey = `discord:forum:${threadId}:${target.agent.id}`;
   startTyping(client, threadId, target.agent.id, { sessionKey }, false);
+  const ack = target.config.acknowledgeMessages === false ? null : new AckReaction(client, threadId, data.id, target.config.ackEmoji ?? "👀");
+  if (ack) await ack.add();
+  const saveMediaFile = getDiscordContext().saveMediaFile;
+  const attachmentResult = data.attachments?.length && target.config.attachmentsEnabled !== false && saveMediaFile
+    ? await collectDiscordAttachments(data.attachments, saveMediaFile)
+    : { attachments: [], errors: [] };
+  if (!content && attachmentResult.attachments.length === 0) {
+    await ack?.remove();
+    for (const error of attachmentResult.errors) await sendDiscordToolNote(client, threadId, error).catch(() => {});
+    return;
+  }
+  for (const error of attachmentResult.errors) await sendDiscordToolNote(client, threadId, error).catch(() => {});
 
   let context;
   try {
@@ -494,6 +544,7 @@ async function handleForumThreadOpening(
     });
   } catch (err) {
     console.error(`${target.logPrefix} Forum thread context error:`, err);
+    await ack?.remove();
     await sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id);
     onSettled?.();
     return;
@@ -501,6 +552,7 @@ async function handleForumThreadOpening(
 
   let accumulatedText = "";
   let replyHandled = false;
+  const display = target.config.streamReplies === false ? null : new StreamingDisplay(client, threadId, async () => ack?.remove(), undefined, { messageId: data.id, mode: target.config.replyToMode ?? "off" }, async () => { if (toolNotes) await noteChain; }, async () => ack?.remove());
 
   // Opt-in tool-call visibility (ALG-292): batched one-line tool-call notes,
   // OFF by default. Posted as plain thread messages, serialized so the final
@@ -522,27 +574,33 @@ async function handleForumThreadOpening(
   getDiscordContext()
     .runAgent({
       agentId: target.agent.id,
-      message: content,
+      message: content || "[User attached a file]",
+      attachments: attachmentResult.attachments,
       sessionKey,
       source: "discord",
       context,
       onEvent: (event) => {
         if (event.type === "text") {
           accumulatedText += event.data;
+          display?.append(event.data);
           return;
         }
         if (event.type === "done") {
           if (event.meta?.queued) {
             replyHandled = true;
+            void ack?.remove();
             startTyping(client, threadId, target.agent.id, { sessionKey }, true);
             return;
           }
           replyHandled = true;
+          if (!accumulatedText) void ack?.remove();
           if (toolNotes) {
             const finalNotes = toolNotes.takeFinal();
             if (finalNotes) void flushToolNotes(finalNotes.text);
           }
-          if (accumulatedText) {
+          if (display) {
+            noteChain.then(() => display.finalize()).catch((err) => console.error(`${target.logPrefix} Forum thread reply error:`, err));
+          } else if (accumulatedText) {
             noteChain
               .then(() =>
                 sendDiscordReply(
@@ -562,6 +620,8 @@ async function handleForumThreadOpening(
         if (event.type === "error") {
           if (replyHandled) return;
           replyHandled = true;
+          void ack?.remove();
+          void display?.abort().catch((err) => console.error(`${target.logPrefix} Forum thread reply abort error:`, err));
           sendDiscordError(
             client,
             threadId,
@@ -595,6 +655,8 @@ async function handleForumThreadOpening(
     .catch((err) => {
       if (replyHandled) return;
       replyHandled = true;
+      void ack?.remove();
+      void display?.abort().catch((err) => console.error(`${target.logPrefix} Forum thread reply abort error:`, err));
       console.error(`${target.logPrefix} Forum thread error:`, err);
       sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id).catch(
         () => {}
@@ -613,11 +675,22 @@ async function handleForumThreadReply(
   threadId: string,
   parentChannelId: string
 ): Promise<void> {
-  const content = data.content?.trim();
-  if (!content || data.author.bot) return;
-
+  const content = data.content?.trim() ?? "";
+  if ((!content && !(data.attachments?.length)) || data.author.bot) return;
   const sessionKey = `discord:forum:${threadId}:${target.agent.id}`;
   startTyping(client, threadId, target.agent.id, { sessionKey }, false);
+  const ack = target.config.acknowledgeMessages === false ? null : new AckReaction(client, threadId, data.id, target.config.ackEmoji ?? "👀");
+  if (ack) await ack.add();
+  const saveMediaFile = getDiscordContext().saveMediaFile;
+  const attachmentResult = data.attachments?.length && target.config.attachmentsEnabled !== false && saveMediaFile
+    ? await collectDiscordAttachments(data.attachments, saveMediaFile)
+    : { attachments: [], errors: [] };
+  if (!content && attachmentResult.attachments.length === 0) {
+    await ack?.remove();
+    for (const error of attachmentResult.errors) await sendDiscordToolNote(client, threadId, error).catch(() => {});
+    return;
+  }
+  for (const error of attachmentResult.errors) await sendDiscordToolNote(client, threadId, error).catch(() => {});
 
   let context;
   try {
@@ -643,6 +716,7 @@ async function handleForumThreadReply(
     });
   } catch (err) {
     console.error(`${target.logPrefix} Forum thread context error:`, err);
+    await ack?.remove();
     await sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id);
     return;
   }
@@ -650,6 +724,7 @@ async function handleForumThreadReply(
   let accumulatedText = "";
   let replyHandled = false;
   let discordToolPostedToThread = false;
+  const display = target.config.streamReplies === false ? null : new StreamingDisplay(client, threadId, async () => ack?.remove(), undefined, { messageId: data.id, mode: target.config.replyToMode ?? "off" }, async () => { if (toolNotes) await noteChain; }, async () => ack?.remove());
 
   // Opt-in tool-call visibility (ALG-292): batched one-line tool-call notes,
   // OFF by default. Posted as plain thread messages, serialized so the final
@@ -671,7 +746,8 @@ async function handleForumThreadReply(
   getDiscordContext()
     .runAgent({
       agentId: target.agent.id,
-      message: content,
+      message: content || "[User attached a file]",
+      attachments: attachmentResult.attachments,
       sessionId,
       sessionKey,
       source: "discord",
@@ -682,20 +758,25 @@ async function handleForumThreadReply(
         }
         if (event.type === "text") {
           accumulatedText += event.data;
+          if (!discordToolPostedToThread) display?.append(event.data);
           return;
         }
         if (event.type === "done") {
           if (event.meta?.queued) {
             replyHandled = true;
+            void ack?.remove();
             startTyping(client, threadId, target.agent.id, { sessionKey }, true);
             return;
           }
           replyHandled = true;
+          if (!accumulatedText) void ack?.remove();
           if (toolNotes) {
             const finalNotes = toolNotes.takeFinal();
             if (finalNotes) void flushToolNotes(finalNotes.text);
           }
-          if (accumulatedText && !discordToolPostedToThread) {
+          if (display && !discordToolPostedToThread) {
+            noteChain.then(() => display.finalize()).catch((err) => console.error(`${target.logPrefix} Forum thread reply error:`, err));
+          } else if (accumulatedText && !discordToolPostedToThread) {
             noteChain
               .then(() =>
                 sendDiscordReply(
@@ -715,6 +796,8 @@ async function handleForumThreadReply(
         if (event.type === "error") {
           if (replyHandled) return;
           replyHandled = true;
+          void ack?.remove();
+          void display?.abort().catch((err) => console.error(`${target.logPrefix} Forum thread reply abort error:`, err));
           sendDiscordError(
             client,
             threadId,
@@ -735,6 +818,8 @@ async function handleForumThreadReply(
     .catch((err) => {
       if (replyHandled) return;
       replyHandled = true;
+      void ack?.remove();
+      void display?.abort().catch((err) => console.error(`${target.logPrefix} Forum thread reply abort error:`, err));
       console.error(`${target.logPrefix} Forum thread error:`, err);
       sendDiscordError(client, threadId, target.config.replyToMode ?? "off", data.id).catch(
         () => {}
@@ -755,6 +840,7 @@ function toMessageData(data: {
     bot?: boolean;
   };
   mentions?: Array<{ id: string }>;
+  attachments?: Array<{ filename: string; url: string; size?: number; content_type?: string | null }>;
 }): MessageData {
   return {
     id: data.id,
@@ -769,6 +855,7 @@ function toMessageData(data: {
       bot: data.author.bot,
     },
     mentions: data.mentions,
+    attachments: data.attachments,
   };
 }
 
