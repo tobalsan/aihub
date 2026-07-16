@@ -59,4 +59,6 @@ Mention-only channels respond to `aihub: message`; `reply-all` channels answer e
 
 Top-level `debounceMs` batches a burst of channel lines from the same sender into one agent turn: in mention-only channels, follow-up lines from the same sender join the pending batch without needing another mention; `reply-all` channels batch every line the same way. `dm.debounceMs` does the same for direct messages.
 
+Agent replies are converted to IRC-safe plain text: markdown (emphasis, backticks, headings, links) is stripped but newlines are kept — each line becomes its own IRC message, and long lines split on word boundaries instead of mid-sentence.
+
 Channel context is bounded by `historyLimit`. Per-channel A2A cap resets only on configured human nicks. Agent-local `password` and `nickservPassword` `$env:` references resolve from that agent's `.env` using normal gateway secret resolution.
