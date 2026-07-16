@@ -29,6 +29,7 @@ export class IrcRouter {
   private run(agentId: string, content: string, destination: string, key: string, isChannel: boolean, sender = destination): void {
     if (this.stopped) return;
     const context: IrcContext = { kind: "irc", blocks: [{ type: "metadata", channel: "irc", place: isChannel ? destination : `direct message / ${sender}`, conversationType: isChannel ? "channel_message" : "direct_message", sender }, { type: "history", messages: (this.history.get(key) ?? []).map((entry) => ({ author: entry.sender, content: entry.text, timestamp: Date.now() })) }] };
+    this.service.send(destination, "👀");
     void this.ctx.runAgent({ agentId, message: content, sessionKey: `irc:${key}`, source: "irc", context }).then(async (result) => { for (const payload of result.payloads) for (const part of splitIrcText(toPlainIrcText(payload.text ?? ""))) { if (this.stopped) return; this.service.send(destination, part); await new Promise((resolve) => setTimeout(resolve, 400)); } }).catch((error) => { if (!this.stopped) console.error("[irc] agent run failed:", error); });
   }
   private enabled(agentId: string): boolean { const agent: AgentConfig | undefined = this.ctx.getAgent(agentId); const eligible = this.ownerAgentId === agentId || agent?.extensions?.irc?.enabled === true; return !!agent && eligible && this.ctx.isAgentActive(agentId); }
