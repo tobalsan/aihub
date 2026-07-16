@@ -5,6 +5,7 @@ import {
   DiscordExtensionConfigSchema,
   LangfuseExtensionConfigSchema,
   IrcAgentConfigSchema,
+  IrcExtensionConfigSchema,
   AgentYamlConfigSchema,
   TelegramExtensionConfigSchema,
   GatewayConfigSchema,
@@ -49,11 +50,23 @@ describe("extension config schemas", () => {
         password: "$env:IRC_PASSWORD",
         channels: { "#team": { mode: "reply-all" } },
         dm: { enabled: true, allowFrom: ["alice"], debounceMs: 10 },
+        debounceMs: 1500,
       },
     });
     expect(result.irc?.channels["#team"]?.mode).toBe("reply-all");
     expect(result.irc?.password).toBe("$env:IRC_PASSWORD");
+    expect(result.irc?.debounceMs).toBe(1500);
     expect(IrcAgentConfigSchema.safeParse({ host: "irc", nick: "bot", channels: { "#team": { agent: "other" } } }).success).toBe(false);
+  });
+
+  it("parses top-level debounceMs on the shared irc extension config", () => {
+    const result = IrcExtensionConfigSchema.parse({
+      host: "irc.example.com",
+      nick: "aihub",
+      channels: { "#team": { agent: "main", mode: "mention-only" } },
+      debounceMs: 1500,
+    });
+    expect(result.debounceMs).toBe(1500);
   });
 
   it("parses telegram extension config with an $env token", () => {

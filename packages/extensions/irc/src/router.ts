@@ -5,7 +5,7 @@ import type { IrcService } from "./service.js";
 type History = { sender: string; text: string }[];
 export class IrcRouter {
   private history = new Map<string, History>(); private guard: IrcLoopGuard;
-  private pendingDms = new Map<string, { timer: NodeJS.Timeout; content: string; agent: string; sender: string; key: string }>();
+  private pending = new Map<string, { timer: NodeJS.Timeout; content: string; agent: string; sender: string; destination: string; key: string; isChannel: boolean }>();
   private stopped = false;
   constructor(private ctx: ExtensionContext, private config: IrcExtensionConfig, private service: Pick<IrcService, "send" | "nick">, private ownerAgentId?: string) { this.guard = new IrcLoopGuard(config.maxA2ATurns, config.humanNicks); }
   handle(message: IrcMessage): void {
@@ -19,13 +19,16 @@ export class IrcRouter {
     const route = isChannel ? Object.entries(this.config.channels).find(([channel]) => channel.toLowerCase() === target.toLowerCase())?.[1] : this.config.dm?.enabled === true && this.config.dm.agent ? { agent: this.config.dm.agent, mode: "reply-all" as const } : undefined;
     if (!route?.agent || !this.enabled(route.agent)) return;
     this.record(key, sender, text);
-    const addressed = isAddressed(text, this.service.nick); if (isChannel && route.mode === "mention-only" && !addressed.addressed) return;
+    const batchKey = isChannel ? `${key}:${sender.toLowerCase()}` : key;
+    const addressed = isAddressed(text, this.service.nick);
+    if (isChannel && route.mode === "mention-only" && !addressed.addressed) { const pending = this.pending.get(batchKey); if (pending) pending.content += `\n${text}`; return; }
     if (isChannel && !isHuman && !this.guard.allow(target, sender)) { console.warn(`[irc] A2A cap reached in ${target}`); return; }
     const content = addressed.text.trim() || text;
-    if (!isChannel && this.config.dm?.debounceMs) { const pending = this.pendingDms.get(key); if (pending) { pending.content += `\n${content}`; return; } const timer = setTimeout(() => { const item = this.pendingDms.get(key); if (!item) return; this.pendingDms.delete(key); this.run(item.agent, item.content, item.sender, item.key, false); }, this.config.dm.debounceMs); this.pendingDms.set(key, { timer, content, agent: route.agent, sender, key }); return; }
+    const debounceMs = isChannel ? this.config.debounceMs : this.config.dm?.debounceMs;
+    if (debounceMs) { const pending = this.pending.get(batchKey); if (pending) { pending.content += `\n${content}`; return; } const destination = isChannel ? target : sender; const timer = setTimeout(() => { const item = this.pending.get(batchKey); if (!item) return; this.pending.delete(batchKey); this.run(item.agent, item.content, item.destination, item.key, item.isChannel, item.sender); }, debounceMs); this.pending.set(batchKey, { timer, content, agent: route.agent, sender, destination, key, isChannel }); return; }
     this.run(route.agent, content, isChannel ? target : sender, key, isChannel, sender);
   }
-  stop(): void { this.stopped = true; for (const { timer } of this.pendingDms.values()) clearTimeout(timer); this.pendingDms.clear(); }
+  stop(): void { this.stopped = true; for (const { timer } of this.pending.values()) clearTimeout(timer); this.pending.clear(); }
   private run(agentId: string, content: string, destination: string, key: string, isChannel: boolean, sender = destination): void {
     if (this.stopped) return;
     const context: IrcContext = { kind: "irc", blocks: [{ type: "metadata", channel: "irc", place: isChannel ? destination : `direct message / ${sender}`, conversationType: isChannel ? "channel_message" : "direct_message", sender }, { type: "history", messages: (this.history.get(key) ?? []).map((entry) => ({ author: entry.sender, content: entry.text, timestamp: Date.now() })) }] };

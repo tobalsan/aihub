@@ -17,6 +17,7 @@ irc:
   channels:
     "#team": { mode: mention-only }
   dm: { enabled: true, allowFrom: [alice], debounceMs: 250 }
+  debounceMs: 1500
 ```
 
 ## Shared connection
@@ -44,6 +45,7 @@ Configure shared connection and routing in `aihub.json`:
       "nickservPassword": "$env:IRC_NICKSERV_PASSWORD",
       "channels": { "#team": { "agent": "main", "mode": "mention-only" } },
       "dm": { "enabled": true, "agent": "main" },
+      "debounceMs": 1500,
       "humanNicks": ["alice"],
       "maxA2ATurns": 4
     }
@@ -53,6 +55,8 @@ Configure shared connection and routing in `aihub.json`:
 
 ## Behavior
 
-Mention-only channels respond to `aihub: message`; `reply-all` channels answer every message. Once an accepted channel message or allowed DM dispatches to an agent, the bot first sends a standalone `👀` to the same destination. IRC cannot remove this acknowledgement, so it remains in the conversation. Debounced DMs send one acknowledgement when the coalesced run dispatches; ignored or rejected messages send none.
+Mention-only channels respond to `aihub: message`; `reply-all` channels answer every message. Once an accepted channel message or allowed DM dispatches to an agent, the bot first sends a standalone `👀` to the same destination. IRC cannot remove this acknowledgement, so it remains in the conversation. Debounced messages send one acknowledgement when the coalesced run dispatches; ignored or rejected messages send none.
+
+Top-level `debounceMs` batches a burst of channel lines from the same sender into one agent turn: in mention-only channels, follow-up lines from the same sender join the pending batch without needing another mention; `reply-all` channels batch every line the same way. `dm.debounceMs` does the same for direct messages.
 
 Channel context is bounded by `historyLimit`. Per-channel A2A cap resets only on configured human nicks. Agent-local `password` and `nickservPassword` `$env:` references resolve from that agent's `.env` using normal gateway secret resolution.
