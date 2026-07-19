@@ -1,9 +1,9 @@
 ---
 tracker:
-  kind: plane
-  workspace: algodyn
-  projects: 
-    - a9e7c4c0-9b02-4b2d-88c2-c522e72701a8
+  kind: linear
+  team: ALG
+  label: 
+    - repo:yoplai
   active_states: [Todo, In Progress]
   terminal_states: [In Review, Done, Cancelled]
   needs_human: "Needs Human"
