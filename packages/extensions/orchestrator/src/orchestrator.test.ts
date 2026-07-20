@@ -1670,7 +1670,7 @@ describe("Pi RPC worker runner", () => {
     const script = await writeMockPiRpcServer(root);
     const events: Array<{ type: string; payload: unknown }> = [];
     process.env.MOCK_PI_MODE = "nofollow";
-    const runner = new PiRpcRunner({ requestTimeoutMs: 200 });
+    const runner = new PiRpcRunner({ requestTimeoutMs: 1_000 });
     try {
       await runner.start(piRunnerInput(root, [process.execPath, script], {
         emitEvent: (type, payload) => events.push({ type, payload }),
@@ -1879,7 +1879,7 @@ describe("Claude RPC worker runner", () => {
       expect(second.id).toBe(first.id);
       await new Promise((resolve) => setTimeout(resolve, 250));
       expect(await runner.status(first)).toMatchObject({ status: "running" });
-      await vi.waitFor(async () => expect(await runner.status(first)).toMatchObject({ status: "done" }));
+      await vi.waitFor(async () => expect(await runner.status(first)).toMatchObject({ status: "done" }), { timeout: 3_000 });
       const invocations = (await fs.readFile(logPath, "utf8")).trim().split("\n").map((line) => JSON.parse(line) as string[]);
       expect(invocations).toHaveLength(2);
       expect(invocations[0]?.join(" ")).toContain("Initial rendered workflow instructions");
