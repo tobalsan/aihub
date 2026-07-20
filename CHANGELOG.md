@@ -9,8 +9,26 @@ Breaking changes are marked **⚠ BREAKING**.
 
 ## [Unreleased]
 
+## v0.21.0 — Native IRC extension + Discord streaming
+
+Agents can now join IRC: a native IRC channel extension with per-agent connections, DM controls, and loop protection. Discord replies stream live with acknowledgement reactions and inbound attachment support.
+
 ### Added
+- Native IRC channel extension: agents participate in shared IRC rooms with bounded context, DM controls, and loop protection, providing the native gateway lifecycle and normal IRC interoperability needed for human and agent collaboration.
+- IRC agent-owned connections: each agent can own its IRC credentials, routes, and DM policy, while shared gateway routing stays compatible during migration.
+- IRC acknowledgement and batching: accepted messages get an immediate persistent 👀 acknowledgement (agent runs can take a while, so users know the message landed), and a per-sender `debounceMs` batches one-line-per-message IRC bursts into a single agent run — previously each line triggered its own run and unmentioned follow-ups were dropped in mention-only channels.
 - Discord replies stream live into an editable message, acknowledged messages receive a configurable 👀 reaction, and supported image/PDF/Office attachments are forwarded to the agent.
+
+### Fixed
+- IRC replies now split on word boundaries with one message per line; they were hard-cut every 400 bytes with newlines collapsed, breaking sentences mid-word.
+- IRC transport routing hardened: disabled DMs, stale lifecycle callbacks, unbounded offline output, and control-byte payloads can no longer create unsafe IRC behavior.
+- A failed initial Discord message post no longer leaves the acknowledgement reaction active or surfaces as an unhandled rejection.
+- Scheduler output lookup now guides agents to the list-to-output flow instead of letting them retry output reads without a job ID.
+- Single-user installs stay usable without pool config; team/fork UI is hidden unless pool-backed agents are enabled.
+- Routed web pages (Edit-Agent, Teams) can scroll past the viewport again; the left-nav main pane clipped overflow, hiding content below the fold.
+
+### Changed
+- All pi SDK packages aligned on ^0.80.6 (gateway, agent-runner, projects extension), removing runtime drift between in-process and sandboxed agent runs and picking up new model definitions (Sonnet 5, Fable 5, "max" thinking level).
 
 ## v0.20.0 — Teams, per-agent extensions & OAuth connections
 
