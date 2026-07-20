@@ -18,6 +18,11 @@ Agents can now join IRC: a native IRC channel extension with per-agent connectio
 - IRC agent-owned connections: each agent can own its IRC credentials, routes, and DM policy, while shared gateway routing stays compatible during migration.
 - IRC acknowledgement and batching: accepted messages get an immediate persistent 👀 acknowledgement (agent runs can take a while, so users know the message landed), and a per-sender `debounceMs` batches one-line-per-message IRC bursts into a single agent run — previously each line triggered its own run and unmentioned follow-ups were dropped in mention-only channels.
 - Discord replies stream live into an editable message, acknowledged messages receive a configurable 👀 reaction, and supported image/PDF/Office attachments are forwarded to the agent.
+- IRC supports agent-owned connections alongside the shared transport, persistent acceptance acknowledgements, per-sender channel/DM debounce, and newline- and word-aware reply splitting.
+
+### Fixed
+- IRC debounce batches count as one A2A turn, stale batches do not dispatch to inactive agents, and application replies wait for server registration before sending.
+- Discord streaming failures no longer leak timer promise rejections, and acknowledgement reactions are cleaned up for non-streamed and tool-owned forum replies.
 
 ### Fixed
 - IRC replies now split on word boundaries with one message per line; they were hard-cut every 400 bytes with newlines collapsed, breaking sentences mid-word.

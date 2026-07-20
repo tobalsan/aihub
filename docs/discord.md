@@ -2,7 +2,7 @@
 
 Connect your agent to Discord with support for guilds, DMs, reactions, slash commands, and forum-channel threads.
 
-Replies stream by default: Discord posts the first agent text immediately and edits it as the turn continues. Accepted messages receive a 👀 reaction until the first reply text is posted. Images, PDFs, and supported Office files (up to 25 MB) are forwarded to the agent; attachment-only DMs are accepted.
+Replies stream by default: Discord posts the first agent text immediately and edits it as the turn continues. Accepted messages receive a 👀 reaction until the reply is posted or another terminal path takes ownership of delivery. Images, PDFs, and supported Office files (up to 25 MB) are forwarded to the agent; attachment-only DMs are accepted.
 
 ## Prerequisites
 
@@ -300,6 +300,7 @@ Opt-in tool-call visibility (default: off). When `true`, the agent's tool calls 
 - **Mention gating**: When `requireMention: true`, bot only responds when @mentioned or `mentionPatterns` match.
 - **User allowlists**: Accepts user IDs, usernames, or `username#discriminator`. Prefix with `discord:/user:` for explicit IDs.
 - **Typing indicator**: Shows while agent is processing; stops on completion or after 30s timeout.
+- **Acknowledgement cleanup**: The configured reaction is removed on streamed and non-streamed completion, failure, empty replies, and same-thread forum replies delivered by a Discord tool.
 - **Message chunking**: Long responses split at 2000 chars, preserving code blocks.
 
 ## Slash Commands
