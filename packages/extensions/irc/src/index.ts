@@ -33,12 +33,11 @@ function startService(
   config: IrcExtensionConfig,
   ownerAgentId?: string
 ): void {
-  let router: IrcRouter;
   const service = new IrcService(
     { ...config, channels: Object.keys(config.channels) },
     (message) => router.handle(message)
   );
-  router = new IrcRouter(ctx, config, service, ownerAgentId);
+  const router = new IrcRouter(ctx, config, service, ownerAgentId);
   services.push(service);
   routers.push(router);
   service.start();

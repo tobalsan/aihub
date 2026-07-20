@@ -7,8 +7,8 @@ export function parseIrcLine(line: string): IrcMessage | null {
   return { prefix, command: tokens[0].toUpperCase(), params: tokens.slice(1), trailing: trailingAt < 0 ? undefined : rest.slice(trailingAt + 2) };
 }
 export function nickFromPrefix(prefix?: string): string | undefined { return prefix?.split("!", 1)[0]; }
-export function normalizeIrcText(text: string): string { const action = /^\u0001ACTION\s+(.+)\u0001$/.exec(text); return action ? `* ${action[1]}` : text; }
-export function toPlainIrcText(text: string): string { return text.replace(/[\u0000-\u0009\u000b-\u001f\u007f]/g, "").replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1").replace(/<(https?:\/\/[^>]*)>/g, "$1").replace(/^#+[ \t]*/gm, "").replace(/[*_`]/g, "").trim(); }
+export function normalizeIrcText(text: string): string { const marker = String.fromCharCode(1); if (!text.startsWith(`${marker}ACTION`) || !text.endsWith(marker)) return text; const action = /^\s+(.+)$/.exec(text.slice(7, -1)); return action ? `* ${action[1]}` : text; }
+export function toPlainIrcText(text: string): string { return [...text].filter((char) => { const code = char.charCodeAt(0); return code === 10 || code >= 32 && code !== 127; }).join("").replace(/\[([^\]]*)\]\(([^)]*)\)/g, "$1").replace(/<(https?:\/\/[^>]*)>/g, "$1").replace(/^#+[ \t]*/gm, "").replace(/[*_`]/g, "").trim(); }
 export function isAddressed(text: string, nick: string): { addressed: boolean; text: string } { const match = new RegExp(`^\\s*${nick.replace(/[.*+?^${}()|[\\]\\]/g, "\\$&")}\\s*[:,]\\s*`, "i").exec(text); return { addressed: !!match, text: match ? text.slice(match[0].length) : text }; }
 const MAX_CHARS = 450;
 function fitsIrcChunk(s: string, maxBytes: number): boolean { return s.length <= MAX_CHARS && Buffer.byteLength(s) <= maxBytes; }

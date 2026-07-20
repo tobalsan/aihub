@@ -22,10 +22,12 @@ export class IrcRouter {
     const batchKey = isChannel ? `${key}:${sender.toLowerCase()}` : key;
     const addressed = isAddressed(text, this.service.nick);
     if (isChannel && route.mode === "mention-only" && !addressed.addressed) { const pending = this.pending.get(batchKey); if (pending) pending.content += `\n${text}`; return; }
-    if (isChannel && !isHuman && !this.guard.allow(target, sender)) { console.warn(`[irc] A2A cap reached in ${target}`); return; }
     const content = addressed.text.trim() || text;
     const debounceMs = isChannel ? this.config.debounceMs : this.config.dm?.debounceMs;
-    if (debounceMs) { const pending = this.pending.get(batchKey); if (pending) { pending.content += `\n${content}`; return; } const destination = isChannel ? target : sender; const timer = setTimeout(() => { const item = this.pending.get(batchKey); if (!item) return; this.pending.delete(batchKey); this.run(item.agent, item.content, item.destination, item.key, item.isChannel, item.sender); }, debounceMs); this.pending.set(batchKey, { timer, content, agent: route.agent, sender, destination, key, isChannel }); return; }
+    const pending = debounceMs ? this.pending.get(batchKey) : undefined;
+    if (pending) { pending.content += `\n${content}`; return; }
+    if (isChannel && !isHuman && !this.guard.allow(target, sender)) { console.warn(`[irc] A2A cap reached in ${target}`); return; }
+    if (debounceMs) { const destination = isChannel ? target : sender; const timer = setTimeout(() => { const item = this.pending.get(batchKey); if (!item) return; this.pending.delete(batchKey); if (!this.enabled(item.agent)) return; this.run(item.agent, item.content, item.destination, item.key, item.isChannel, item.sender); }, debounceMs); this.pending.set(batchKey, { timer, content, agent: route.agent, sender, destination, key, isChannel }); return; }
     this.run(route.agent, content, isChannel ? target : sender, key, isChannel, sender);
   }
   stop(): void { this.stopped = true; for (const { timer } of this.pending.values()) clearTimeout(timer); this.pending.clear(); }
