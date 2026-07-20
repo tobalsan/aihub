@@ -392,6 +392,7 @@ async function handleDiscordMessage(
                   data.id
                 )
               )
+              .finally(() => ack?.remove())
               .catch((err) => {
                 console.error(`${target.logPrefix} Reply error:`, err);
               });
@@ -611,6 +612,7 @@ async function handleForumThreadOpening(
                   data.id
                 )
               )
+              .finally(() => ack?.remove())
               .catch((err) => {
                 console.error(`${target.logPrefix} Forum thread reply error:`, err);
               });
@@ -769,12 +771,14 @@ async function handleForumThreadReply(
             return;
           }
           replyHandled = true;
-          if (!accumulatedText) void ack?.remove();
+          if (!accumulatedText || discordToolPostedToThread) void ack?.remove();
           if (toolNotes) {
             const finalNotes = toolNotes.takeFinal();
             if (finalNotes) void flushToolNotes(finalNotes.text);
           }
-          if (display && !discordToolPostedToThread) {
+          if (discordToolPostedToThread) {
+            void display?.abort().catch((err) => console.error(`${target.logPrefix} Forum thread reply abort error:`, err));
+          } else if (display) {
             noteChain.then(() => display.finalize()).catch((err) => console.error(`${target.logPrefix} Forum thread reply error:`, err));
           } else if (accumulatedText && !discordToolPostedToThread) {
             noteChain
@@ -787,6 +791,7 @@ async function handleForumThreadReply(
                   data.id
                 )
               )
+              .finally(() => ack?.remove())
               .catch((err) => {
                 console.error(`${target.logPrefix} Forum thread reply error:`, err);
               });

@@ -47,6 +47,30 @@ describe("StreamingDisplay", () => {
     expect(secondClient.rest.post).toHaveBeenCalledWith("/channels/two/messages", { body: { content: "visible" } });
   });
 
+  it("handles a failed timer render without an unhandled rejection", async () => {
+    vi.useFakeTimers();
+    const failure = new Error("Discord unavailable");
+    const client = { rest: { post: vi.fn().mockResolvedValue({ id: "one" }), patch: vi.fn().mockRejectedValue(failure) } };
+    const cleanup = vi.fn().mockResolvedValue(undefined);
+    const unhandled = vi.fn();
+    process.on("unhandledRejection", unhandled);
+
+    try {
+      const display = new StreamingDisplay(client as never, "channel", vi.fn(), 100, undefined, undefined, cleanup);
+      display.append("first");
+      await vi.waitFor(() => expect(client.rest.post).toHaveBeenCalledOnce());
+      display.append(" second");
+      await vi.advanceTimersByTimeAsync(100);
+      await Promise.resolve();
+
+      expect(unhandled).not.toHaveBeenCalled();
+      expect(cleanup).toHaveBeenCalledOnce();
+      await expect(display.abort()).rejects.toBe(failure);
+    } finally {
+      process.off("unhandledRejection", unhandled);
+    }
+  });
+
   it("handles a failed first post and runs failure cleanup", async () => {
     const client = { rest: { post: vi.fn().mockRejectedValue(new Error("Discord unavailable")), patch: vi.fn() } };
     const cleanup = vi.fn().mockResolvedValue(undefined);

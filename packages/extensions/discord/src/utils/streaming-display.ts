@@ -29,7 +29,11 @@ export class StreamingDisplay {
       void this.enqueueRender().catch(() => {});
       return;
     }
-    if (!this.timer) this.timer = setTimeout(() => this.enqueueRender(), this.intervalMs);
+    if (!this.timer) {
+      this.timer = setTimeout(() => {
+        void this.enqueueRender().catch(() => {});
+      }, this.intervalMs);
+    }
   }
 
   async finalize(): Promise<void> {

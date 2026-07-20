@@ -497,6 +497,46 @@ describe("Discord bot integration", () => {
       });
     });
 
+    describe("reply lifecycle", () => {
+      it("removes the acknowledgement after a non-streamed reply", async () => {
+        const agent = createTestAgent({
+          guilds: {
+            "guild-1": { requireMention: false, reactionNotifications: "off" },
+          },
+          streamReplies: false,
+        });
+
+        await createDiscordBot(agent);
+        capturedHandlers.onReady?.(
+          { user: { id: "bot-123", username: "TestBot" } },
+          mockClient
+        );
+
+        await capturedHandlers.onMessage?.(
+          {
+            id: "msg-1",
+            content: "Hello",
+            channel_id: "channel-1",
+            guild_id: "guild-1",
+            author: { id: "user-1", username: "testuser", bot: false },
+            mentions: [],
+          },
+          mockClient
+        );
+        await flushPromises();
+
+        expect(mockClient.rest.post).toHaveBeenCalledWith(
+          "/channels/channel-1/messages",
+          expect.objectContaining({
+            body: expect.objectContaining({ content: "Hello from agent" }),
+          })
+        );
+        expect(mockClient.rest.delete).toHaveBeenCalledWith(
+          "/channels/channel-1/messages/msg-1/reactions/%F0%9F%91%80/@me"
+        );
+      });
+    });
+
     describe("bot message filtering", () => {
       it("ignores messages from bots", async () => {
         const agent = createTestAgent({
@@ -1966,6 +2006,9 @@ describe("Discord component bot", () => {
         })
       );
       expect(mockClient.rest.post).not.toHaveBeenCalled();
+      expect(mockClient.rest.delete).toHaveBeenCalledWith(
+        "/channels/thread-1/messages/msg-1/reactions/%F0%9F%91%80/@me"
+      );
     } finally {
       await fs.rm(dataDir, { recursive: true, force: true });
     }
