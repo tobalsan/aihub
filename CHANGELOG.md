@@ -1,6 +1,11 @@
 # AIHub Release Notes
 
-These release notes are retro-created from commit history and handoff docs. Version tags mark product milestones for historical tracking, not npm package versions. Newest releases appear first.
+All notable changes to Dar are documented here. The format is based on
+[Keep a Changelog](https://keepachangelog.com/en/1.1.0/), and this project
+adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html) (pre-1.0:
+the minor slot carries breaking changes, the patch slot carries compatible ones).
+
+Breaking changes are marked **⚠ BREAKING**.
 
 ## [Unreleased]
 
