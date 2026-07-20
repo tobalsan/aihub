@@ -16,16 +16,21 @@ unreleased:
         echo "Tag a release? -> just release X.Y.Z \"Title\""
     fi
 
-# Cut a release: tag (annotated), push it, create the GitHub Release
+# Cut a release: tag (annotated), push it, create the GitHub Release with the CHANGELOG section as notes
 release version title="":
     #!/usr/bin/env sh
     set -e
     v="{{version}}"
     case "$v" in v*) ;; *) v="v$v" ;; esac
     t="{{title}}"; [ -n "$t" ] || t="$v"
+    notes=$(awk -v ver="$v" '$0 ~ "^## "ver"([^0-9.]|$)"{flag=1; next} /^## /{flag=0} flag' CHANGELOG.md | awk 'NF{p=1} p')
+    if [ -z "$notes" ]; then
+        echo "No CHANGELOG.md section for $v — cut the changelog first." >&2
+        exit 1
+    fi
     git tag -a "$v" -m "$t"
     git push origin "$v"
-    gh release create "$v" --title "$v — $t" --generate-notes --latest
+    printf '%s\n' "$notes" | gh release create "$v" --title "$v — $t" --notes-file - --latest
     echo "Released $v"
 
 # Deploy to prod: pull latest on ams and restart the gateway
