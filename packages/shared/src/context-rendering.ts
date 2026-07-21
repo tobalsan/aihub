@@ -94,6 +94,7 @@ function renderChannelContext(
     metadata.conversationType === "thread_reply" ? "unavailable" : "not a thread"
   );
   const recentHistory = renderHistory(getBlock(blocks, "history")?.messages);
+  const proactiveDmNotes = getBlock(blocks, "proactive_dm_notes")?.notes;
 
   const parts = [
     "[CHANNEL CONTEXT]",
@@ -101,6 +102,8 @@ function renderChannelContext(
     `place: ${metadata.place}`,
     `conversation_type: ${metadata.conversationType}`,
     `sender: ${metadata.sender}`,
+    "proactive_dm_notes:",
+    proactiveDmNotes?.map((note) => `- ${note}`).join("\n") ?? "- none",
     `channel_name: ${channelName}`,
     `channel_topic: ${channelTopic}`,
     `thread_name: ${threadName}`,
@@ -252,6 +255,7 @@ export function buildSlackContext(opts: {
   channelTopic?: string;
   threadName?: string;
   threadParent?: { author: string; content: string; timestamp: number };
+  proactiveDmNotes?: string[];
   history?: Array<{ author: string; content: string; timestamp: number }>;
   reaction?: { emoji: string; user: string; messageId: string; action: "add" | "remove" };
 }): SlackContext {
@@ -277,6 +281,9 @@ export function buildSlackContext(opts: {
   }
   if (opts.threadParent) {
     blocks.push({ type: "thread_starter", ...opts.threadParent });
+  }
+  if (opts.proactiveDmNotes && opts.proactiveDmNotes.length > 0) {
+    blocks.push({ type: "proactive_dm_notes", notes: opts.proactiveDmNotes });
   }
   if (opts.history && opts.history.length > 0) {
     blocks.push({ type: "history", messages: opts.history });

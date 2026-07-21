@@ -1,6 +1,10 @@
 import type { AgentConfig, SlackComponentConfig } from "@aihub/shared";
-import { beforeEach, describe, expect, it, vi } from "vitest";
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
+import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
 import { clearAllHistory, getHistory, recordMessage } from "./utils/history.js";
+import { clearActiveBots, registerActiveBot } from "./bot-registry.js";
 
 type MockStreamEvent = {
   type: "thinking" | "done" | "error" | "file_output";
@@ -113,12 +117,14 @@ const mockDeleteSession = vi.fn();
 const mockInvalidateHistoryCache = vi.fn();
 const mockSaveMediaFile = vi.fn();
 const mockReadMediaFile = vi.fn();
+let dataDir = "";
 
 vi.mock("./context.js", () => ({
   getSlackContext: vi.fn(() => ({
     runAgent: mockRunAgent,
     saveMediaFile: mockSaveMediaFile,
     readMediaFile: mockReadMediaFile,
+    getDataDir: () => dataDir,
     getSessionEntry: mockGetSessionEntry,
     clearSessionEntry: mockClearSessionEntry,
     deleteSession: mockDeleteSession,
@@ -131,6 +137,9 @@ vi.mock("./context.js", () => ({
         if (index >= 0) streamHandlers.splice(index, 1);
       };
     },
+  })),
+  getSlackContextIfInitialized: vi.fn(() => ({
+    getDataDir: () => dataDir,
   })),
 }));
 
@@ -174,7 +183,8 @@ function getCommandHandler(
 }
 
 describe("createSlackBot", () => {
-  beforeEach(() => {
+  beforeEach(async () => {
+    dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slack-notes-"));
     apps.length = 0;
     receivers.length = 0;
     streamHandlers.length = 0;
@@ -209,6 +219,11 @@ describe("createSlackBot", () => {
     vi.unstubAllGlobals();
   });
 
+  afterEach(async () => {
+    clearActiveBots();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
   it("creates a Bolt Socket Mode app and registers handlers", async () => {
     const { createSlackBot } = await import("./bot.js");
     const bot = createSlackBot([agent], config);
@@ -240,6 +255,104 @@ describe("createSlackBot", () => {
     expect(apps[0].command).not.toHaveBeenCalledWith(
       "/abort",
       expect.any(Function)
+    );
+  });
+
+  it("injects proactive DM notes once for user and IM-channel sends only", async () => {
+    const { slackAgentTools } = await import("./agent-tools.js");
+    const { createSlackBot } = await import("./bot.js");
+    createSlackBot([agent], config);
+    registerActiveBot("main", {
+      agentId: "main",
+      app: { client: apps[0].client },
+      start: vi.fn(),
+      stop: vi.fn(),
+    } as never);
+    const sendMessage = slackAgentTools().find(
+      (tool) => tool.name === "slack.send_message"
+    );
+    if (!sendMessage) throw new Error("missing slack.send_message");
+
+    await sendMessage.execute(
+      { channel: "U1", text: "I sent the rollout details." },
+      { agent, config: { extensions: { slack: config } } as never }
+    );
+    await sendMessage.execute(
+      { channel: "D1", text: "I also sent the timeline." },
+      { agent, config: { extensions: { slack: config } } as never }
+    );
+    await sendMessage.execute(
+      { channel: "C1", text: "Channel-only update." },
+      { agent, config: { extensions: { slack: config } } as never }
+    );
+
+    const messageHandler = getMessageHandler(apps[0]);
+    await messageHandler({
+      message: {
+        ts: "1.1",
+        thread_ts: "1.0",
+        text: "What did you send in this thread?",
+        channel: "D1",
+        user: "U1",
+        channel_type: "im",
+      },
+      client: apps[0].client,
+    });
+    expect(mockRunAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          blocks: expect.not.arrayContaining([
+            expect.objectContaining({ type: "proactive_dm_notes" }),
+          ]),
+        }),
+      })
+    );
+
+    await messageHandler({
+      message: {
+        ts: "1.2",
+        text: "What did you send?",
+        channel: "D1",
+        user: "U1",
+        channel_type: "im",
+      },
+      client: apps[0].client,
+    });
+
+    expect(mockRunAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          blocks: expect.arrayContaining([
+            {
+              type: "proactive_dm_notes",
+              notes: [
+                "I sent the rollout details.",
+                "I also sent the timeline.",
+              ],
+            },
+          ]),
+        }),
+      })
+    );
+
+    await messageHandler({
+      message: {
+        ts: "1.3",
+        text: "And now?",
+        channel: "D1",
+        user: "U1",
+        channel_type: "im",
+      },
+      client: apps[0].client,
+    });
+    expect(mockRunAgent).toHaveBeenLastCalledWith(
+      expect.objectContaining({
+        context: expect.objectContaining({
+          blocks: expect.not.arrayContaining([
+            expect.objectContaining({ type: "proactive_dm_notes" }),
+          ]),
+        }),
+      })
     );
   });
 
