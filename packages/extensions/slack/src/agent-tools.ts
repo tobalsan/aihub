@@ -8,6 +8,8 @@ import type {
 } from "@aihub/shared";
 import { z } from "zod";
 import { getActiveBot } from "./bot-registry.js";
+import { getSlackContextIfInitialized } from "./context.js";
+import { createProactiveDmNoteStore } from "./proactive-dm-notes.js";
 import { markdownToMrkdwn } from "./utils/mrkdwn.js";
 import { splitMessage } from "./utils/chunk.js";
 import type { SlackWebClient } from "./types.js";
@@ -135,6 +137,27 @@ export function slackAgentTools(): ExtensionAgentTool[] {
               unfurl_media: false,
             });
             firstTs ??= result.ts;
+          }
+          const recipientType = input.channel.startsWith("U")
+            ? "user"
+            : input.channel.startsWith("D")
+              ? "channel"
+              : undefined;
+          if (recipientType) {
+            const context = getSlackContextIfInitialized();
+            if (context) {
+              const store = createProactiveDmNoteStore(context.getDataDir());
+              try {
+                store.addNote(
+                  agent.id,
+                  recipientType,
+                  input.channel,
+                  input.text
+                );
+              } finally {
+                store.close();
+              }
+            }
           }
           return { ok: true, channel: input.channel, ts: firstTs };
         } catch (error) {

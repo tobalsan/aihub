@@ -1814,6 +1814,7 @@ export type SlackContextBlock =
       content: string;
       timestamp: number;
     }
+  | { type: "proactive_dm_notes"; notes: string[] }
   | {
       type: "history";
       messages: Array<{ author: string; content: string; timestamp: number }>;

@@ -9,6 +9,9 @@ Breaking changes are marked **⚠ BREAKING**.
 
 ## [Unreleased]
 
+### Added
+- Slack proactive DMs now leave persistent one-time visibility notes for the main agent session when the recipient replies.
+
 ## v0.21.0 — Native IRC extension + Discord streaming
 
 Agents can now join IRC: a native IRC channel extension with per-agent connections, DM controls, and loop protection. Discord replies stream live with acknowledgement reactions and inbound attachment support.

@@ -16,3 +16,7 @@ export function getSlackContext(): ExtensionContext {
   }
   return slackCtx;
 }
+
+export function getSlackContextIfInitialized(): ExtensionContext | undefined {
+  return slackCtx ?? undefined;
+}

@@ -44,6 +44,7 @@ import { splitMessage } from "./utils/chunk.js";
 import { buildSlackContext } from "./utils/context.js";
 import { clearHistory, getHistory, recordMessage } from "./utils/history.js";
 import { markdownToMrkdwn } from "./utils/mrkdwn.js";
+import { createProactiveDmNoteStore } from "./proactive-dm-notes.js";
 import {
   buildSlackHistoryKey,
   buildSlackSessionKey,
@@ -770,6 +771,12 @@ async function handleSlackMessage(
       data.ts
     );
     const conversationType = resolveSlackConversationType(data);
+    const proactiveDmNotes =
+      target.isMainSession &&
+      conversationType === "direct_message" &&
+      (!data.thread_ts || data.thread_ts === data.ts)
+        ? takeProactiveDmNotes(target.agent.id, data.user, data.channel)
+        : [];
     const channelName = channelMeta.name;
     const placeChannel = `#${channelName ?? data.channel}`;
     const threadName =
@@ -793,6 +800,7 @@ async function handleSlackMessage(
       channelTopic: channelMeta.topic,
       threadName,
       threadParent: threadParent ?? undefined,
+      proactiveDmNotes: proactiveDmNotes.map((note) => note.text),
       history: getHistory(historyKey, historyLimit),
     });
 
@@ -841,6 +849,19 @@ async function handleSlackMessage(
     await sendSlackError(client, data.channel, replyThreadTs, err);
     await thinkingDisplay?.cleanup();
     await stopThinkingReaction(client, data.channel, data.ts);
+  }
+}
+
+function takeProactiveDmNotes(
+  agentId: string,
+  userId: string | undefined,
+  channelId: string
+) {
+  const store = createProactiveDmNoteStore(getSlackContext().getDataDir());
+  try {
+    return store.takeNotes(agentId, userId, channelId);
+  } finally {
+    store.close();
   }
 }
 
