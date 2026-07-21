@@ -33,7 +33,7 @@ export type SlackWebClient = {
       thread_ts?: string;
       unfurl_links?: boolean;
       unfurl_media?: boolean;
-    }): Promise<{ ts?: string }>;
+    }): Promise<{ channel?: string; ts?: string }>;
     update(params: {
       channel: string;
       ts: string;

@@ -10,6 +10,7 @@ import { z } from "zod";
 import { getActiveBot } from "./bot-registry.js";
 import { getSlackContextIfInitialized } from "./context.js";
 import { createProactiveDmNoteStore } from "./proactive-dm-notes.js";
+import { createSlackThreadSessionBindingStore } from "./thread-session-bindings.js";
 import { markdownToMrkdwn } from "./utils/mrkdwn.js";
 import { splitMessage } from "./utils/chunk.js";
 import type { SlackWebClient } from "./types.js";
@@ -18,6 +19,11 @@ const sendMessageSchema = z.object({
   channel: z.string().min(1),
   text: z.string().min(1),
   threadTs: z.string().min(1).optional(),
+});
+
+const createThreadSchema = z.object({
+  channel: z.string().min(1),
+  text: z.string().min(1),
 });
 
 const listChannelsSchema = z.object({
@@ -90,6 +96,68 @@ export function clearSlackClientCache(): void {
 
 export function slackAgentTools(): ExtensionAgentTool[] {
   return [
+    {
+      name: "slack.create_thread",
+      description:
+        "Post a Slack thread parent message and bind the thread to this agent session. Provide channel as a channel ID (C...) or user ID (U...) for a direct message. The returned channel and ts can be used with slack.send_message to post replies.",
+      parameters: {
+        type: "object",
+        properties: {
+          channel: {
+            type: "string",
+            description:
+              "Channel ID (C...) or user ID (U...). User IDs are delivered as a direct message.",
+          },
+          text: {
+            type: "string",
+            description: "Thread parent message body. Markdown is converted to Slack mrkdwn.",
+          },
+        },
+        required: ["channel", "text"],
+        additionalProperties: false,
+      },
+      async execute(args, { agent, config, env, sessionId }) {
+        try {
+          const input = createThreadSchema.parse(args);
+          if (!sessionId) {
+            return toolError("No active session ID is available for binding.");
+          }
+          const context = getSlackContextIfInitialized();
+          if (!context) {
+            return toolError("Slack context is not initialized for binding.");
+          }
+          const client = resolveSlackClient(agent, config, env);
+          if (!client) {
+            return toolError("No Slack token is configured for this agent.");
+          }
+          const result = await client.chat.postMessage({
+            channel: input.channel,
+            text: markdownToMrkdwn(input.text),
+            mrkdwn: true,
+            unfurl_links: false,
+            unfurl_media: false,
+          });
+          if (!result.ts) {
+            return toolError("Slack did not return a message timestamp.");
+          }
+          const channel = result.channel ?? input.channel;
+          const store = createSlackThreadSessionBindingStore(context.getDataDir());
+          try {
+            store.setBinding({
+              channelId: channel,
+              threadTs: result.ts,
+              sessionId,
+              agentId: agent.id,
+            });
+          } finally {
+            store.close();
+          }
+          return { ok: true, channel, ts: result.ts };
+        } catch (error) {
+          return toolError(error);
+        }
+      },
+    },
     {
       name: "slack.send_message",
       description:
