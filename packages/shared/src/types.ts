@@ -970,6 +970,8 @@ export type RunAgentParams = {
   model?: RequiredModelConfig;
   context?: AgentContext;
   source?: string;
+  /** Exclude this run from agent-wide UI streaming status. */
+  background?: boolean;
   trace?: AgentTraceContext;
   onEvent?: (event: StreamEvent) => void;
   signal?: AbortSignal;

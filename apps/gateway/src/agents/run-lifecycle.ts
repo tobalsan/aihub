@@ -42,6 +42,7 @@ type LifecycleContext = {
   sessionKey?: string;
   userId?: string;
   source?: string;
+  background?: boolean;
   trace?: AgentStreamEvent["trace"];
   onEvent?: (event: StreamEvent) => void;
 };
@@ -154,7 +155,8 @@ export class SessionRunLifecycle {
       this.context.agentId,
       this.context.sessionId,
       true,
-      abortController
+      abortController,
+      this.context.background
     );
     return abortController;
   }

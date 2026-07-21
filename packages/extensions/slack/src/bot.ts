@@ -45,6 +45,7 @@ import { buildSlackContext } from "./utils/context.js";
 import { clearHistory, getHistory, recordMessage } from "./utils/history.js";
 import { markdownToMrkdwn } from "./utils/mrkdwn.js";
 import { createProactiveDmNoteStore } from "./proactive-dm-notes.js";
+import { createSlackThreadSessionBindingStore } from "./thread-session-bindings.js";
 import {
   buildSlackHistoryKey,
   buildSlackSessionKey,
@@ -260,6 +261,29 @@ function resolveSlackConversationType(
   if (data.channel_type === "im") return "direct_message";
   if (data.thread_ts && data.thread_ts !== data.ts) return "thread_reply";
   return "channel_message";
+}
+
+function slackToolTargetsThread(
+  event: unknown,
+  channel: string,
+  threadTs: string | undefined
+): boolean {
+  if (!event || typeof event !== "object") return false;
+  const candidate = event as Record<string, unknown>;
+  if (candidate.type !== "tool_call") return false;
+  if (
+    candidate.name !== "slack.send_message" &&
+    candidate.name !== "slack_send_message"
+  ) {
+    return false;
+  }
+  const input =
+    candidate.arguments && typeof candidate.arguments === "object"
+      ? (candidate.arguments as Record<string, unknown>)
+      : candidate.args && typeof candidate.args === "object"
+        ? (candidate.args as Record<string, unknown>)
+        : undefined;
+  return input?.channel === channel && input.threadTs === threadTs;
 }
 
 async function sendSlackReply(
@@ -688,7 +712,33 @@ async function handleSlackMessage(
     if (handled) return;
   }
 
-  const result = processMessage(data, target.config, botUserId);
+  let boundSessionId: string | undefined;
+  if (data.thread_ts && data.thread_ts !== data.ts) {
+    try {
+      const store = createSlackThreadSessionBindingStore(
+        getSlackContext().getDataDir()
+      );
+      try {
+        boundSessionId = store.getBinding(
+          data.channel,
+          data.thread_ts,
+          target.agent.id
+        )?.sessionId;
+      } finally {
+        store.close();
+      }
+    } catch (err) {
+      console.debug(`${target.logPrefix} Thread binding lookup failed:`, err);
+    }
+  }
+
+  const result = processMessage(
+    data,
+    boundSessionId
+      ? withoutSlackMentionRequirement(target, data.channel).config
+      : target.config,
+    botUserId
+  );
   const historyLimit = target.config.historyLimit ?? 20;
 
   if (!result.shouldReply) {
@@ -702,11 +752,12 @@ async function handleSlackMessage(
     ? DEFAULT_MAIN_KEY
     : buildSlackSessionKey(data.channel, data.thread_ts);
   const historyKey = buildSlackHistoryKey(data.channel, data.thread_ts);
-  const replyThreadTs = resolveReplyThreadTs(
+  const defaultReplyThreadTs = resolveReplyThreadTs(
     target.channelConfig?.threadPolicy ?? target.dmConfig?.threadPolicy,
     data.ts,
     data.thread_ts
   );
+  let replyThreadTs = boundSessionId ? data.thread_ts : defaultReplyThreadTs;
   const fileThreadTs = data.thread_ts ?? data.ts;
 
   let thinkingDisplay: ThinkingStreamDisplay | null = null;
@@ -805,25 +856,55 @@ async function handleSlackMessage(
     });
 
     const fileUploads: Promise<void>[] = [];
-    const agentResult = await getSlackContext().runAgent({
-      agentId: target.agent.id,
-      message: content,
-      attachments,
-      sessionKey,
-      source: "slack",
-      context,
-      onEvent: (event) => {
-        if (event.type !== "file_output") return;
-        fileUploads.push(
-          uploadSlackFileOutput({
-            client,
-            channel: data.channel,
-            threadTs: fileThreadTs,
-            event,
-          })
-        );
-      },
-    });
+    let slackToolPostedToThread = false;
+    const slackToolCallsToThread = new Set<string>();
+    const runAgent = (sessionId?: string) =>
+      getSlackContext().runAgent({
+        agentId: target.agent.id,
+        message: content,
+        attachments,
+        ...(sessionId ? { sessionId } : {}),
+        sessionKey,
+        source: "slack",
+        background: Boolean(sessionId),
+        context,
+        onEvent: (event) => {
+          if (
+            event.type === "tool_call" &&
+            slackToolTargetsThread(event, data.channel, replyThreadTs)
+          ) {
+            slackToolCallsToThread.add(event.id);
+          }
+          if (
+            event.type === "tool_result" &&
+            !event.isError &&
+            slackToolCallsToThread.has(event.id)
+          ) {
+            slackToolPostedToThread = true;
+          }
+          if (event.type !== "file_output") return;
+          fileUploads.push(
+            uploadSlackFileOutput({
+              client,
+              channel: data.channel,
+              threadTs: fileThreadTs,
+              event,
+            })
+          );
+        },
+      });
+    let agentResult;
+    try {
+      agentResult = await runAgent(boundSessionId);
+    } catch (err) {
+      if (!boundSessionId) throw err;
+      console.debug(
+        `${target.logPrefix} Bound session unavailable; falling back:`,
+        err
+      );
+      replyThreadTs = defaultReplyThreadTs;
+      agentResult = await runAgent();
+    }
     thinkingDisplay?.setSessionId(agentResult.meta.sessionId);
 
     if (agentResult.meta.queued) {
@@ -831,12 +912,14 @@ async function handleSlackMessage(
       return;
     }
 
-    await sendSlackReply(
-      client,
-      data.channel,
-      agentResult.payloads,
-      replyThreadTs
-    );
+    if (!slackToolPostedToThread) {
+      await sendSlackReply(
+        client,
+        data.channel,
+        agentResult.payloads,
+        replyThreadTs
+      );
+    }
     await Promise.all(fileUploads);
 
     if (target.config.clearHistoryAfterReply === true) {

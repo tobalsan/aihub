@@ -5,6 +5,7 @@ export type AgentSession = {
   agentId: string;
   sessionId: string;
   isStreaming: boolean;
+  background: boolean;
   lastActivity: number;
   abortController?: AbortController;
   sessionHandle?: unknown; // SDK-agnostic session handle
@@ -44,6 +45,7 @@ export function getOrCreateSession(agentId: string, sessionId: string): AgentSes
       agentId,
       sessionId,
       isStreaming: false,
+      background: false,
       lastActivity: Date.now(),
       pendingMessages: [],
       pendingUserMessages: [],
@@ -102,11 +104,13 @@ export function setSessionStreaming(
   agentId: string,
   sessionId: string,
   streaming: boolean,
-  abortController?: AbortController
+  abortController?: AbortController,
+  background = false
 ) {
   const session = getOrCreateSession(agentId, sessionId);
   const wasSessionStreaming = session.isStreaming;
   session.isStreaming = streaming;
+  session.background = streaming && background;
   session.lastActivity = Date.now();
   session.abortController = streaming ? abortController : undefined;
 
@@ -116,7 +120,7 @@ export function setSessionStreaming(
   // agent-wide aggregate (so the sidebar activity indicator stays agent-wide).
   if (wasSessionStreaming !== streaming) {
     const isAgentStreaming = getAllSessionsForAgent(agentId).some(
-      (s) => s.isStreaming
+      (s) => s.isStreaming && !s.background
     );
     agentEventBus.emitStatusChange({
       agentId,
@@ -172,7 +176,7 @@ export function deleteSession(agentId: string, sessionId: string): boolean {
   sessions.delete(key);
   if (wasSessionStreaming) {
     const isAgentStreaming = getAllSessionsForAgent(agentId).some(
-      (s) => s.isStreaming
+      (s) => s.isStreaming && !s.background
     );
     agentEventBus.emitStatusChange({
       agentId,
@@ -199,14 +203,16 @@ export function getAgentStatuses(agentIds?: string[]): Record<string, "streaming
   if (agentIds && agentIds.length > 0) {
     for (const agentId of agentIds) {
       const sessions = getAllSessionsForAgent(agentId);
-      statuses[agentId] = sessions.some((session) => session.isStreaming) ? "streaming" : "idle";
+      statuses[agentId] = sessions.some(
+        (session) => session.isStreaming && !session.background
+      ) ? "streaming" : "idle";
     }
     return statuses;
   }
   for (const session of sessions.values()) {
     if (!statuses[session.agentId]) {
-      statuses[session.agentId] = session.isStreaming ? "streaming" : "idle";
-    } else if (session.isStreaming) {
+      statuses[session.agentId] = session.isStreaming && !session.background ? "streaming" : "idle";
+    } else if (session.isStreaming && !session.background) {
       statuses[session.agentId] = "streaming";
     }
   }
