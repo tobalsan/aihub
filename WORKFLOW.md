@@ -9,7 +9,7 @@ tracker:
   needs_human: "Needs Human"
 
 polling:
-  poll_interval_ms: 10000
+  interval_ms: 10000
   max_concurrent: 5
   max_retries: 3
   retry_backoff_ms: 30000
