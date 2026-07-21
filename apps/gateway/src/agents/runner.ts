@@ -138,6 +138,7 @@ export async function runAgent(
       agentId: params.agentId,
       sessionId,
       sessionKey: params.sessionKey,
+      background: params.background,
       source: params.source,
       trace: params.trace,
       onEvent: params.onEvent,

@@ -468,11 +468,45 @@ describe("createSlackBot", () => {
       expect.objectContaining({
         sessionId: "bound-session",
         sessionKey: "slack:C1:1.0",
+        background: true,
       })
     );
     expect(apps[0].client.chat.postMessage).toHaveBeenCalledTimes(1);
     expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
       expect.objectContaining({ thread_ts: "1.0", text: "ok" })
+    );
+  });
+
+  it("keeps bound replies in their thread when thread policy is never", async () => {
+    const store = createSlackThreadSessionBindingStore(dataDir);
+    store.setBinding({
+      channelId: "C1",
+      threadTs: "1.0",
+      sessionId: "bound-session",
+      agentId: "main",
+    });
+    store.close();
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], {
+      ...config,
+      channels: { C1: { agent: "main", threadPolicy: "never" } },
+    });
+    await bot?.start();
+
+    await getMessageHandler(apps[0])({
+      message: {
+        ts: "1.1",
+        thread_ts: "1.0",
+        text: "follow up",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_ts: "1.0" })
     );
   });
 
@@ -492,7 +526,10 @@ describe("createSlackBot", () => {
         meta: { durationMs: 1, sessionId: "new-session" },
       });
     const { createSlackBot } = await import("./bot.js");
-    const bot = createSlackBot([agent], config);
+    const bot = createSlackBot([agent], {
+      ...config,
+      channels: { C1: { agent: "main", threadPolicy: "never" } },
+    });
     await bot?.start();
 
     await getMessageHandler(apps[0])({
@@ -518,6 +555,9 @@ describe("createSlackBot", () => {
     expect(mockRunAgent).toHaveBeenLastCalledWith(
       expect.objectContaining({ sessionKey: "slack:C1:1.0" })
     );
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.not.objectContaining({ thread_ts: expect.anything() })
+    );
   });
 
   it("does not auto-deliver after slack.send_message posts to the bound thread", async () => {
@@ -532,8 +572,16 @@ describe("createSlackBot", () => {
     mockRunAgent.mockImplementationOnce(async (params) => {
       params.onEvent?.({
         type: "tool_call",
+        id: "tool-1",
         name: "slack.send_message",
         arguments: { channel: "C1", threadTs: "1.0" },
+      });
+      params.onEvent?.({
+        type: "tool_result",
+        id: "tool-1",
+        name: "slack.send_message",
+        content: '{"ok":true}',
+        isError: false,
       });
       return {
         payloads: [{ text: "duplicate" }],
@@ -557,6 +605,56 @@ describe("createSlackBot", () => {
     });
 
     expect(apps[0].client.chat.postMessage).not.toHaveBeenCalled();
+  });
+
+  it("auto-delivers when a thread-targeted Slack tool call fails", async () => {
+    const store = createSlackThreadSessionBindingStore(dataDir);
+    store.setBinding({
+      channelId: "C1",
+      threadTs: "1.0",
+      sessionId: "bound-session",
+      agentId: "main",
+    });
+    store.close();
+    mockRunAgent.mockImplementationOnce(async (params) => {
+      params.onEvent?.({
+        type: "tool_call",
+        id: "tool-1",
+        name: "slack.send_message",
+        arguments: { channel: "C1", threadTs: "1.0" },
+      });
+      params.onEvent?.({
+        type: "tool_result",
+        id: "tool-1",
+        name: "slack.send_message",
+        content: "Slack API failed",
+        isError: true,
+      });
+      return {
+        payloads: [{ text: "fallback" }],
+        meta: { durationMs: 1, sessionId: "bound-session" },
+      };
+    });
+    const { createSlackBot } = await import("./bot.js");
+    const bot = createSlackBot([agent], config);
+    await bot?.start();
+
+    await getMessageHandler(apps[0])({
+      message: {
+        ts: "1.1",
+        thread_ts: "1.0",
+        text: "follow up",
+        channel: "C1",
+        user: "U1",
+        channel_type: "channel",
+      },
+      client: apps[0].client,
+    });
+
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledOnce();
+    expect(apps[0].client.chat.postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ thread_ts: "1.0", text: "fallback" })
+    );
   });
 
   it("shows a specific Slack error for container idle timeouts", async () => {

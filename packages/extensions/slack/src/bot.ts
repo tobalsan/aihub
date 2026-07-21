@@ -752,11 +752,12 @@ async function handleSlackMessage(
     ? DEFAULT_MAIN_KEY
     : buildSlackSessionKey(data.channel, data.thread_ts);
   const historyKey = buildSlackHistoryKey(data.channel, data.thread_ts);
-  const replyThreadTs = resolveReplyThreadTs(
+  const defaultReplyThreadTs = resolveReplyThreadTs(
     target.channelConfig?.threadPolicy ?? target.dmConfig?.threadPolicy,
     data.ts,
     data.thread_ts
   );
+  let replyThreadTs = boundSessionId ? data.thread_ts : defaultReplyThreadTs;
   const fileThreadTs = data.thread_ts ?? data.ts;
 
   let thinkingDisplay: ThinkingStreamDisplay | null = null;
@@ -856,6 +857,7 @@ async function handleSlackMessage(
 
     const fileUploads: Promise<void>[] = [];
     let slackToolPostedToThread = false;
+    const slackToolCallsToThread = new Set<string>();
     const runAgent = (sessionId?: string) =>
       getSlackContext().runAgent({
         agentId: target.agent.id,
@@ -864,9 +866,20 @@ async function handleSlackMessage(
         ...(sessionId ? { sessionId } : {}),
         sessionKey,
         source: "slack",
+        background: Boolean(sessionId),
         context,
         onEvent: (event) => {
-          if (slackToolTargetsThread(event, data.channel, replyThreadTs)) {
+          if (
+            event.type === "tool_call" &&
+            slackToolTargetsThread(event, data.channel, replyThreadTs)
+          ) {
+            slackToolCallsToThread.add(event.id);
+          }
+          if (
+            event.type === "tool_result" &&
+            !event.isError &&
+            slackToolCallsToThread.has(event.id)
+          ) {
             slackToolPostedToThread = true;
           }
           if (event.type !== "file_output") return;
@@ -889,6 +902,7 @@ async function handleSlackMessage(
         `${target.logPrefix} Bound session unavailable; falling back:`,
         err
       );
+      replyThreadTs = defaultReplyThreadTs;
       agentResult = await runAgent();
     }
     thinkingDisplay?.setSessionId(agentResult.meta.sessionId);

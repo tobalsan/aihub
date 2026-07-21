@@ -4,6 +4,7 @@ import {
   setSessionStreaming,
   isStreaming,
   abortSession,
+  getAgentStatuses,
 } from "./sessions.js";
 import { agentEventBus } from "./events.js";
 
@@ -108,6 +109,26 @@ describe("sessions", () => {
         sessionId: sessionB,
         sessionStatus: "idle",
       },
+    ]);
+  });
+
+  it("excludes background sessions from agent-wide streaming status", () => {
+    const statusAgentId = "background-status-agent";
+    const sessionId = `background-${Date.now()}`;
+    const events: Array<{ status: "streaming" | "idle"; sessionStatus: "streaming" | "idle" }> = [];
+    const unsubscribe = agentEventBus.onStatusChange((event) => events.push(event));
+
+    setSessionStreaming(statusAgentId, sessionId, true, undefined, true);
+    expect(getAgentStatuses([statusAgentId])).toEqual({
+      [statusAgentId]: "idle",
+    });
+    setSessionStreaming(statusAgentId, sessionId, false);
+
+    unsubscribe();
+
+    expect(events).toEqual([
+      { agentId: statusAgentId, status: "idle", sessionId, sessionStatus: "streaming" },
+      { agentId: statusAgentId, status: "idle", sessionId, sessionStatus: "idle" },
     ]);
   });
 });
