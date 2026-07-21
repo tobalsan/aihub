@@ -77,6 +77,12 @@ export async function stopSlackBots(): Promise<void> {
 }
 
 export { getActiveBot };
+export {
+  createSlackThreadSessionBindingStore,
+  SlackThreadSessionBindingStore,
+  type SetSlackThreadSessionBindingInput,
+  type SlackThreadSessionBinding,
+} from "./thread-session-bindings.js";
 
 const slackExtension: Extension = {
   id: "slack",
