@@ -75,6 +75,7 @@ This is the path used by scheduled jobs.
 
 | Tool | Purpose |
 | --- | --- |
+| `slack.create_thread` | Post a thread parent to a channel ID (`C...`) or user ID (`U...`, delivered as a DM), bind it to the active agent session, and return the resolved channel + parent timestamp for follow-up replies. |
 | `slack.send_message` | Post to a channel ID (`C...`) or user ID (`U...`, delivered as a DM). DM sends leave a one-time visibility note for the main session when that user replies. Supports an optional `threadTs` to reply in a thread. Markdown is converted to Slack mrkdwn and long messages are chunked. |
 | `slack.list_channels` | List channel IDs + names (filterable by name substring) so agents can resolve/remember IDs. Backed by the `conversations.list` Web API. |
 | `slack.list_users` | List user IDs + display names (filterable) for DM targeting. Backed by the `users.list` Web API. |
@@ -101,7 +102,7 @@ The bot token needs scopes matching the features you use:
 
 | Feature | Scopes |
 | --- | --- |
-| `slack.send_message` | `chat:write` (and `chat:write.public` to post to channels the bot has not joined) |
+| `slack.create_thread`, `slack.send_message` | `chat:write` (and `chat:write.public` to post to channels the bot has not joined) |
 | `slack.list_channels` | `channels:read` (public), `groups:read` (private) |
 | `slack.list_users` | `users:read` |
 | Socket Mode events | `app_mentions:read`, `channels:history`, `im:history`, `reactions:read`, plus an app-level token (`xapp-...`) for `connections:write` |

@@ -10,6 +10,7 @@ Breaking changes are marked **⚠ BREAKING**.
 ## [Unreleased]
 
 ### Added
+- Slack agents can create session-bound thread parents with `slack.create_thread` for proactive follow-ups that preserve context.
 - Slack proactive DMs now leave persistent one-time visibility notes for the main agent session when the recipient replies.
 
 ## v0.21.0 — Native IRC extension + Discord streaming

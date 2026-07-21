@@ -1,7 +1,12 @@
+import fs from "node:fs/promises";
+import os from "node:os";
+import path from "node:path";
 import { afterEach, describe, expect, it, vi } from "vitest";
 import type { AgentConfig, GatewayConfig } from "@aihub/shared";
 import { clearSlackClientCache, slackAgentTools } from "./agent-tools.js";
 import { clearActiveBots, registerActiveBot } from "./bot-registry.js";
+import { clearSlackContext, setSlackContext } from "./context.js";
+import { createSlackThreadSessionBindingStore } from "./thread-session-bindings.js";
 import type { SlackBot } from "./bot.js";
 import type { SlackWebClient } from "./types.js";
 
@@ -48,15 +53,78 @@ describe("slack agent tools", () => {
   afterEach(() => {
     clearActiveBots();
     clearSlackClientCache();
+    clearSlackContext();
     vi.clearAllMocks();
   });
 
-  it("exposes send_message, list_channels, and list_users", () => {
+  it("exposes create_thread, send_message, list_channels, and list_users", () => {
     expect(slackAgentTools().map((t) => t.name)).toEqual([
+      "slack.create_thread",
       "slack.send_message",
       "slack.list_channels",
       "slack.list_users",
     ]);
+  });
+
+  it("create_thread posts a parent and binds it to the current session", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slack-tools-"));
+    const postMessage = vi.fn().mockResolvedValue({ channel: "D123", ts: "1.2" });
+    registerMockBot("alpha", { chat: { postMessage } as never });
+    setSlackContext({ getDataDir: () => dataDir } as never);
+
+    const result = await tool("slack.create_thread").execute(
+      { channel: "U123", text: "hello **world**" },
+      { agent: agent("alpha"), config: config(), sessionId: "session-1" }
+    );
+
+    expect(result).toEqual({ ok: true, channel: "D123", ts: "1.2" });
+    expect(postMessage).toHaveBeenCalledWith(
+      expect.objectContaining({ channel: "U123", mrkdwn: true, unfurl_links: false })
+    );
+    const store = createSlackThreadSessionBindingStore(dataDir);
+    expect(store.getBinding("D123", "1.2", "alpha")).toMatchObject({
+      sessionId: "session-1",
+      agentId: "alpha",
+    });
+    store.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("create_thread does not bind when no token is configured", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slack-tools-"));
+    setSlackContext({ getDataDir: () => dataDir } as never);
+
+    const result = await tool("slack.create_thread").execute(
+      { channel: "C123", text: "hello" },
+      { agent: agent("alpha"), config: config(), sessionId: "session-1" }
+    );
+
+    expect(result).toEqual({
+      ok: false,
+      error: "No Slack token is configured for this agent.",
+    });
+    const store = createSlackThreadSessionBindingStore(dataDir);
+    expect(store.getBinding("C123", "1.2", "alpha")).toBeUndefined();
+    store.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
+  });
+
+  it("create_thread does not bind when Slack rejects the post", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slack-tools-"));
+    const postMessage = vi.fn().mockRejectedValue(new Error("channel_not_found"));
+    registerMockBot("alpha", { chat: { postMessage } as never });
+    setSlackContext({ getDataDir: () => dataDir } as never);
+
+    const result = await tool("slack.create_thread").execute(
+      { channel: "C404", text: "hello" },
+      { agent: agent("alpha"), config: config(), sessionId: "session-1" }
+    );
+
+    expect(result).toEqual({ ok: false, error: "channel_not_found" });
+    const store = createSlackThreadSessionBindingStore(dataDir);
+    expect(store.getBinding("C404", "1.2", "alpha")).toBeUndefined();
+    store.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
   });
 
   it("send_message posts to a channel via the active bot client", async () => {
@@ -75,6 +143,23 @@ describe("slack agent tools", () => {
       mrkdwn: true,
       unfurl_links: false,
     });
+  });
+
+  it("send_message does not create a thread binding", async () => {
+    const dataDir = await fs.mkdtemp(path.join(os.tmpdir(), "aihub-slack-tools-"));
+    const postMessage = vi.fn().mockResolvedValue({ ts: "1.2" });
+    registerMockBot("alpha", { chat: { postMessage } as never });
+    setSlackContext({ getDataDir: () => dataDir } as never);
+
+    await tool("slack.send_message").execute(
+      { channel: "C123", text: "hello" },
+      { agent: agent("alpha"), config: config(), sessionId: "session-1" }
+    );
+
+    const store = createSlackThreadSessionBindingStore(dataDir);
+    expect(store.getBinding("C123", "1.2", "alpha")).toBeUndefined();
+    store.close();
+    await fs.rm(dataDir, { recursive: true, force: true });
   });
 
   it("send_message passes threadTs and targets a user ID for DMs", async () => {
