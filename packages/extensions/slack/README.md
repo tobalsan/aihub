@@ -80,6 +80,26 @@ This is the path used by scheduled jobs.
 | `slack.list_channels` | List channel IDs + names (filterable by name substring) so agents can resolve/remember IDs. Backed by the `conversations.list` Web API. |
 | `slack.list_users` | List user IDs + display names (filterable) for DM targeting. Backed by the `users.list` Web API. |
 
+### Bound thread handoffs
+
+`slack.create_thread` is the handoff tool for scheduled or proactive work. It
+posts the parent message first, then stores a binding from `(channel, parent
+timestamp, agent)` to the active session. A later human reply in that Slack
+thread resumes the bound session, rather than using normal channel or DM
+routing. Bound replies stay in that same thread even if the channel's
+`threadPolicy` is `never`.
+
+The tool accepts either a channel ID or a user ID. A user ID opens a Slack DM;
+the returned `channel` is the resolved DM channel ID, and `ts` is its parent
+timestamp. Proactive DM sends made with `slack.send_message` leave a one-time
+visibility note in the agent's main session on the recipient's next top-level
+DM reply. A reply to a thread created with `slack.create_thread` instead
+follows the thread binding and resumes the bound session; it does not leak into
+the main session.
+
+See [the Slack thread cron example](../../../docs/examples/slack-thread-cron.md)
+for a complete scheduled handoff.
+
 ### Client resolution
 
 When a tool runs, it resolves a Slack Web API client in this order:
