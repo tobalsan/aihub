@@ -42,6 +42,10 @@ function createJsonReplacer(): (this: object, key: string, value: unknown) => un
   };
 }
 
+export function logInfo(msg: string, fields: Record<string, unknown> = {}): void {
+  console.log(JSON.stringify({ level: "info", msg, ...fields }, createJsonReplacer()));
+}
+
 export function logError(
   msg: string,
   error: unknown,

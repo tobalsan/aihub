@@ -1,5 +1,5 @@
 import { describe, expect, it, vi } from "vitest";
-import { logError } from "./logging.js";
+import { logError, logInfo } from "./logging.js";
 
 describe("logError", () => {
   it("always emits one JSON line for circular and non-string values", () => {
@@ -23,6 +23,24 @@ describe("logError", () => {
       status: "502",
       details: "\"() => \\\"details\\\"\"",
       message: "failed\nrequest",
+    });
+  });
+});
+
+describe("logInfo", () => {
+  it("emits one JSON line with level info, msg, and spread fields", () => {
+    const consoleLog = vi.spyOn(console, "log").mockImplementation(() => {});
+
+    logInfo("[container] stderr", { agentId: "abc", message: "some output" });
+
+    expect(consoleLog).toHaveBeenCalledOnce();
+    const line = consoleLog.mock.calls[0]?.[0] as string;
+    expect(line).not.toContain("\n");
+    expect(JSON.parse(line)).toEqual({
+      level: "info",
+      msg: "[container] stderr",
+      agentId: "abc",
+      message: "some output",
     });
   });
 });
