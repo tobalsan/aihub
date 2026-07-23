@@ -83,6 +83,8 @@ If a genuine harness limitation blocks a real e2e run (missing deps, cannot bind
 
 When code changes are needed:
 
+**Create a new branch named `<issue-id>-<short-slug>` before any commit; never commit to or push `main`.**
+
 1. Make the focused change in the issue worktree.
 2. If the repo has a `CHANGELOG.md`, add a concise line for your change in the same PR under the `## [Unreleased]` section (Added/Changed/Fixed) — create that section at the top if it is missing. User-facing changes only; skip pure chore/test/docs churn.
 3. Spawn a reviewer subagent and ask it to review the code changes.
