@@ -40,12 +40,14 @@ function hasGlobMagic(input: string): boolean {
 function globToDirs(pattern: string, configDir: string): string[] {
   const resolved = resolvePathFromConfig(pattern, configDir);
   if (!hasGlobMagic(pattern)) return [resolved];
-  return fg.sync(resolved, {
-    absolute: true,
-    dot: true,
-    onlyDirectories: true,
-    unique: true,
-  });
+  return fg
+    .sync(resolved, {
+      absolute: true,
+      dot: true,
+      onlyDirectories: true,
+      unique: true,
+    })
+    .filter((dir) => !dir.split(path.sep).includes(".git"));
 }
 
 function discoverAgents(

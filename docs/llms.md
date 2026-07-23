@@ -461,7 +461,7 @@ Templates in `docs/templates/` are copied to `{workspace}/` when missing (using 
 
 Bootstrap/config flow:
 
-1. v3 `aihub.json` discovers agents from `agents` string/string[] entries; each entry may be exact dir or direct-child glob, and each matched dir must contain flat `agent.yaml`.
+1. v3 `aihub.json` discovers agents from `agents` string/string[] entries; each entry may be exact dir or direct-child glob, `.git` directories matched by globs are ignored, and each remaining matched dir must contain flat `agent.yaml`.
 2. `ensureWorkspaceFiles(workspaceDir)` writes missing `AGENTS.md`, `SOUL.md`, and `USER.md`, and returns whether none existed before creation.
 3. First launches append a concise bootstrap instruction directly to the system prompt; no `BOOTSTRAP.md` is generated.
 4. `@aihub/shared/node/system-files` resolves system prompt files for Pi and container runs: `AGENTS.md` is implicitly prepended, `system_files` controls the remaining order, and default is required `SOUL.md` plus optional `USER.md`.

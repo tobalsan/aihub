@@ -114,6 +114,7 @@ describe("config validation", () => {
     await fs.mkdir(home, { recursive: true });
     await writeAgent(path.join(home, "pool", "foo"), "foo");
     await writeAgent(path.join(home, "pool", "bar"), "bar");
+    await fs.mkdir(path.join(home, "pool", ".git"), { recursive: true });
     await fs.writeFile(
       path.join(home, "aihub.json"),
       JSON.stringify({ version: 3, pool: "pool/*" })
