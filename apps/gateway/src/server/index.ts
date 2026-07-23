@@ -2,7 +2,6 @@ import { serve } from "@hono/node-server";
 import path from "node:path";
 import { Hono } from "hono";
 import { cors } from "hono/cors";
-import { logger } from "hono/logger";
 import { resolveBindHost } from "@aihub/shared";
 import type { GatewayBindMode, GatewayConfig } from "@aihub/shared";
 import { api } from "./api.core.js";
@@ -17,6 +16,7 @@ import { agentEventBus } from "../agents/index.js";
 import { getExtensionRuntime } from "../extensions/registry.js";
 import type { ExtensionRuntime } from "../extensions/runtime.js";
 import { WsBroker, type WsBrokerAuthAdapter } from "./ws-broker.js";
+import { accessLogger } from "./access-log.js";
 
 type RequestAuthContext =
   import("@aihub/extension-multi-user").RequestAuthContext;
@@ -47,7 +47,7 @@ function isExtensionEnabled(
 }
 
 app.use("*", cors());
-app.use("*", logger());
+app.use("*", accessLogger());
 app.route("/internal", internalTools);
 app.use("/api/*", async (c, next) => {
   let config: GatewayConfig;
