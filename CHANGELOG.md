@@ -10,6 +10,7 @@ Breaking changes are marked **⚠ BREAKING**.
 ## [Unreleased]
 
 ### Added
+- MCP extension settings now list each remote server and provide OAuth connect, reconnect, and disconnect actions per agent.
 - Slack agents can create session-bound thread parents with `slack.create_thread` for proactive follow-ups that preserve context.
 - Replies in Slack session-bound threads now resume the creating session and stay in that thread.
 - Slack proactive DMs now leave persistent one-time visibility notes for the main agent session when the recipient replies.
