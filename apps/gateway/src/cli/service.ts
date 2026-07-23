@@ -5,14 +5,16 @@ import os from "node:os";
 import path from "node:path";
 import { fileURLToPath } from "node:url";
 import { CONFIG_DIR, loadConfig } from "../config/index.js";
+import { logError } from "../logging.js";
 
 const LABEL = "com.aihub.gateway";
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 
 function assertDarwin(): void {
   if (process.platform !== "darwin") {
-    console.error(
-      "aihub gateway service: macOS launchd only — Linux/systemd support pending."
+    logError(
+      "aihub gateway service is unsupported on this platform",
+      "macOS launchd only — Linux/systemd support pending."
     );
     process.exit(1);
   }
@@ -165,9 +167,7 @@ function startService(): void {
   assertDarwin();
   const plistPath = getPlistPath();
   if (!fs.existsSync(plistPath)) {
-    console.error(
-      `Service not installed. Run 'aihub gateway install' first.`
-    );
+    logError("Service not installed", "Run 'aihub gateway install' first.");
     process.exit(1);
   }
   if (!isLoaded()) {
@@ -181,9 +181,7 @@ function restartService(): void {
   assertDarwin();
   const plistPath = getPlistPath();
   if (!fs.existsSync(plistPath)) {
-    console.error(
-      `Service not installed. Run 'aihub gateway install' first.`
-    );
+    logError("Service not installed", "Run 'aihub gateway install' first.");
     process.exit(1);
   }
   if (!isLoaded()) {
@@ -319,10 +317,7 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       try {
         installService();
       } catch (err) {
-        console.error(
-          "install failed:",
-          err instanceof Error ? err.message : err
-        );
+        logError("install failed", err);
         process.exit(1);
       }
     });
@@ -334,10 +329,7 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       try {
         startService();
       } catch (err) {
-        console.error(
-          "start failed:",
-          err instanceof Error ? err.message : err
-        );
+        logError("start failed", err);
         process.exit(1);
       }
     });
@@ -349,10 +341,7 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       try {
         restartService();
       } catch (err) {
-        console.error(
-          "restart failed:",
-          err instanceof Error ? err.message : err
-        );
+        logError("restart failed", err);
         process.exit(1);
       }
     });
@@ -364,10 +353,7 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       try {
         stopService();
       } catch (err) {
-        console.error(
-          "stop failed:",
-          err instanceof Error ? err.message : err
-        );
+        logError("stop failed", err);
         process.exit(1);
       }
     });
@@ -379,10 +365,7 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       try {
         statusService();
       } catch (err) {
-        console.error(
-          "status failed:",
-          err instanceof Error ? err.message : err
-        );
+        logError("status failed", err);
         process.exit(1);
       }
     });
@@ -394,10 +377,7 @@ export function registerGatewayServiceCommands(gatewayCmd: Command): void {
       try {
         uninstallService();
       } catch (err) {
-        console.error(
-          "uninstall failed:",
-          err instanceof Error ? err.message : err
-        );
+        logError("uninstall failed", err);
         process.exit(1);
       }
     });

@@ -2,6 +2,7 @@ import { Command } from "commander";
 import { notify, type GatewayConfig, type NotifySummary } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
 import { resolveStartupConfig } from "../config/validate.js";
+import { logError } from "../logging.js";
 
 type NotifyCommandOptions = {
   channel?: string;
@@ -81,7 +82,7 @@ export function registerNotifyCommand(
         const summary = await runNotifyCommand(options, deps);
         if (!summary.ok) process.exit(1);
       } catch (err) {
-        console.error(err instanceof Error ? err.message : String(err));
+        logError("Notification failed", err);
         process.exit(1);
       }
     });

@@ -204,9 +204,14 @@ describe("internal tools", () => {
 
   it("returns 500 for tool execution errors", async () => {
     const { app, executeExtensionTool } = createDeps();
-    executeExtensionTool.mockRejectedValueOnce(
-      new Error("Project not found: PRO-1")
-    );
+    const error = Object.assign(new Error("Project not found: PRO-1"), {
+      status: 502,
+      endpoint: "/api/v1/deals",
+      requestId: "request-1",
+      details: "x".repeat(600),
+    });
+    const consoleError = vi.spyOn(console, "error").mockImplementation(() => {});
+    executeExtensionTool.mockRejectedValueOnce(error);
     registerToken("token-4");
 
     const response = await postTool(app, {
@@ -220,6 +225,22 @@ describe("internal tools", () => {
     expect(await response.json()).toEqual({
       error: "Project not found: PRO-1",
     });
+    expect(consoleError).toHaveBeenCalledOnce();
+    const line = consoleError.mock.calls[0]?.[0];
+    expect(typeof line).toBe("string");
+    expect(line).not.toContain("\n");
+    expect(JSON.parse(line as string)).toMatchObject({
+      level: "error",
+      msg: "[internal-tools] tool execution failed",
+      tool: "project.get",
+      agentId: "agent-1",
+      status: 502,
+      endpoint: "/api/v1/deals",
+      requestId: "request-1",
+      message: "Project not found: PRO-1",
+      stack: expect.any(String),
+    });
+    expect(JSON.parse(line as string).details).toHaveLength(501);
   });
 
   it("returns 400 for unknown tools", async () => {

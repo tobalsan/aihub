@@ -9,6 +9,7 @@ import {
   renderAgentContext,
 } from "@aihub/shared";
 import { loadConfig } from "../../config/index.js";
+import { logError } from "../../logging.js";
 import {
   FIRST_RUN_BOOTSTRAP_PROMPT,
   ensureWorkspaceFiles,
@@ -265,7 +266,9 @@ export function getContainerAdapter(): SdkAdapter {
       child.stderr?.on("data", (chunk: Buffer | string) => {
         const text = chunk.toString();
         stderr += text;
-        console.error(`[container:${params.agentId}] ${text.trimEnd()}`);
+        logError("[container] stderr", text.trimEnd(), {
+          agentId: params.agentId,
+        });
       });
       const extraNetwork = config.onecli?.sandbox?.network;
       if (extraNetwork) {

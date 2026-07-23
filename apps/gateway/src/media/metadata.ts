@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { resolveHomeDir } from "@aihub/shared";
+import { logError } from "../logging.js";
 
 export type MediaDirection = "inbound" | "outbound";
 
@@ -78,11 +79,7 @@ export async function readMediaMetadata(): Promise<MediaMetadataStore> {
     // the bad file and start fresh so the next write rebuilds a valid store.
     const quarantinePath = `${getMetadataPath()}.corrupt`;
     await fs.rename(getMetadataPath(), quarantinePath).catch(() => {});
-    console.error(
-      `[media] metadata store was corrupt; quarantined to ${quarantinePath}: ${
-        error instanceof Error ? error.message : String(error)
-      }`
-    );
+    logError("[media] metadata store was corrupt", error, { quarantinePath });
     return {};
   }
 }

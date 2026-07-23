@@ -14,6 +14,7 @@ import type {
   HistoryEvent,
 } from "../types.js";
 import { CONFIG_DIR, loadConfig, resolveAgentEnv } from "../../config/index.js";
+import { logError } from "../../logging.js";
 import { buildOnecliEnv } from "../../config/onecli.js";
 import { resolveSystemFiles } from "@aihub/shared/node/system-files";
 import {
@@ -562,7 +563,9 @@ export const piAdapter: SdkAdapter = {
             ? lastAssistantRecord.errorMessage
             : "unknown error";
         const errorStr = `Agent error: ${errorMessage}`;
-        console.error(`[${params.agent.id}] ${errorStr}`);
+        logError("[agent] SDK run failed", new Error(errorStr), {
+          agentId: params.agent.id,
+        });
         agentSession.dispose();
         throw new Error(errorStr);
       }

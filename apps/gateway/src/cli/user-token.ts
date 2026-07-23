@@ -4,6 +4,7 @@ import path from "node:path";
 import { resolveBindHost } from "@aihub/shared";
 import { loadConfig, CONFIG_DIR } from "../config/index.js";
 import { resolveConfigSecrets } from "../config/secrets.js";
+import { logError } from "../logging.js";
 
 type CachedToken = {
   token: string;
@@ -159,7 +160,7 @@ async function printResponse(
 ): Promise<void> {
   const text = await res.text();
   if (!res.ok) {
-    console.error(text || res.statusText);
+    logError("User token request failed", text || res.statusText);
     process.exit(1);
   }
   if (okLabel) console.log(okLabel);
@@ -167,14 +168,7 @@ async function printResponse(
 }
 
 function reportError(err: unknown): never {
-  const debug = !!process.env.DEBUG;
-  if (err instanceof Error) {
-    console.error("Error:", err.message);
-    if (debug && err.stack) console.error(err.stack);
-    else if (!debug) console.error("(re-run with DEBUG=1 for a stack trace)");
-  } else {
-    console.error("Error:", err);
-  }
+  logError("Error", err);
   process.exit(1);
 }
 
@@ -252,8 +246,9 @@ export function registerUserTokenCommands(
       try {
         const cached = loadCachedToken();
         if (!cached) {
-          console.error(
-            "No cached bearer token. Run `aihub user token create --user <email>` first."
+          logError(
+            "No cached bearer token",
+            "Run `aihub user token create --user <email>` first."
           );
           process.exit(1);
         }
@@ -283,8 +278,9 @@ export function registerUserTokenCommands(
       try {
         const cached = loadCachedToken();
         if (!cached) {
-          console.error(
-            "No cached bearer token. Run `aihub user token create --user <email>` first."
+          logError(
+            "No cached bearer token",
+            "Run `aihub user token create --user <email>` first."
           );
           process.exit(1);
         }

@@ -29,6 +29,7 @@ import {
 } from "../config/validate.js";
 import { startGatewayCommand } from "./gateway.js";
 import { getExtensionRuntime, loadExtensions } from "../extensions/registry.js";
+import { logError } from "../logging.js";
 
 const __dirname = path.dirname(fileURLToPath(import.meta.url));
 const monorepoProjectsExtensionImport = new URL(
@@ -183,7 +184,7 @@ function startTailscaleServeRefresh(port: number, gatewayPort: number): void {
     try {
       refreshTailscaleServe(port, gatewayPort);
     } catch (err) {
-      console.error("[gateway] Failed to refresh tailscale serve:", err);
+      logError("[gateway] Failed to refresh tailscale serve", err);
     }
   }, TAILSCALE_SERVE_REFRESH_INTERVAL_MS);
 }
@@ -249,7 +250,7 @@ function startWebUI(
       tailscaleServeResetOnExit = resetOnExit;
       tailscaleReady = true;
     } catch (err) {
-      console.error("[gateway] Failed to enable Tailscale serve:", err);
+      logError("[gateway] Failed to enable Tailscale serve", err);
       console.log("[gateway] Continuing without Tailscale HTTPS...");
     }
   }
@@ -291,10 +292,10 @@ function printDevBanner(
 }
 
 process.on("uncaughtException", (err) => {
-  console.error("[gateway] uncaughtException:", err);
+  logError("[gateway] uncaughtException", err);
 });
 process.on("unhandledRejection", (reason) => {
-  console.error("[gateway] unhandledRejection:", reason);
+  logError("[gateway] unhandledRejection", reason);
 });
 
 const gatewayCmd = program
@@ -339,7 +340,7 @@ const gatewayCmd = program
       process.on("SIGTERM", shutdown);
       process.on("SIGINT", shutdown);
     } catch (err) {
-      console.error("Failed to start gateway:", err);
+      logError("Failed to start gateway", err);
       process.exit(1);
     }
   });
@@ -361,7 +362,7 @@ program
         );
       }
     } catch (err) {
-      console.error("Error:", err);
+      logError("Error", err);
       process.exit(1);
     }
   });
@@ -387,7 +388,7 @@ program
 
       const agent = getAgent(opts.agent);
       if (!agent) {
-        console.error(`Agent not found: ${opts.agent}`);
+        logError("Agent not found", opts.agent);
         process.exit(1);
       }
 
@@ -407,7 +408,7 @@ program
       console.log("\n");
       console.log(`Duration: ${result.meta.durationMs}ms`);
     } catch (err) {
-      console.error("Error:", err);
+      logError("Error", err);
       process.exit(1);
     }
   });
@@ -420,7 +421,7 @@ program
       loadConfig();
       const agent = getAgent(agentId);
       if (!agent) {
-        console.error(`Agent not found: ${agentId}`);
+        logError("Agent not found", agentId);
         process.exit(1);
       }
 
@@ -434,14 +435,14 @@ program
       try {
         res = await fetch(url, { method: "POST" });
       } catch {
-        console.error(`Failed to reach gateway at ${baseUrl}`);
+        logError("Failed to reach gateway", baseUrl);
         process.exit(1);
       }
       if (!res.ok) {
         const data = await res
           .json()
           .catch(() => ({ error: "Failed to run heartbeat" }));
-        console.error(data.error ?? "Failed to run heartbeat");
+        logError("Failed to run heartbeat", data.error ?? "Failed to run heartbeat");
         process.exit(1);
       }
       const result = (await res.json()) as {
@@ -462,7 +463,7 @@ program
         console.log(`\n${result.alertText}`);
       }
     } catch (err) {
-      console.error("Error:", err);
+      logError("Error", err);
       process.exit(1);
     }
   });
@@ -526,7 +527,7 @@ authCmd
 
         const index = parseInt(choice, 10) - 1;
         if (index < 0 || index >= providers.length) {
-          console.error("Invalid selection");
+          logError("Invalid selection", "Invalid selection");
           process.exit(1);
         }
         selectedProvider = providers[index].id;
@@ -535,8 +536,8 @@ authCmd
       // Validate provider
       const providerInfo = providers.find((p) => p.id === selectedProvider);
       if (!providerInfo) {
-        console.error(`Unknown provider: ${selectedProvider}`);
-        console.error(`Available: ${providers.map((p) => p.id).join(", ")}`);
+        logError("Unknown provider", selectedProvider);
+        logError("Available providers", providers.map((p) => p.id).join(", "));
         process.exit(1);
       }
 
@@ -599,7 +600,7 @@ authCmd
 
       console.log(`\nLogged in to ${providerInfo.name}`);
     } catch (err) {
-      console.error("Login failed:", err);
+      logError("Login failed", err);
       process.exit(1);
     }
   });
@@ -637,7 +638,7 @@ authCmd
         }
       }
     } catch (err) {
-      console.error("Error:", err);
+      logError("Error", err);
       process.exit(1);
     }
   });
@@ -660,7 +661,7 @@ authCmd
       authStorage.logout(provider);
       console.log(`Logged out from ${provider}`);
     } catch (err) {
-      console.error("Error:", err);
+      logError("Error", err);
       process.exit(1);
     }
   });
