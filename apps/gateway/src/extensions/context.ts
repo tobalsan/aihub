@@ -28,6 +28,7 @@ import {
 import { deleteSession } from "../agents/sessions.js";
 import { invalidateResolvedHistoryFile } from "../history/store.js";
 import { getSessionHistory } from "../agents/runner.js";
+import { logError } from "../logging.js";
 import { saveUploadedFile } from "../media/upload.js";
 import {
   getMediaFileMetadata,
@@ -149,7 +150,10 @@ export function createExtensionContext(
     logger: {
       info: (...args: unknown[]) => console.log(...args),
       warn: (...args: unknown[]) => console.warn(...args),
-      error: (...args: unknown[]) => console.error(...args),
+      error: (...args: unknown[]) => {
+        const [msg, error] = args;
+        logError(String(msg), error ?? msg);
+      },
     },
   } satisfies ExtensionContext;
 }

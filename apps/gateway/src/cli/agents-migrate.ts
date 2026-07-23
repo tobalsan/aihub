@@ -6,6 +6,7 @@ import { Command } from "commander";
 import yaml from "js-yaml";
 import lockfile from "proper-lockfile";
 import { resolveConfigPath, resolveHomeDir } from "@aihub/shared";
+import { logError } from "../logging.js";
 
 const LEGACY_SYSTEM_FILE_ORDER = [
   "SOUL.md",
@@ -377,7 +378,7 @@ export function registerAgentsMigrateCommands(program: Command): void {
           }
         }
       } catch (error) {
-        console.error("Migration failed:", error);
+        logError("Migration failed", error);
         process.exit(1);
       }
     });

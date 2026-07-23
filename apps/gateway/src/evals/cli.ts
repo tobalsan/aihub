@@ -12,6 +12,7 @@ import { Command } from "commander";
 import fs from "node:fs/promises";
 import path from "node:path";
 import { runEval } from "./runtime.js";
+import { logError } from "../logging.js";
 
 type EvalRunOpts = {
   agent: string;
@@ -66,10 +67,7 @@ export function registerEvalCommands(program: Command): void {
       try {
         instruction = await fs.readFile(opts.instructionFile, "utf-8");
       } catch (err) {
-        console.error(
-          `Failed to read instruction file ${opts.instructionFile}:`,
-          err
-        );
+        logError(`Failed to read instruction file ${opts.instructionFile}`, err);
         process.exit(2);
       }
 
@@ -88,11 +86,11 @@ export function registerEvalCommands(program: Command): void {
         // answer — that's the verifier's job. Non-zero only on infra
         // errors (caught above + below).
         if (result.status === "error") {
-          console.error(`Agent run errored: ${result.error}`);
+          logError("Agent run errored", result.error);
         }
         process.exit(0);
       } catch (err) {
-        console.error("eval run failed:", err);
+        logError("eval run failed", err);
         process.exit(1);
       }
     });

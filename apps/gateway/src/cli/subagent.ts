@@ -1,6 +1,7 @@
 import { Command } from "commander";
 import { resolveBindHost } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
+import { logError } from "../logging.js";
 
 type FetchLike = (url: string, init?: RequestInit) => Promise<Response>;
 
@@ -228,7 +229,7 @@ export function createRuntimeSubagentHandlers(options?: {
 async function printResponse(res: Response, json: boolean): Promise<void> {
   const text = await res.text();
   if (!res.ok) {
-    console.error(text);
+    logError("Subagent request failed", text);
     process.exit(1);
   }
   if (json) {
@@ -465,7 +466,7 @@ export function registerSubagentCommands(program: Command): void {
       });
       const text = await res.text();
       if (!res.ok) {
-        console.error(text);
+        logError("Subagent request failed", text);
         process.exit(1);
       }
       console.log(text);
@@ -482,7 +483,7 @@ export function registerSubagentCommands(program: Command): void {
       });
       const text = await res.text();
       if (!res.ok) {
-        console.error(text);
+        logError("Subagent request failed", text);
         process.exit(1);
       }
       console.log(text);
@@ -501,7 +502,7 @@ export function registerSubagentCommands(program: Command): void {
       });
       const text = await res.text();
       if (!res.ok) {
-        console.error(text);
+        logError("Subagent request failed", text);
         process.exit(1);
       }
       console.log(text);
@@ -518,7 +519,7 @@ export function registerSubagentCommands(program: Command): void {
       });
       const text = await res.text();
       if (!res.ok) {
-        console.error(text);
+        logError("Subagent request failed", text);
         process.exit(1);
       }
       console.log(text);
@@ -532,7 +533,7 @@ export function registerSubagentCommands(program: Command): void {
       const res = await createSubagentHandlers().kill({ projectId, slug });
       const text = await res.text();
       if (!res.ok) {
-        console.error(text);
+        logError("Subagent request failed", text);
         process.exit(1);
       }
       console.log(text);

@@ -23,6 +23,7 @@ import {
 } from "../sessions/store.js";
 import { appendSessionMeta } from "../history/store.js";
 import { agentEventBus, type AgentStreamEvent } from "./events.js";
+import { logError } from "../logging.js";
 import { getContainerAdapter } from "../sdk/container/adapter.js";
 import { getSdkAdapter, getDefaultSdkId } from "../sdk/registry.js";
 import type { SdkId, HistoryEvent } from "../sdk/types.js";
@@ -406,9 +407,7 @@ export async function runAgent(
     };
   } catch (err) {
     const errMessage = err instanceof Error ? err.message : String(err);
-    console.error(
-      `[agent:${params.agentId}] run failed (session ${sessionId}): ${errMessage}`
-    );
+    logError("[agent] run failed", err, { agentId: params.agentId, sessionId });
     emit({ type: "error", message: errMessage });
     throw err;
   } finally {

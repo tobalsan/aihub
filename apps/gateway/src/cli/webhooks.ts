@@ -8,6 +8,7 @@ import {
 } from "@aihub/extension-webhooks";
 import { resolveBindHost, resolveHomeDir } from "@aihub/shared";
 import { loadConfig } from "../config/index.js";
+import { logError } from "../logging.js";
 
 type RotateWebhookSecretParams = {
   agentId: string;
@@ -83,7 +84,7 @@ export function registerWebhookCommands(program: Command): void {
         console.log(`New URL: ${result.url}`);
         console.log("Old URL is immediately invalid.");
       } catch (err) {
-        console.error("Error:", err instanceof Error ? err.message : err);
+        logError("Error", err);
         process.exit(1);
       }
     });

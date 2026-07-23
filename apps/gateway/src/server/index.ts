@@ -1,6 +1,7 @@
 import { serve } from "@hono/node-server";
 import path from "node:path";
 import { Hono } from "hono";
+import { logError } from "../logging.js";
 import { cors } from "hono/cors";
 import { logger } from "hono/logger";
 import { resolveBindHost } from "@aihub/shared";
@@ -207,7 +208,7 @@ function setupGracefulShutdown(server: ReturnType<typeof serve>): void {
     try {
       cleanupOrphanContainers();
     } catch (error) {
-      console.error("[gateway] Container cleanup failed:", error);
+      logError("[gateway] Container cleanup failed", error);
     }
     server.close();
     process.exit(0);
@@ -243,7 +244,7 @@ export function startServer(
       }
       console.log("Container sandbox: network ready, orphans cleaned");
     } catch (error) {
-      console.error("Container sandbox setup failed:", error);
+      logError("Container sandbox setup failed", error);
     }
   }
 

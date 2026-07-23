@@ -6,6 +6,7 @@ import { validateContainerToken } from "../sdk/container/tokens.js";
 import { executeExtensionAgentTool } from "../extensions/tools.js";
 import { getExtensionRuntime } from "../extensions/registry.js";
 import type { ExtensionRuntime } from "../extensions/runtime.js";
+import { logError } from "../logging.js";
 
 const InternalToolRequestSchema = z.object({
   tool: z.string(),
@@ -89,11 +90,9 @@ export function createInternalTools(
       if (message.startsWith("Unknown tool: ")) {
         return c.json({ error: message }, 400);
       }
-      console.error("[internal-tools] tool execution failed", {
+      logError("[internal-tools] tool execution failed", error, {
         tool: parsed.data.tool,
         agentId: parsed.data.agentId,
-        message,
-        stack: error instanceof Error ? error.stack : undefined,
       });
       return c.json({ error: message }, 500);
     }

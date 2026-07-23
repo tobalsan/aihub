@@ -26,6 +26,7 @@ Agents can now join IRC: a native IRC channel extension with per-agent connectio
 - IRC supports agent-owned connections alongside the shared transport, persistent acceptance acknowledgements, per-sender channel/DM debounce, and newline- and word-aware reply splitting.
 
 ### Fixed
+- Gateway tool failures now emit one-line JSON logs with extension error metadata.
 - IRC debounce batches count as one A2A turn, stale batches do not dispatch to inactive agents, and application replies wait for server registration before sending.
 - Discord streaming failures no longer leak timer promise rejections, and acknowledgement reactions are cleaned up for non-streamed and tool-owned forum replies.
 
